@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- fragment_home.xml — Home screen with dummy map and bottom sheet peer list -->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:colorBackground">
+
+    <!-- Top bar with logo and profile photo -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/indigo"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/spacing_md"
+        android:paddingEnd="@dimen/spacing_md">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/app_name"
+            android:textColor="@color/white"
+            android:textSize="@dimen/text_xl"
+            android:textStyle="bold" />
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/ivMyProfile"
+            android:layout_width="@dimen/profile_photo_small"
+            android:layout_height="@dimen/profile_photo_small"
+            android:src="@drawable/ic_placeholder_profile"
+            app:civ_border_color="@color/white"
+            app:civ_border_width="1dp" />
+    </LinearLayout>
+
+    <!-- Dummy Map Area (replaces Google Maps) -->
+    <FrameLayout
+        android:id="@+id/dummyMapContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="56dp"
+        android:background="#DBEAFE">
+
+        <!-- Grid lines to look like a map -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <!-- Map placeholder illustration -->
+            <ImageView
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:src="@android:drawable/ic_dialog_map"
+                android:alpha="0.4"
+                android:contentDescription="@string/nearby_peers" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/spacing_sm"
+                android:text="Map View"
+                android:textColor="#3B82F6"
+                android:textSize="@dimen/text_lg"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/spacing_xs"
+                android:text="Connect Google Maps API to enable live map"
+                android:textColor="#3B82F6"
+                android:textSize="@dimen/text_sm" />
+
+            <!-- Dummy peer location dots -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/spacing_md"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <View android:layout_width="12dp" android:layout_height="12dp" android:layout_margin="@dimen/spacing_sm" android:background="@drawable/bg_status_badge" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="You" android:textColor="#1E3A8A" android:textSize="@dimen/text_xs" />
+
+                <View android:layout_width="12dp" android:layout_height="12dp" android:layout_margin="@dimen/spacing_sm" android:background="@color/emerald" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Perfect Match" android:textColor="#1E3A8A" android:textSize="@dimen/text_xs" />
+
+                <View android:layout_width="12dp" android:layout_height="12dp" android:layout_margin="@dimen/spacing_sm" android:background="@color/orange" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Partial" android:textColor="#1E3A8A" android:textSize="@dimen/text_xs" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Bottom Sheet with peer list -->
+    <LinearLayout
+        android:id="@+id/bottomSheet"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_bottom_sheet"
+        android:orientation="vertical"
+        android:padding="@dimen/spacing_md"
+        app:behavior_hideable="false"
+        app:behavior_peekHeight="@dimen/bottom_sheet_peek_height"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="@dimen/spacing_sm"
+            android:background="@color/divider_light" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/nearby_peers"
+                android:textColor="?colorOnSurface"
+                android:textSize="@dimen/text_xl"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvPeerCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_status_badge"
+                android:textColor="@color/white"
+                android:textSize="@dimen/text_sm" />
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_sm"
+            android:scrollbars="none">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/filterChipGroup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleSelection="true">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipAll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="@string/filter_all" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipPerfect"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_perfect_match" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipPartial"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_partial_match" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipSameCollege"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_same_college" />
+            </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvPeers"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="@dimen/spacing_sm"
+            android:layout_weight="1"
+            android:clipToPadding="false" />
+
+        <LinearLayout
+            android:id="@+id/emptyStateView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <ImageView android:layout_width="100dp" android:layout_height="100dp" android:src="@drawable/ic_empty_state" android:contentDescription="@string/no_nearby_peers" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_md" android:text="@string/no_nearby_peers" android:textColor="?colorOnSurfaceVariant" android:textSize="@dimen/text_md" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

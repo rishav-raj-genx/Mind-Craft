@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- bg_status_badge.xml — Small rounded badge for status labels -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/pink_accent" />
+    <corners android:radius="@dimen/corner_radius_full" />
+    <padding
+        android:left="@dimen/spacing_sm"
+        android:top="@dimen/spacing_xs"
+        android:right="@dimen/spacing_sm"
+        android:bottom="@dimen/spacing_xs" />
+</shape>

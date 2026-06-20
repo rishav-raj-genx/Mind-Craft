@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- colors.xml — Mind Craft brand colors and UI palette (Navy Blue & Black Theme) -->
+<resources>
+    <!-- Brand Colors (Navy Blue & Black Palette) -->
+    <!-- Variables kept as purple/pink to support legacy layouts safely -->
+    <color name="purple">#1E3A8A</color> <!-- Navy Blue -->
+    <color name="purple_dark">#172554</color>
+    <color name="purple_light">#3B82F6</color>
+    <color name="pink_accent">#1F2937</color> <!-- Black Accent -->
+    <color name="pink_accent_dark">#111827</color>
+    <color name="pink_accent_light">#4B5563</color>
+
+    <!-- Legacy aliases (to avoid breaking references) -->
+    <color name="indigo">@color/purple</color>
+    <color name="indigo_dark">@color/purple_dark</color>
+    <color name="indigo_light">@color/purple_light</color>
+    <color name="emerald">@color/pink_accent</color>
+    <color name="emerald_dark">@color/pink_accent_dark</color>
+    <color name="emerald_light">@color/pink_accent_light</color>
+
+    <!-- Background Colors -->
+    <color name="background_light">#F8FAFC</color> <!-- Light neutral -->
+    <color name="background_dark">#0F172A</color> <!-- Dark navy base -->
+    <color name="surface_light">#FFFFFF</color>
+    <color name="surface_dark">#1E293B</color> <!-- Lighter dark navy -->
+    <color name="card_background_light">#FFFFFF</color>
+    <color name="card_background_dark">#1E293B</color>
+
+    <!-- Text Colors -->
+    <color name="text_primary_light">#1A0A2E</color>
+    <color name="text_primary_dark">#F5F0FF</color>
+    <color name="text_secondary_light">#6B5B7B</color>
+    <color name="text_secondary_dark">#A89BBE</color>
+
+    <!-- Status Colors -->
+    <color name="orange">#F59E0B</color>
+    <color name="red">#EF4444</color>
+    <color name="blue">#3B82F6</color>
+
+    <!-- Chat Bubble Colors -->
+    <color name="chat_bubble_sent">#1E3A8A</color> <!-- Navy -->
+    <color name="chat_bubble_received">#E2E8F0</color> <!-- Gray -->
+    <color name="chat_bubble_received_dark">#334155</color> <!-- Dark Gray -->
+    <color name="chat_text_sent">#FFFFFF</color>
+    <color name="chat_text_received">#0F172A</color>
+    <color name="chat_text_received_dark">#F8FAFC</color>
+
+    <!-- Chip Colors -->
+    <color name="chip_teach_bg">#E5E7EB</color> <!-- Light gray -->
+    <color name="chip_teach_text">#1F2937</color> <!-- Dark gray -->
+    <color name="chip_learn_bg">#DBEAFE</color> <!-- Light blue -->
+    <color name="chip_learn_text">#1E3A8A</color> <!-- Navy -->
+
+    <!-- Misc -->
+    <color name="divider_light">#E2E8F0</color>
+    <color name="divider_dark">#334155</color>
+    <color name="shimmer_light">#E2E8F0</color>
+    <color name="online_green">#22C55E</color>
+    <color name="star_yellow">#FBBF24</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+</resources>

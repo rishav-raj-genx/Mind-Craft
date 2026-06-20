@@ -1,0 +1,43 @@
+# Mind Craft Android App
+
+# Built files
+*.iml
+*.apk
+*.ap_
+*.dex
+
+# Gradle
+.gradle/
+build/
+!gradle-wrapper.jar
+
+# Local config (contains SDK paths and API keys)
+local.properties
+
+# Android Studio
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Firebase (contains API keys — keep private or use environment variables)
+# NOTE: If this is a PUBLIC repo, uncomment the next line:
+# app/google-services.json
+
+# Keystore files
+*.jks
+*.keystore
+
+# ── Node.js Backend ───────────────────────────────────────────────────
+node_modules/
+backend/.env
+backend/serviceAccountKey.json
+backend/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/

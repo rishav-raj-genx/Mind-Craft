@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- chat_message_item.xml — Single chat message bubble
+     Sent messages (right) and received messages (left) both use this layout.
+     Visibility and alignment are set in the adapter. -->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="@dimen/spacing_xs">
+
+    <!-- Sent message (right-aligned) -->
+    <LinearLayout
+        android:id="@+id/sentBubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:background="@drawable/bg_chat_sent"
+        android:maxWidth="@dimen/chat_bubble_max_width"
+        android:orientation="vertical"
+        android:padding="@dimen/spacing_sm">
+
+        <TextView
+            android:id="@+id/tvSentMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/chat_text_sent"
+            android:textSize="@dimen/text_md" />
+
+        <TextView
+            android:id="@+id/tvSentTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:textColor="@color/indigo_light"
+            android:textSize="@dimen/text_xs" />
+    </LinearLayout>
+
+    <!-- Received message (left-aligned) -->
+    <LinearLayout
+        android:id="@+id/receivedBubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start"
+        android:background="@drawable/bg_chat_received"
+        android:maxWidth="@dimen/chat_bubble_max_width"
+        android:orientation="vertical"
+        android:padding="@dimen/spacing_sm">
+
+        <TextView
+            android:id="@+id/tvReceivedMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/chat_text_received"
+            android:textSize="@dimen/text_md" />
+
+        <TextView
+            android:id="@+id/tvReceivedTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:textColor="@color/text_secondary_light"
+            android:textSize="@dimen/text_xs" />
+    </LinearLayout>
+</FrameLayout>

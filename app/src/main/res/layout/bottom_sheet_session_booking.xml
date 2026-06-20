@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- bottom_sheet_session_booking.xml — Session booking modal bottom sheet -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_bottom_sheet"
+    android:orientation="vertical"
+    android:padding="@dimen/spacing_lg">
+
+    <View android:layout_width="40dp" android:layout_height="4dp" android:layout_gravity="center_horizontal" android:layout_marginBottom="@dimen/spacing_md" android:background="@color/divider_light" />
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/session_booking_title" android:textColor="?colorOnSurface" android:textSize="@dimen/text_xl" android:textStyle="bold" />
+
+    <!-- Skill Spinner -->
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_md" android:text="@string/select_skill" android:textColor="?colorOnSurfaceVariant" android:textSize="@dimen/text_md" />
+    <Spinner android:id="@+id/spinnerSkill" android:layout_width="match_parent" android:layout_height="@dimen/button_height" android:layout_marginTop="@dimen/spacing_xs" android:background="@drawable/bg_input_field" android:padding="@dimen/spacing_sm" />
+
+    <!-- Date and Time pickers side by side -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_md" android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnSelectDate" style="@style/MindCraft.Button.Outlined" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="@dimen/spacing_sm" android:layout_weight="1" android:text="@string/select_date" />
+
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnSelectTime" style="@style/MindCraft.Button.Outlined" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/select_time" />
+    </LinearLayout>
+
+    <!-- Mode: Online / In-Person -->
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_md" android:text="@string/mode_online" android:textColor="?colorOnSurfaceVariant" android:textSize="@dimen/text_md" />
+    <RadioGroup android:id="@+id/radioGroupMode" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_xs" android:orientation="horizontal">
+        <RadioButton android:id="@+id/rbOnline" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:checked="true" android:text="@string/mode_online" />
+        <RadioButton android:id="@+id/rbInPerson" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/mode_in_person" />
+    </RadioGroup>
+
+    <!-- Location (shown only for in-person) -->
+    <com.google.android.material.textfield.TextInputLayout android:id="@+id/tilLocation" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_sm" android:hint="@string/location" android:visibility="gone">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etLocation" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Notes -->
+    <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_sm" android:hint="@string/notes_optional">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etNotes" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textMultiLine" android:maxLines="3" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Book Session button -->
+    <com.google.android.material.button.MaterialButton android:id="@+id/btnBookSession" android:layout_width="match_parent" android:layout_height="@dimen/button_height_lg" android:layout_marginTop="@dimen/spacing_lg" android:text="@string/book_session" app:cornerRadius="@dimen/corner_radius_md" />
+
+    <ProgressBar android:id="@+id/progressBar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:visibility="gone" />
+</LinearLayout>

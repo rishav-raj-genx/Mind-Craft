@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- bg_rounded_card.xml — Rounded white card background -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/surface_light" />
+    <corners android:radius="@dimen/corner_radius_md" />
+</shape>

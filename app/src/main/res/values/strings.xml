@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- strings.xml — All user-visible strings for Mind Craft (Indian Education Focus) -->
+<resources>
+    <!-- App Branding -->
+    <string name="app_name">Mind Craft</string>
+    <string name="tagline">Craft your mind, one peer at a time. 🚀</string>
+    <string name="app_description">Only for verified Indian educational institution members</string>
+
+    <!-- Google Sign-In (Placeholder - replace with your actual web client ID from Firebase console) -->
+    <string name="default_web_client_id">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+
+    <!-- Login Screen -->
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="login_title">Welcome to Mind Craft</string>
+    <string name="login_subtitle">Connect with peers. Teach and learn together.</string>
+    <string name="edu_email_error_title">Access Restricted</string>
+    <string name="edu_email_error_message">Sorry, Mind Craft is only for educational institution members. Please use your .edu or institutional email.</string>
+    <string name="login_failed">Sign-in failed. Please try again.</string>
+
+    <!-- Profile Setup -->
+    <string name="profile_setup_title">Set Up Your Profile</string>
+    <string name="step_1_title">Personal Info</string>
+    <string name="step_2_title">Skills I Can Teach</string>
+    <string name="step_3_title">Skills I Want to Learn</string>
+    <string name="full_name">Full Name</string>
+    <string name="college_name">College / Institute Name</string>
+    <string name="department">Department / Branch (e.g. CSE, IT, ECE)</string>
+    <string name="year_of_study">Year of Study</string>
+    <string name="next">Next</string>
+    <string name="back">Back</string>
+    <string name="finish_setup">Finish Setup</string>
+    <string name="add_custom_skill">Add Custom Skill</string>
+    <string name="add">Add</string>
+    <string name="select_skills_teach">Select skills you can teach others:</string>
+    <string name="select_skills_learn">Select skills you want to learn:</string>
+    <string name="skill_already_in_teach">You already selected this as a skill you can teach.</string>
+    <string name="skill_already_in_learn">You already selected this as a skill you want to learn.</string>
+    <string name="please_fill_all_fields">Please fill in all fields.</string>
+    <string name="please_select_at_least_one_skill">Please select at least one skill.</string>
+    <string name="profile_saved">Profile saved successfully!</string>
+    <string name="error_saving_profile">Error saving profile. Please try again.</string>
+
+    <!-- Year options (Indian B.Tech / B.E. format) -->
+    <string name="year_1st">1st Year</string>
+    <string name="year_2nd">2nd Year</string>
+    <string name="year_3rd">3rd Year</string>
+    <string name="year_4th">4th Year</string>
+    <string name="year_faculty">Faculty</string>
+
+    <!-- Home Screen -->
+    <string name="nearby_peers">Nearby Peers</string>
+    <string name="you">You</string>
+    <string name="km_away">%s km away</string>
+    <string name="filter_all">All</string>
+    <string name="filter_perfect_match">Perfect Match</string>
+    <string name="filter_partial_match">Partial Match</string>
+    <string name="filter_same_college">Same College</string>
+    <string name="teaches_label">Teaches: %s</string>
+    <string name="wants_label">Wants: %s</string>
+    <string name="no_nearby_peers">No nearby peers found. Check back later!</string>
+    <string name="location_permission_needed">Location permission is needed to show nearby peers on the map.</string>
+    <string name="grant_permission">Grant Permission</string>
+
+    <!-- Bottom Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_matches">Matches</string>
+    <string name="nav_code">Code</string>
+    <string name="nav_chat">Chat</string>
+
+    <!-- Match Screen -->
+    <string name="discover">Discover</string>
+    <string name="requests">Requests</string>
+    <string name="my_matches">My Matches</string>
+    <string name="connect">Connect</string>
+    <string name="view_profile">View Profile</string>
+    <string name="open_chat">Open Chat</string>
+    <string name="accept">Accept</string>
+    <string name="decline">Decline</string>
+    <string name="match_request_sent">Match request sent!</string>
+    <string name="match_request_accepted">Match request accepted!</string>
+    <string name="match_request_declined">Match request declined.</string>
+    <string name="teaches_you">Teaches you:</string>
+    <string name="wants_from_you">Wants to learn from you:</string>
+    <string name="no_matches">No matches found yet. Update your skills to find peers!</string>
+    <string name="no_requests">No pending requests.</string>
+    <string name="no_my_matches">You haven\'t matched with anyone yet.</string>
+
+    <!-- Peer Profile -->
+    <string name="can_teach">Can Teach</string>
+    <string name="wants_to_learn">Wants to Learn</string>
+    <string name="reviews">Reviews</string>
+    <string name="total_sessions">Total Sessions</string>
+    <string name="no_reviews_yet">No reviews yet.</string>
+
+    <!-- Chat -->
+    <string name="type_a_message">Type a message…</string>
+    <string name="send">Send</string>
+    <string name="book_a_session">Book Session</string>
+    <string name="online">Online</string>
+    <string name="offline">Offline</string>
+    <string name="no_chats">No conversations yet. Match with peers to start chatting!</string>
+
+    <!-- Session Booking -->
+    <string name="session_booking_title">Book a Session</string>
+    <string name="select_skill">Select Skill</string>
+    <string name="select_date">Select Date</string>
+    <string name="select_time">Select Time</string>
+    <string name="mode_online">Online</string>
+    <string name="mode_in_person">In-Person</string>
+    <string name="meet_link">Meet Link</string>
+    <string name="location">Location</string>
+    <string name="notes_optional">Notes (optional)</string>
+    <string name="book_session">Book Session</string>
+    <string name="session_booked">Session booked successfully!</string>
+    <string name="please_fill_required">Please fill all required fields.</string>
+
+    <!-- Sessions Screen -->
+    <string name="upcoming">Upcoming</string>
+    <string name="completed">Completed</string>
+    <string name="cancelled">Cancelled</string>
+    <string name="rate_session">Rate Session</string>
+    <string name="cancel_session">Cancel</string>
+    <string name="no_upcoming_sessions">No upcoming sessions.</string>
+    <string name="no_completed_sessions">No completed sessions.</string>
+    <string name="no_cancelled_sessions">No cancelled sessions.</string>
+
+    <!-- Rating -->
+    <string name="rate_your_session">Rate Your Session</string>
+    <string name="rating_comment_hint">How was your experience? (optional)</string>
+    <string name="submit_rating">Submit Rating</string>
+    <string name="rating_submitted">Rating submitted. Thank you!</string>
+
+    <!-- My Profile -->
+    <string name="my_profile">My Profile</string>
+    <string name="edit_profile">Edit Profile</string>
+    <string name="save_changes">Save Changes</string>
+    <string name="changes_saved">Changes saved successfully!</string>
+    <string name="profile_updated">Profile updated successfully!</string>
+    <string name="logout">Logout</string>
+    <string name="logout_confirm_title">Logout</string>
+    <string name="logout_confirm_message">Are you sure you want to logout?</string>
+    <string name="logout_confirm">Are you sure you want to logout?</string>
+    <string name="cancel">Cancel</string>
+    <string name="yes">Yes</string>
+    <string name="skills_taught">Skills Taught</string>
+    <string name="skills_learned">Skills Learned</string>
+    <string name="average_rating">Avg Rating</string>
+
+    <!-- General -->
+    <string name="loading">Loading…</string>
+    <string name="error_occurred">An error occurred. Please try again.</string>
+    <string name="no_internet">No internet connection. Please check your network.</string>
+    <string name="retry">Retry</string>
+    <string name="ok">OK</string>
+    <string name="step_format">Step %1$d of %2$d</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Mind Craft Notifications</string>
+    <string name="notification_channel_description">Notifications for matches, chats, and sessions</string>
+    <string name="new_match_request">New Match Request</string>
+    <string name="match_accepted">Match Accepted</string>
+    <string name="new_message">New Message</string>
+    <string name="session_booked_notification">Session Booked</string>
+    <string name="session_reminder">Session Reminder</string>
+
+    <!-- Coding Profile -->
+    <string name="coding_profile_title">Coding Profile</string>
+    <string name="coding_profile_subtitle">Your competitive programming profiles — visible to peers</string>
+    <string name="step_4_title">Coding Profiles</string>
+    <string name="coding_profile_setup_hint">Add your competitive programming usernames (optional but recommended)</string>
+    <string name="leetcode">LeetCode</string>
+    <string name="codeforces">Codeforces</string>
+    <string name="codechef">CodeChef</string>
+    <string name="leetcode_username_hint">LeetCode Username</string>
+    <string name="codeforces_username_hint">Codeforces Username</string>
+    <string name="codechef_username_hint">CodeChef Username</string>
+    <string name="not_linked">Not linked</string>
+    <string name="edit_coding_profile">Edit Coding Profile</string>
+
+    <!-- Indian College Names (for demo / placeholders) -->
+    <string name="college_mirai">Mirai School of Technology</string>
+    <string name="college_hitech">Hi-Tech</string>
+
+    <!-- Mentor Data (for demo previews) -->
+    <string name="mentor_mayank">Mayank</string>
+    <string name="mentor_mayank_skill">DSA in C++</string>
+    <string name="mentor_mayank_rating">4.5</string>
+
+    <string name="mentor_onik">Onik</string>
+    <string name="mentor_onik_skill">Web Development</string>
+    <string name="mentor_onik_rating">5.0</string>
+
+    <string name="mentor_utkarsh">Utkarsh</string>
+    <string name="mentor_utkarsh_skill">Mathematics</string>
+    <string name="mentor_utkarsh_rating">4.0</string>
+</resources>

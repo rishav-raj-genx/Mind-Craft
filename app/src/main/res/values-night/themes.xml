@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    themes.xml (Night) — Mind Craft Dark Mode Theme
+    Purple palette with dark surfaces
+-->
+<resources>
+
+    <style name="Theme.MindCraft" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Primary colors — lighter purple for dark mode visibility -->
+        <item name="colorPrimary">@color/purple_light</item>
+        <item name="colorPrimaryDark">@color/purple</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/purple_dark</item>
+        <item name="colorOnPrimaryContainer">@color/purple_light</item>
+
+        <!-- Secondary colors -->
+        <item name="colorSecondary">@color/pink_accent_light</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSecondaryContainer">@color/pink_accent_dark</item>
+        <item name="colorOnSecondaryContainer">@color/pink_accent_light</item>
+
+        <!-- Background and surface -->
+        <item name="android:colorBackground">@color/background_dark</item>
+        <item name="colorSurface">@color/surface_dark</item>
+        <item name="colorOnSurface">@color/text_primary_dark</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary_dark</item>
+
+        <!-- Error colors -->
+        <item name="colorError">@color/red</item>
+
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@color/background_dark</item>
+        <item name="android:navigationBarColor">@color/surface_dark</item>
+
+        <!-- Font Family (sans-serif-medium — clean, modern built-in font) -->
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <!-- Splash Theme — purple background in dark mode -->
+    <style name="Theme.MindCraft.Splash" parent="Theme.MindCraft">
+        <item name="android:statusBarColor">@color/purple_dark</item>
+        <item name="android:navigationBarColor">@color/purple_dark</item>
+        <item name="android:colorBackground">@color/purple_dark</item>
+    </style>
+
+</resources>

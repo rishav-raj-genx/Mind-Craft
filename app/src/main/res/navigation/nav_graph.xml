@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- nav_graph.xml — Navigation graph for the bottom navigation fragments -->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/homeFragment">
+
+    <!-- Home tab — Map + Nearby Peers -->
+    <fragment
+        android:id="@+id/homeFragment"
+        android:name="com.mindcraft.app.fragments.HomeFragment"
+        android:label="@string/nav_home" />
+
+    <!-- Matches tab — Discover + Requests -->
+    <fragment
+        android:id="@+id/matchFragment"
+        android:name="com.mindcraft.app.fragments.MatchFragment"
+        android:label="@string/nav_matches" />
+
+    <!-- Coding Profile tab — LeetCode, Codeforces, CodeChef -->
+    <fragment
+        android:id="@+id/codingProfileFragment"
+        android:name="com.mindcraft.app.fragments.CodingProfileFragment"
+        android:label="@string/nav_code" />
+
+    <!-- Chat tab — Chat threads list -->
+    <fragment
+        android:id="@+id/chatListFragment"
+        android:name="com.mindcraft.app.fragments.ChatListFragment"
+        android:label="@string/nav_chat" />
+
+</navigation>

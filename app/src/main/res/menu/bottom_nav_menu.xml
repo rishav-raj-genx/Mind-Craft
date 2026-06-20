@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- bottom_nav_menu.xml — Bottom navigation items for the 4 main tabs -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Home tab with map icon -->
+    <item
+        android:id="@+id/homeFragment"
+        android:icon="@android:drawable/ic_dialog_map"
+        android:title="@string/nav_home" />
+
+    <!-- Matches tab with people icon -->
+    <item
+        android:id="@+id/matchFragment"
+        android:icon="@android:drawable/ic_menu_myplaces"
+        android:title="@string/nav_matches" />
+
+    <!-- Coding Profile tab with code/edit icon -->
+    <item
+        android:id="@+id/codingProfileFragment"
+        android:icon="@android:drawable/ic_menu_edit"
+        android:title="@string/nav_code" />
+
+    <!-- Chat tab with message icon -->
+    <item
+        android:id="@+id/chatListFragment"
+        android:icon="@android:drawable/ic_dialog_email"
+        android:title="@string/nav_chat" />
+
+</menu>

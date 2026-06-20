@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- dimens.xml — All dimension values for consistent spacing and sizing -->
+<resources>
+    <!-- Spacing -->
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_md">16dp</dimen>
+    <dimen name="spacing_lg">24dp</dimen>
+    <dimen name="spacing_xl">32dp</dimen>
+    <dimen name="spacing_xxl">48dp</dimen>
+
+    <!-- Corner Radius -->
+    <dimen name="corner_radius_sm">8dp</dimen>
+    <dimen name="corner_radius_md">12dp</dimen>
+    <dimen name="corner_radius_lg">16dp</dimen>
+    <dimen name="corner_radius_xl">24dp</dimen>
+    <dimen name="corner_radius_full">100dp</dimen>
+
+    <!-- Text Sizes -->
+    <dimen name="text_xs">10sp</dimen>
+    <dimen name="text_sm">12sp</dimen>
+    <dimen name="text_md">14sp</dimen>
+    <dimen name="text_lg">16sp</dimen>
+    <dimen name="text_xl">18sp</dimen>
+    <dimen name="text_xxl">24sp</dimen>
+    <dimen name="text_title">28sp</dimen>
+    <dimen name="text_hero">36sp</dimen>
+
+    <!-- Profile Photo Sizes -->
+    <dimen name="profile_photo_small">40dp</dimen>
+    <dimen name="profile_photo_medium">56dp</dimen>
+    <dimen name="profile_photo_large">80dp</dimen>
+    <dimen name="profile_photo_xlarge">120dp</dimen>
+
+    <!-- Card Elevation -->
+    <dimen name="card_elevation_sm">2dp</dimen>
+    <dimen name="card_elevation_md">4dp</dimen>
+    <dimen name="card_elevation_lg">8dp</dimen>
+
+    <!-- Map Height -->
+    <dimen name="map_height">0dp</dimen>
+
+    <!-- Bottom Sheet Peek Height -->
+    <dimen name="bottom_sheet_peek_height">300dp</dimen>
+
+    <!-- Icon Sizes -->
+    <dimen name="icon_sm">16dp</dimen>
+    <dimen name="icon_md">24dp</dimen>
+    <dimen name="icon_lg">32dp</dimen>
+    <dimen name="icon_xl">48dp</dimen>
+
+    <!-- Button Height -->
+    <dimen name="button_height">48dp</dimen>
+    <dimen name="button_height_lg">56dp</dimen>
+
+    <!-- Chat -->
+    <dimen name="chat_bubble_max_width">280dp</dimen>
+    <dimen name="chat_input_height">48dp</dimen>
+
+    <!-- Splash Logo -->
+    <dimen name="splash_logo_size">120dp</dimen>
+</resources>

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    themes.xml — Mind Craft Material Design 3 Theme (Light Mode)
+    Uses sans-serif-medium font and Navy Blue/Black color scheme
+-->
+<resources>
+
+    <!-- Base Theme for the App -->
+    <style name="Theme.MindCraft" parent="Theme.Material3.Light.NoActionBar">
+        <!-- Primary brand colors — Navy Blue -->
+        <item name="colorPrimary">@color/purple</item>
+        <item name="colorPrimaryDark">@color/purple_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/chip_learn_bg</item>
+        <item name="colorOnPrimaryContainer">@color/chip_learn_text</item>
+
+        <!-- Secondary colors — Dark accent -->
+        <item name="colorSecondary">@color/pink_accent</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSecondaryContainer">@color/chip_teach_bg</item>
+        <item name="colorOnSecondaryContainer">@color/chip_teach_text</item>
+
+        <!-- Background and surface -->
+        <item name="android:colorBackground">@color/background_light</item>
+        <item name="colorSurface">@color/surface_light</item>
+        <item name="colorOnSurface">@color/text_primary_light</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary_light</item>
+
+        <!-- Error colors -->
+        <item name="colorError">@color/red</item>
+
+        <!-- Status bar — Navy Blue -->
+        <item name="android:statusBarColor">@color/purple</item>
+        <item name="android:navigationBarColor">@color/surface_light</item>
+
+        <!-- Font Family (sans-serif-medium — clean, modern built-in font) -->
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <!-- Splash Theme — fullscreen with navy background -->
+    <style name="Theme.MindCraft.Splash" parent="Theme.MindCraft">
+        <item name="android:statusBarColor">@color/purple</item>
+        <item name="android:navigationBarColor">@color/purple</item>
+        <item name="android:colorBackground">@color/purple</item>
+    </style>
+
+    <!-- Button Styles -->
+    <style name="MindCraft.Button.Primary" parent="Widget.Material3.Button">
+        <item name="backgroundTint">@color/purple</item>
+        <item name="cornerRadius">@dimen/corner_radius_md</item>
+        <item name="android:minHeight">@dimen/button_height</item>
+        <item name="android:textSize">@dimen/text_lg</item>
+    </style>
+
+    <style name="MindCraft.Button.Secondary" parent="Widget.Material3.Button.TonalButton">
+        <item name="backgroundTint">@color/pink_accent</item>
+        <item name="cornerRadius">@dimen/corner_radius_md</item>
+        <item name="android:textColor">@color/white</item>
+    </style>
+
+    <style name="MindCraft.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="cornerRadius">@dimen/corner_radius_md</item>
+        <item name="strokeColor">@color/purple</item>
+        <item name="android:textColor">@color/purple</item>
+    </style>
+
+    <!-- Card Styles -->
+    <style name="MindCraft.Card" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardCornerRadius">@dimen/corner_radius_md</item>
+        <item name="cardElevation">@dimen/card_elevation_sm</item>
+        <item name="contentPadding">@dimen/spacing_md</item>
+    </style>
+
+    <!-- Chip Styles -->
+    <style name="MindCraft.Chip.Teach" parent="Widget.Material3.Chip.Assist">
+        <item name="chipBackgroundColor">@color/chip_teach_bg</item>
+        <item name="android:textColor">@color/chip_teach_text</item>
+        <item name="chipCornerRadius">@dimen/corner_radius_full</item>
+    </style>
+
+    <style name="MindCraft.Chip.Learn" parent="Widget.Material3.Chip.Assist">
+        <item name="chipBackgroundColor">@color/chip_learn_bg</item>
+        <item name="android:textColor">@color/chip_learn_text</item>
+        <item name="chipCornerRadius">@dimen/corner_radius_full</item>
+    </style>
+
+    <!-- Text Styles -->
+    <style name="MindCraft.Text.Title" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textSize">@dimen/text_xxl</item>
+        <item name="android:textColor">@color/text_primary_light</item>
+    </style>
+
+    <style name="MindCraft.Text.Subtitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">@dimen/text_lg</item>
+        <item name="android:textColor">@color/text_secondary_light</item>
+    </style>
+
+</resources>

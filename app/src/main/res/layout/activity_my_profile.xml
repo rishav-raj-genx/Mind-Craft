@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- activity_my_profile.xml — Current user's profile screen -->
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:colorBackground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Header -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:background="@color/indigo" android:gravity="center_vertical" android:paddingStart="@dimen/spacing_md" android:paddingEnd="@dimen/spacing_md">
+            <ImageView android:id="@+id/btnBack" android:layout_width="@dimen/icon_md" android:layout_height="@dimen/icon_md" android:src="@android:drawable/ic_menu_revert" android:contentDescription="@string/back" app:tint="@color/white" />
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="@dimen/spacing_md" android:layout_weight="1" android:text="@string/my_profile" android:textColor="@color/white" android:textSize="@dimen/text_xl" android:textStyle="bold" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnEdit" style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/edit_profile" android:textColor="@color/white" />
+        </LinearLayout>
+
+        <!-- Profile photo and basic info -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:orientation="vertical" android:padding="@dimen/spacing_lg">
+            <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/ivMyPhoto" android:layout_width="@dimen/profile_photo_xlarge" android:layout_height="@dimen/profile_photo_xlarge" android:src="@drawable/ic_placeholder_profile" app:civ_border_color="@color/indigo" app:civ_border_width="2dp" />
+            <TextView android:id="@+id/tvMyName" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_md" android:textColor="?colorOnSurface" android:textSize="@dimen/text_xxl" android:textStyle="bold" />
+            <TextView android:id="@+id/tvMyEmail" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="?colorOnSurfaceVariant" android:textSize="@dimen/text_md" />
+        </LinearLayout>
+
+        <!-- Stats cards -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingStart="@dimen/spacing_md" android:paddingEnd="@dimen/spacing_md">
+
+            <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="@dimen/spacing_sm" android:layout_weight="1" app:cardCornerRadius="@dimen/corner_radius_md" app:contentPadding="@dimen/spacing_md">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:orientation="vertical">
+                    <TextView android:id="@+id/tvStatSessions" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/indigo" android:textSize="@dimen/text_xxl" android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/total_sessions" android:textColor="?colorOnSurfaceVariant" android:textSize="@dimen/text_xs" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" app:cardCornerRadius="@dimen/corner_radius_md" app:contentPadding="@dimen/spacing_md">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:orientation="vertical">
+                    <TextView android:id="@+id/tvStatRating" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/star_yellow" android:textSize="@dimen/text_xxl" android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/average_rating" android:textColor="?colorOnSurfaceVariant" android:textSize="@dimen/text_xs" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+
+        <!-- Editable fields -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="@dimen/spacing_md">
+
+            <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="@string/college_name">
+                <com.google.android.material.textfield.TextInputEditText android:id="@+id/etCollege" android:layout_width="match_parent" android:layout_height="wrap_content" android:enabled="false" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_sm" android:hint="@string/department">
+                <com.google.android.material.textfield.TextInputEditText android:id="@+id/etDepartment" android:layout_width="match_parent" android:layout_height="wrap_content" android:enabled="false" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Skills -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_md" android:text="@string/can_teach" android:textColor="@color/emerald" android:textSize="@dimen/text_lg" android:textStyle="bold" />
+            <com.google.android.material.chip.ChipGroup android:id="@+id/chipGroupTeach" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_xs" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_md" android:text="@string/wants_to_learn" android:textColor="@color/indigo" android:textSize="@dimen/text_lg" android:textStyle="bold" />
+            <com.google.android.material.chip.ChipGroup android:id="@+id/chipGroupLearn" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_xs" />
+        </LinearLayout>
+
+        <!-- Save button (hidden by default, shown in edit mode) -->
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnSave" android:layout_width="match_parent" android:layout_height="@dimen/button_height_lg" android:layout_margin="@dimen/spacing_md" android:text="@string/save_changes" android:visibility="gone" app:cornerRadius="@dimen/corner_radius_md" />
+
+        <!-- Logout button -->
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnLogout" style="@style/MindCraft.Button.Outlined" android:layout_width="match_parent" android:layout_height="@dimen/button_height" android:layout_marginStart="@dimen/spacing_md" android:layout_marginEnd="@dimen/spacing_md" android:layout_marginBottom="@dimen/spacing_lg" android:text="@string/logout" android:textColor="@color/red" app:strokeColor="@color/red" />
+
+        <ProgressBar android:id="@+id/progressBar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "928966906153",
+    "project_id": "mind-craft-4f16c",
+    "storage_bucket": "mind-craft-4f16c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:928966906153:android:f3d29150db5eaaa21ce738",
+        "android_client_info": {
+          "package_name": "com.mindcraft.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "928966906153-mf8a13aq570picomfhvr3r66ph38sfrr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mindcraft.app",
+            "certificate_hash": "41695fc64c2cdcef4baf514ec06323f78cca9c79"
+          }
+        },
+        {
+          "client_id": "928966906153-4u9o8r99ggckdsjl1k57q32ccejaalt7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7mm6t59z2HtqsoN5oK-cju_yYCL5qtg4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "928966906153-4u9o8r99ggckdsjl1k57q32ccejaalt7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
