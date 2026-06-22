@@ -33,18 +33,19 @@ if (fs.existsSync(keyPath)) {
 
 // ── Initialize the Admin app ──────────────────────────────────────────
 if (serviceAccount) {
+  const projectId = serviceAccount.project_id || 'mind-craft-5191e';
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL:
       process.env.FIREBASE_DATABASE_URL ||
-      'https://mind-craft-4f16c-default-rtdb.firebaseio.com',
+      `https://${projectId}-default-rtdb.firebaseio.com`,
   });
-  console.log('✅ Firebase Admin SDK initialized (project: mind-craft-4f16c)');
+  console.log(`✅ Firebase Admin SDK initialized (project: ${projectId})`);
 } else {
   // Initialize without credentials so the app can still start
   // (useful for development when key is not yet set up)
   admin.initializeApp({
-    projectId: 'mind-craft-4f16c',
+    projectId: 'mind-craft-5191e',
   });
   console.warn('⚠️  Firebase initialized in limited mode (no service account)');
 }

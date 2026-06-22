@@ -30,7 +30,7 @@ const {
  */
 async function syncUserToGraph(userData) {
   const driver  = getDriver();
-  const session = driver.session({ database: 'neo4j' });
+  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j' });
 
   try {
     await session.executeWrite(async (tx) => {
@@ -127,7 +127,7 @@ async function syncUserToGraph(userData) {
  */
 async function removeUserFromGraph(uid) {
   const driver  = getDriver();
-  const session = driver.session({ database: 'neo4j' });
+  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j' });
 
   try {
     await session.executeWrite(async (tx) => {

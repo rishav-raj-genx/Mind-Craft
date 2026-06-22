@@ -33,7 +33,7 @@ const { getDriver } = require('../config/neo4j');
 async function findMatches(uid, options = {}) {
   const { limit = 20, skillFilter = null } = options;
   const driver  = getDriver();
-  const session = driver.session({ database: 'neo4j', defaultAccessMode: 'READ' });
+  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
 
   try {
     // Build the Cypher query with optional skill filter
@@ -88,7 +88,7 @@ async function findMatches(uid, options = {}) {
  */
 async function findBroadMatches(uid, limit = 20) {
   const driver  = getDriver();
-  const session = driver.session({ database: 'neo4j', defaultAccessMode: 'READ' });
+  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
 
   try {
     const result = await session.run(
@@ -133,7 +133,7 @@ async function findBroadMatches(uid, limit = 20) {
  */
 async function getUserSkillGraph(uid) {
   const driver  = getDriver();
-  const session = driver.session({ database: 'neo4j', defaultAccessMode: 'READ' });
+  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
 
   try {
     const result = await session.run(

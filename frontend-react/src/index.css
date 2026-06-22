@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased;
+    min-height: max(884px, 100dvh);
+  }
+}
+
+@layer components {
+  /* Tactile Button squish effect */
+  .squish-btn {
+    @apply transition-all duration-150;
+  }
+  .squish-btn:active {
+    transform: translateY(2px);
+    border-bottom-width: 2px !important;
+  }
+  
+  .tactile-button {
+    border-bottom-width: 4px;
+    transition: transform 0.1s ease-in-out, border-bottom-width 0.1s ease-in-out;
+  }
+  .tactile-button:active {
+    transform: translateY(2px);
+    border-bottom-width: 2px !important;
+  }
+  
+  .tactile-press:active {
+    transform: translateY(2px);
+    box-shadow: 0px 2px 0px rgba(0,0,0,0.2) inset !important;
+  }
+
+  /* Custom input focus states */
+  .glass-input {
+    background-color: #0F0F0F;
+    border: 1px solid #262626;
+    transition: all 0.2s ease;
+  }
+  .glass-input:focus {
+    outline: none;
+    border-color: #DCFD8B;
+    box-shadow: 0 0 10px rgba(220, 253, 139, 0.2);
+  }
+  .glass-input.purple-focus:focus {
+    border-color: #BC84EE;
+    box-shadow: 0 0 10px rgba(188, 132, 238, 0.2);
+  }
+  
+  /* Custom scrollbar for horizontal lists */
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Soft Blob Background Elements */
+.blob-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.blob {
+  position: absolute;
+  filter: blur(80px);
+  opacity: 0.15;
+  border-radius: 50%;
+  animation: float 20s ease-in-out infinite;
+}
+
+.blob-1 {
+  width: 400px;
+  height: 400px;
+  background-color: #DCFD8B; /* success-lime */
+  top: -10%;
+  right: -10%;
+  animation-delay: 0s;
+}
+
+.blob-2 {
+  width: 300px;
+  height: 300px;
+  background-color: #deb7ff; /* secondary */
+  bottom: -5%;
+  left: -10%;
+  animation-delay: -5s;
+}
+
+.blob-3 {
+  width: 250px;
+  height: 250px;
+  background-color: #FDD5BD; /* warm-peach */
+  top: 40%;
+  left: 60%;
+  animation-delay: -10s;
+}
+
+@keyframes float {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Safe area insets for mobile */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

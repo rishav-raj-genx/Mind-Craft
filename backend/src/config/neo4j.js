@@ -51,7 +51,7 @@ function getDriver() {
  */
 async function ensureConstraints() {
   const d = getDriver();
-  const session = d.session({ database: 'neo4j' });
+  const session = d.session({ database: process.env.NEO4J_DATABASE || 'neo4j' });
 
   const constraints = [
     // User nodes — uid must be unique
