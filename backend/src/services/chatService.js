@@ -162,6 +162,8 @@ async function handleMessage(ws, user, matchId, text) {
       db.collection(COLLECTION_MATCHES).doc(matchId).update({
         lastMessage:     text,
         lastMessageTime: timestamp,
+        lastMessageSender: user.uid,
+        unread: true,
       }),
     ]);
 
@@ -176,7 +178,7 @@ async function handleMessage(ws, user, matchId, text) {
       timestamp,
     };
 
-    broadcastToRoom(matchId, outgoing);
+    broadcastToRoom(matchId, outgoing, ws);
   } catch (err) {
     console.error('❌ Chat message persist error:', err.message);
     ws.send(JSON.stringify({ type: 'error', error: 'Failed to send message' }));
@@ -206,6 +208,7 @@ async function handleRead(user, matchId) {
         batch.update(doc.ref, { read: true });
       }
     }
+    batch.update(db.collection(COLLECTION_MATCHES).doc(matchId), { unread: false });
     await batch.commit();
   } catch (err) {
     console.error('❌ Mark read error:', err.message);

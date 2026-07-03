@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { gamificationService } from '../services/gamificationService';
 import { matchService } from '../services/matchService';
 import { doubtService } from '../services/doubtService';
+import { userService } from '../services/userService';
 import { Link, useNavigate } from 'react-router-dom';
 import { Flame, Trophy, Star, Hash, ChevronRight, Plus, TrendingUp } from 'lucide-react';
 import { motion, animate, useMotionValue, useTransform } from 'framer-motion';
@@ -27,6 +28,7 @@ const Home = () => {
   const [streak, setStreak] = useState({ currentStreak: 0 });
   const [topMates, setTopMates] = useState([]);
   const [trendingTopics, setTrendingTopics] = useState([]);
+  const [followedUsers, setFollowedUsers] = useState([]);
   
   useEffect(() => {
     if (currentUser) {
@@ -60,6 +62,12 @@ const Home = () => {
         try {
           const trendRes = await doubtService.getTrending();
           setTrendingTopics(trendRes.data || []);
+        } catch (_) { /* silent */ }
+
+        // Fetch followed users
+        try {
+          const followingRes = await userService.getFollowing(currentUser.uid);
+          setFollowedUsers(followingRes.data || []);
         } catch (_) { /* silent */ }
       };
       loadData();
@@ -182,6 +190,29 @@ const Home = () => {
           Post a Doubt
         </button>
       </section>
+
+      {/* Followed Users */}
+      {followedUsers.length > 0 && (
+        <section className="mb-6">
+          <h3 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface mb-3">Following</h3>
+          <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-2">
+            {followedUsers.map(user => (
+              <div 
+                key={user.uid} 
+                className="flex flex-col items-center gap-1 min-w-[72px] cursor-pointer"
+                onClick={() => navigate(`/profile/${user.uid}`)}
+              >
+                <img 
+                  src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}`} 
+                  alt={user.name} 
+                  className="w-16 h-16 rounded-full border-2 border-purple-200 dark:border-secondary object-cover"
+                />
+                <span className="text-xs font-semibold text-gray-700 dark:text-on-surface-variant text-center truncate w-full px-1">{user.name.split(' ')[0]}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
     </div>
   );

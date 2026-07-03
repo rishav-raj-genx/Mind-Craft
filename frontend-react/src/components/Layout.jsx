@@ -60,7 +60,7 @@ const Layout = () => {
 
   return (
     <div className="bg-gray-50 dark:bg-background-deep text-gray-900 dark:text-on-surface font-body-md min-h-screen pb-[100px] transition-colors duration-200">
-      
+
       {/* TopAppBar */}
       <header className="w-full top-0 sticky bg-gray-50 dark:bg-background-deep z-40 transition-colors duration-200 border-b border-gray-200 dark:border-transparent">
         <div className="flex items-center justify-between px-margin-mobile py-4 w-full">
@@ -71,23 +71,23 @@ const Layout = () => {
               className="active:scale-95 transition-transform duration-200 cursor-pointer"
               aria-label="Go to profile"
             >
-              <img 
-                alt="User Profile" 
-                className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 dark:border-surface-raised" 
-                src={photoUrl} 
+              <img
+                alt="User Profile"
+                className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 dark:border-surface-raised"
+                src={photoUrl}
               />
             </button>
             <MindcraftLogo size="md" />
           </div>
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={() => setIsDark(!isDark)}
               className="w-10 h-10 rounded-full bg-white dark:bg-surface-container flex items-center justify-center text-green-700 dark:text-success-lime hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-200 shadow-sm dark:shadow-none"
               aria-label="Toggle theme"
             >
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <button 
+            <button
               onClick={() => {
                 setHasUnread(false);
                 navigate('/notifications');
@@ -118,11 +118,10 @@ const Layout = () => {
             <Link
               key={item.path}
               to={item.path}
-              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-150 ${
-                isActive
+              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-150 ${isActive
                   ? 'bg-purple-100 dark:bg-secondary-container text-purple-900 dark:text-on-secondary-container border-b-4 border-purple-500 dark:border-focus-purple'
                   : 'text-gray-500 dark:text-on-surface-variant hover:bg-gray-100 dark:hover:bg-surface-variant'
-              }`}
+                }`}
             >
               <Icon size={24} />
               <span className="font-label-md text-label-md mt-1">{item.label}</span>

@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { sessionService } from '../services/sessionService';
 import { gamificationService } from '../services/gamificationService';
 import { doubtService } from '../services/doubtService';
-import { ArrowLeft, Check, X, MessageCircle, Coins, Flame, UserPlus, Calendar, Bell } from 'lucide-react';
+import { chatService } from '../services/chatService';
+import { ArrowLeft, Check, X, MessageCircle, Coins, Flame, UserPlus, Calendar, Bell, MessageSquare } from 'lucide-react';
 
 const Notifications = () => {
   const navigate = useNavigate();
@@ -106,11 +107,11 @@ const Notifications = () => {
 
       // 5. New Doubts - show doubts posted by others recently (last 24 hours)
       const now = Date.now();
-      const recentDoubts = doubts.filter(d => 
-        d.authorUid !== currentUser.uid && 
+      const recentDoubts = doubts.filter(d =>
+        d.authorUid !== currentUser.uid &&
         (now - d.createdAt) < 24 * 60 * 60 * 1000
       );
-      
+
       recentDoubts.slice(0, 5).forEach(d => {
         notifs.push({
           id: `new-doubt-${d.id}`,
@@ -125,6 +126,28 @@ const Notifications = () => {
       });
     } catch (err) {
       console.error('Forum notifs error:', err);
+    }
+
+    try {
+      // 6. Unread Chats
+      const threadsRes = await chatService.getThreads(currentUser.uid);
+      const threads = threadsRes.data || [];
+      threads.forEach(t => {
+        if (t.unread && t.lastMessageSender !== currentUser.uid) {
+          notifs.push({
+            id: `chat-${t.matchId}`,
+            type: 'UNREAD_CHAT',
+            title: 'New Message',
+            message: `You have an unread message from a study partner.`,
+            timeAgo: formatTime(t.lastMessageTime),
+            read: false,
+            actionable: true,
+            matchId: t.matchId,
+          });
+        }
+      });
+    } catch (err) {
+      console.error('Chat notifs error:', err);
     }
 
     // Sort by read status (unread first), keep the order otherwise
@@ -147,9 +170,7 @@ const Notifications = () => {
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
+
 
   const getIcon = (type) => {
     switch (type) {
@@ -158,6 +179,7 @@ const Notifications = () => {
       case 'REWARD': return <Coins size={18} className="text-amber-500" />;
       case 'STREAK_ALERT': return <Flame size={18} className="text-orange-500" />;
       case 'NEW_DOUBT': return <MessageCircle size={18} className="text-pink-500" />;
+      case 'UNREAD_CHAT': return <MessageSquare size={18} className="text-teal-500" />;
       default: return <Bell size={18} />;
     }
   };
@@ -169,6 +191,7 @@ const Notifications = () => {
       case 'REWARD': return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700';
       case 'STREAK_ALERT': return 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-700';
       case 'NEW_DOUBT': return 'bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-300 border-pink-200 dark:border-pink-700';
+      case 'UNREAD_CHAT': return 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-700';
       default: return 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700';
     }
   };
@@ -183,9 +206,6 @@ const Notifications = () => {
           </button>
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Notifications</h1>
         </div>
-        <button onClick={markAllRead} className="text-sm font-semibold text-green-700 dark:text-[#DCFD8B] hover:underline">
-          Mark all as read
-        </button>
       </header>
 
       {/* Notification List */}
@@ -207,11 +227,10 @@ const Notifications = () => {
           notifications.map((notif, idx) => (
             <article
               key={notif.id}
-              className={`bg-white dark:bg-[#1C1C2E] rounded-2xl p-4 border transition-all ${
-                notif.read
+              className={`bg-white dark:bg-[#1C1C2E] rounded-2xl p-4 border transition-all ${notif.read
                   ? 'border-gray-100 dark:border-gray-800 opacity-75'
                   : 'border-[#7C3AED]/30 dark:border-purple-700/30 shadow-sm'
-              }`}
+                }`}
               style={{ animationDelay: `${idx * 60}ms`, animation: 'slideUp 0.4s ease-out both' }}
             >
               <div className="flex justify-between items-center mb-3">
@@ -221,16 +240,21 @@ const Notifications = () => {
                 <span className="text-xs text-gray-400 dark:text-gray-500">{notif.timeAgo}</span>
               </div>
               <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed mb-3">{notif.message}</p>
-              
+
               {/* Action Buttons */}
               {notif.type === 'NEW_DOUBT' && (
                 <button onClick={() => navigate(`/forum?doubtId=${notif.doubtId}`)} className="text-xs font-bold bg-[#DCFD8B] text-[#151f00] px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
-                   <MessageCircle size={12} /> Answer Doubt
+                  <MessageCircle size={12} /> Answer Doubt
                 </button>
               )}
               {notif.type === 'FORUM_REPLY' && (
                 <button onClick={() => navigate(`/forum?doubtId=${notif.doubtId}`)} className="text-xs font-bold bg-[#7C3AED] text-white px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
-                   <MessageCircle size={12} /> View Answers
+                  <MessageCircle size={12} /> View Answers
+                </button>
+              )}
+              {notif.type === 'UNREAD_CHAT' && (
+                <button onClick={() => navigate(`/chat/${notif.matchId}`)} className="text-xs font-bold bg-teal-500 text-white px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
+                  <MessageSquare size={12} /> Open Chat
                 </button>
               )}
             </article>

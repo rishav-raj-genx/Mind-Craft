@@ -90,6 +90,8 @@ router.post(
         db.collection(COLLECTION_MATCHES).doc(matchId).update({
           lastMessage:     text,
           lastMessageTime: timestamp,
+          lastMessageSender: senderUid,
+          unread: true,
         }),
       ]);
 

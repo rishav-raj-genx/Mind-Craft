@@ -305,10 +305,14 @@ function getLast35ActiveDates(activeDateSet, now) {
 }
 
 /**
- * Converts a Date to 'YYYY-MM-DD' string (UTC).
+ * Converts a Date to 'YYYY-MM-DD' string in IST (UTC+5:30).
+ * This ensures the streak date boundary aligns with midnight in India.
  */
 function toDateString(date) {
-  return date.toISOString().split('T')[0];
+  // IST = UTC + 5 hours 30 minutes
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const istDate = new Date(date.getTime() + IST_OFFSET_MS);
+  return istDate.toISOString().split('T')[0];
 }
 
 module.exports = { calculateStreak, recordCheckIn, BADGE_MILESTONES };

@@ -247,6 +247,15 @@ const Profile = () => {
       setProfileData(profileRes.data);
       if (profileRes.data?.streak) setStreakData(profileRes.data.streak);
       if (profileRes.data?.tokenBalance !== undefined) setTokenBalance(profileRes.data.tokenBalance);
+
+      if (currentUser && currentUser.uid !== uid) {
+        try {
+          const myProfile = await userService.getProfile(currentUser.uid);
+          if (myProfile.data?.following?.includes(uid)) {
+            setIsConnected(true);
+          }
+        } catch (_) { /* ignore */ }
+      }
     } catch (err) {
       console.error('Profile fetch error', err);
     }
@@ -293,16 +302,13 @@ const Profile = () => {
     await fetchAll();
   };
 
-  const handleConnect = async () => {
+  const handleFollow = async () => {
     try {
-      await matchService.sendRequest({
-        toUid: uid,
-        sharedSkill: "General",
-      });
+      await userService.followUser(uid);
       setIsConnected(true);
-      alert("Request Sent!");
+      alert("Successfully followed user!");
     } catch (err) {
-      console.error("Failed to connect", err);
+      console.error("Failed to follow", err);
       if (err.response?.data?.error) {
         alert(err.response.data.error);
       }
@@ -328,7 +334,9 @@ const Profile = () => {
         typeof d === 'string' ? d.split('T')[0] : new Date(d).toISOString().split('T')[0]
       )
     );
-    const today = new Date();
+    const nowLocal = new Date();
+    const utcMs = nowLocal.getTime() + (nowLocal.getTimezoneOffset() * 60000);
+    const today = new Date(utcMs + (5.5 * 60 * 60 * 1000));
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
     
     // End at today's column (Saturday = end of week), go back 52 weeks
@@ -457,7 +465,7 @@ const Profile = () => {
         {!isOwner && (
           <div className="flex gap-3 mb-8 w-full max-w-[280px]">
             <button
-              onClick={handleConnect}
+              onClick={handleFollow}
               disabled={isConnected}
               className={`flex-1 py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all ${
                 isConnected
@@ -465,7 +473,7 @@ const Profile = () => {
                   : 'bg-[#DCFD8B] text-[#151f00] hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(220,253,139,0.2)]'
               }`}
             >
-              {isConnected ? 'Connected' : <><UserPlus size={18} /> Connect</>}
+              {isConnected ? 'Following' : <><UserPlus size={18} /> Follow</>}
             </button>
             <button
               onClick={handleChat}

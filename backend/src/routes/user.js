@@ -9,6 +9,8 @@
  *   GET    /api/user/:uid            — Get user profile
  *   PATCH  /api/user/:uid            — Update user profile
  *   GET    /api/user/:uid/profile    — Full profile (tokens + streak + reviews)
+ *   POST   /api/user/:uid/follow      — Follow a user
+ *   GET    /api/user/:uid/following   — Get followed users list
  */
 
 const express = require('express');
@@ -248,5 +250,63 @@ async function getReviews(teacherUid) {
     return [];
   }
 }
+
+// ── POST /api/user/:uid/follow ────────────────────────────────────────
+router.post('/:uid/follow', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const followerUid = req.user.uid;
+    const targetUid = req.params.uid;
+
+    if (followerUid === targetUid) {
+      return res.status(400).json({ success: false, error: 'Cannot follow yourself' });
+    }
+
+    const { admin } = require('../config/firebase');
+    const followerRef = db.collection(COLLECTION_USERS).doc(followerUid);
+    
+    await followerRef.update({
+      following: admin.firestore.FieldValue.arrayUnion(targetUid)
+    });
+
+    res.json({ success: true, message: 'Successfully followed user' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/user/:uid/following ──────────────────────────────────────
+router.get('/:uid/following', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const doc = await db.collection(COLLECTION_USERS).doc(req.params.uid).get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: 'User not found' });
+    
+    const followingUids = doc.data().following || [];
+    if (followingUids.length === 0) return res.json({ success: true, data: [] });
+
+    // Fetch basic profiles for all followed users
+    const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
+    const chunks = chunkArray(followingUids, 10);
+    
+    let followedUsers = [];
+    for (const chunk of chunks) {
+      const snap = await db.collection(COLLECTION_USERS).where('uid', 'in', chunk).get();
+      snap.docs.forEach(d => {
+        const u = d.data();
+        followedUsers.push({
+          uid: u.uid,
+          name: u.name,
+          photoUrl: u.photoUrl,
+          college: u.college,
+          department: u.department,
+          averageRating: u.averageRating
+        });
+      });
+    }
+
+    res.json({ success: true, data: followedUsers });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;

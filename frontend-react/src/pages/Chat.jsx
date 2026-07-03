@@ -201,6 +201,7 @@ const Chat = () => {
   const [inputText, setInputText] = useState('');
   const [partner, setPartner] = useState(location.state?.partner || null);
   const [isTyping, setIsTyping] = useState(false);
+  const [threads, setThreads] = useState([]);
   
   // Session state
   const [sessions, setSessions] = useState([]);
@@ -214,7 +215,16 @@ const Chat = () => {
   const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
-    if (!matchId || !currentUser) return;
+    if (!matchId) {
+      if (currentUser) {
+        chatService.getThreads(currentUser.uid).then(res => {
+          setThreads(res.data || []);
+        }).catch(err => console.error(err));
+      }
+      return;
+    }
+
+    if (!currentUser) return;
 
     const initChat = async () => {
       try {
@@ -284,7 +294,14 @@ const Chat = () => {
 
     if (incoming) {
       setMessages(prev => {
-        if (prev.find(m => m.id === incoming.id || m.messageId === incoming.messageId)) return prev;
+        const isDuplicate = prev.find(m => 
+          m.id === incoming.id || 
+          m.messageId === incoming.messageId ||
+          (m.senderUid === incoming.senderUid && m.text === incoming.text && Math.abs(m.timestamp - incoming.timestamp) < 5000)
+        );
+        if (isDuplicate) {
+          return prev.map(m => (m === isDuplicate && m.status) ? { ...m, ...incoming, status: 'sent' } : m);
+        }
         return [...prev, incoming];
       });
       setIsTyping(false);
@@ -397,13 +414,57 @@ const Chat = () => {
     }
   };
 
-  // ── No matchId — show threads placeholder ─────────────────────────
+  // ── No matchId — show threads list ─────────────────────────────────
   if (!matchId) {
     return (
-      <div className="flex flex-col items-center justify-center h-[70vh] text-center">
-        <MessageSquare size={64} className="text-gray-300 dark:text-surface-raised mb-4" />
-        <h2 className="font-headline-md text-gray-900 dark:text-on-surface">Your Messages</h2>
-        <p className="text-gray-500 mt-2">Select a match to start chatting</p>
+      <div className="flex flex-col h-[calc(100vh-140px)] -mt-6 -mx-margin-mobile px-margin-mobile bg-gray-50 dark:bg-background-deep relative z-50">
+        <header className="py-6 flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-on-surface">Your Messages</h2>
+        </header>
+        <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col gap-3 pb-safe">
+          {threads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center opacity-70">
+              <MessageSquare size={64} className="text-gray-300 dark:text-surface-raised mb-4" />
+              <h2 className="font-headline-md text-gray-900 dark:text-on-surface">No Messages Yet</h2>
+              <p className="text-gray-500 mt-2">Go to Find Mate to start a conversation.</p>
+            </div>
+          ) : (
+            threads.map((thread) => {
+              const partner = thread.partner;
+              return (
+                <div 
+                  key={thread.matchId}
+                  onClick={() => navigate(`/chat/${thread.matchId}`, { state: { partner } })}
+                  className="bg-white dark:bg-surface-container rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-container-high transition-all active:scale-[0.98] border border-transparent hover:border-gray-100 dark:hover:border-surface-raised shadow-sm"
+                >
+                  <div className="relative">
+                    <img 
+                      src={partner?.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.name || 'User')}&background=DCFD8B&color=151f00`} 
+                      alt="Avatar" 
+                      className="w-14 h-14 rounded-full object-cover" 
+                    />
+                    {thread.unread && thread.lastMessageSender !== currentUser?.uid && (
+                      <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-success-lime border-2 border-white dark:border-background-deep rounded-full"></div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-center mb-1">
+                      <h3 className="font-bold text-gray-900 dark:text-on-surface text-base truncate">{partner?.name || 'Study Partner'}</h3>
+                      {thread.lastMessageTime && (
+                        <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
+                          {new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-sm truncate ${thread.unread && thread.lastMessageSender !== currentUser?.uid ? 'text-gray-900 dark:text-white font-semibold' : 'text-gray-500 dark:text-on-surface-variant'}`}>
+                      {thread.lastMessage || 'Say hi!'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     );
   }
@@ -420,7 +481,7 @@ const Chat = () => {
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors">
             <ArrowLeft size={20} />
           </button>
-          <div className="flex items-center gap-3">
+          <button onClick={() => partner?.uid && navigate(`/profile/${partner.uid}`)} className="flex items-center gap-3 text-left">
             <div className="relative">
               <img src={partner?.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.name || 'Study Partner')}&background=DCFD8B&color=151f00`} alt={partner?.name || 'Study Partner'} className="w-10 h-10 rounded-full object-cover" />
               <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-background-deep rounded-full"></div>
@@ -432,7 +493,7 @@ const Chat = () => {
                 {partner?.college ? ` • ${partner.college}` : ''}
               </p>
             </div>
-          </div>
+          </button>
         </div>
         <div className="flex gap-2">
           <button 
@@ -442,9 +503,6 @@ const Chat = () => {
           >
             <CalendarPlus size={20} />
           </button>
-          <button className="p-2 text-purple-600 dark:text-secondary hover:bg-purple-50 dark:hover:bg-surface-container rounded-full transition-colors"><Phone size={20} /></button>
-          <button className="p-2 text-purple-600 dark:text-secondary hover:bg-purple-50 dark:hover:bg-surface-container rounded-full transition-colors"><Video size={20} /></button>
-          <button className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-surface-container rounded-full transition-colors"><Info size={20} /></button>
         </div>
       </header>
 

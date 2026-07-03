@@ -25,5 +25,15 @@ export const userService = {
   searchUsers: async (query) => {
     const response = await api.get(`/user/search?q=${encodeURIComponent(query)}`);
     return response.data;
+  },
+
+  followUser: async (uid) => {
+    const response = await api.post(`/user/${uid}/follow`);
+    return response.data;
+  },
+
+  getFollowing: async (uid) => {
+    const response = await api.get(`/user/${uid}/following`);
+    return response.data;
   }
 };

@@ -129,7 +129,7 @@ const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
 };
 
 // ─── Match Card ───────────────────────────────────────────────────────────────
-const MatchCard = ({ mate, index, onConnect, onChat }) => {
+const MatchCard = ({ mate, index, onFollow, onChat, isFollowed }) => {
   const navigate = useNavigate();
   const [showGraph, setShowGraph] = useState(false);
 
@@ -196,10 +196,15 @@ const MatchCard = ({ mate, index, onConnect, onChat }) => {
       {/* Action buttons */}
       <div className="flex gap-2 w-full items-center">
         <button
-          onClick={() => onConnect(mate.uid)}
-          className="flex-1 bg-success-lime text-green-900 font-label-lg rounded-full py-2 px-6 active:scale-95 transition-transform shadow-[0_3px_0_#b3d266]"
+          onClick={() => onFollow(mate.uid)}
+          disabled={isFollowed}
+          className={`flex-1 font-label-lg rounded-full py-2 px-6 active:scale-95 transition-transform ${
+            isFollowed
+              ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none'
+              : 'bg-success-lime text-green-900 shadow-[0_3px_0_#b3d266]'
+          }`}
         >
-          Connect
+          {isFollowed ? 'Following' : 'Follow'}
         </button>
         <button
           onClick={() => onChat(mate)}
@@ -223,6 +228,7 @@ const FindMate = () => {
   const [selectedLang, setSelectedLang] = useState('en-IN');
   const [searchText, setSearchText] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
+  const [myFollowingUids, setMyFollowingUids] = useState(new Set());
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -230,8 +236,20 @@ const FindMate = () => {
   useEffect(() => {
     if (currentUser) {
       loadInitialMatches();
+      loadMyFollowing();
     }
   }, [currentUser]);
+
+  const loadMyFollowing = async () => {
+    try {
+      const { userService } = await import('../services/userService');
+      const res = await userService.getFollowing(currentUser.uid);
+      const following = (res.data || []).map(u => u.uid);
+      setMyFollowingUids(new Set(following));
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const loadInitialMatches = async () => {
     try {
@@ -290,12 +308,16 @@ const FindMate = () => {
         language: resultData.language || '',
       });
 
-      if (resultData.matches && resultData.matches.length > 0) {
-        setMatches(resultData.matches.map(normalizeMate));
-        setActiveSearch(resultData.detectedSkill || resultData.transcript || '');
+      const transcript = resultData.transcript || '';
+      setSearchText(transcript);
+
+      if (transcript || resultData.detectedSkill) {
+        setMatches((resultData.matches || []).map(normalizeMate));
+        setActiveSearch(resultData.detectedSkill || transcript);
+        if (transcript) handleTextSearch(null, transcript);
       } else {
         setMatches([]);
-        setActiveSearch(resultData.detectedSkill || resultData.transcript || '');
+        setActiveSearch('');
       }
     } catch (err) {
       console.error('Voice search failed:', err);
@@ -304,15 +326,16 @@ const FindMate = () => {
     }
   };
 
-  const handleTextSearch = async (e) => {
-    e.preventDefault();
+  const handleTextSearch = async (e, textParam) => {
+    e?.preventDefault();
+    const query = textParam !== undefined ? textParam : searchText;
     try {
       setLoading(true);
-      if (searchText.trim()) {
+      if (query.trim()) {
         const { userService } = await import('../services/userService');
-        const data = await userService.searchUsers(searchText.trim());
+        const data = await userService.searchUsers(query.trim());
         setMatches((data.data || []).map(normalizeMate));
-        setActiveSearch(searchText.trim());
+        setActiveSearch(query.trim());
       } else {
         await loadInitialMatches();
       }
@@ -323,15 +346,14 @@ const FindMate = () => {
     }
   };
 
-  const handleConnect = async (mateUid) => {
+  const handleFollow = async (mateUid) => {
     try {
-      await matchService.sendRequest({
-        toUid: mateUid,
-        sharedSkill: voiceResult?.skill || 'General',
-      });
-      alert('Request Sent!');
+      const { userService } = await import('../services/userService');
+      await userService.followUser(mateUid);
+      setMyFollowingUids(prev => new Set(prev).add(mateUid));
+      alert('Successfully followed user!');
     } catch (err) {
-      console.error('Failed to connect', err);
+      console.error('Failed to follow', err);
       if (err.response?.data?.error) alert(err.response.data.error);
     }
   };
@@ -463,8 +485,9 @@ const FindMate = () => {
                 key={mate.uid || i}
                 mate={mate}
                 index={i}
-                onConnect={handleConnect}
+                onFollow={handleFollow}
                 onChat={handleChat}
+                isFollowed={myFollowingUids.has(mate.uid)}
               />
             ))}
           </div>
