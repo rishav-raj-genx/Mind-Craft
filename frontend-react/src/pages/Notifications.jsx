@@ -100,6 +100,7 @@ const Notifications = () => {
           timeAgo: formatTime(d.createdAt),
           read: true,
           actionable: false,
+          doubtId: d.id,
         });
       });
 
@@ -119,6 +120,7 @@ const Notifications = () => {
           timeAgo: formatTime(d.createdAt),
           read: false, // Unread to grab attention
           actionable: false,
+          doubtId: d.id,
         });
       });
     } catch (err) {
@@ -222,12 +224,12 @@ const Notifications = () => {
               
               {/* Action Buttons */}
               {notif.type === 'NEW_DOUBT' && (
-                <button onClick={() => navigate('/forum')} className="text-xs font-bold bg-[#DCFD8B] text-[#151f00] px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
+                <button onClick={() => navigate(`/forum?doubtId=${notif.doubtId}`)} className="text-xs font-bold bg-[#DCFD8B] text-[#151f00] px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
                    <MessageCircle size={12} /> Answer Doubt
                 </button>
               )}
               {notif.type === 'FORUM_REPLY' && (
-                <button onClick={() => navigate('/forum')} className="text-xs font-bold bg-[#7C3AED] text-white px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
+                <button onClick={() => navigate(`/forum?doubtId=${notif.doubtId}`)} className="text-xs font-bold bg-[#7C3AED] text-white px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
                    <MessageCircle size={12} /> View Answers
                 </button>
               )}

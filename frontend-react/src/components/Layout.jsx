@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Moon, Sun, Bell, Grid, Map, MessageSquare, User, MessageCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { userService } from '../services/userService';
 import MindcraftLogo from './MindcraftLogo';
 
 const Layout = () => {
@@ -12,6 +13,30 @@ const Layout = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const [photoUrl, setPhotoUrl] = useState(currentUser?.photoURL || "https://ui-avatars.com/api/?name=User");
+  const [hasUnread, setHasUnread] = useState(true);
+
+  // Fetch the real Firestore photoUrl on mount (app-uploaded photo takes priority over Google avatar)
+  useEffect(() => {
+    if (currentUser?.uid) {
+      userService.getProfile(currentUser.uid).then(res => {
+        const firestorePhoto = res?.data?.photoUrl;
+        if (firestorePhoto) {
+          setPhotoUrl(firestorePhoto);
+        } else if (currentUser.photoURL) {
+          setPhotoUrl(currentUser.photoURL);
+        }
+      }).catch(() => {
+        // Fallback to auth photo
+        if (currentUser?.photoURL) setPhotoUrl(currentUser.photoURL);
+      });
+    }
+    const handleUpdate = (e) => {
+      if (e.detail?.photoUrl) setPhotoUrl(e.detail.photoUrl);
+    };
+    window.addEventListener('profile-updated', handleUpdate);
+    return () => window.removeEventListener('profile-updated', handleUpdate);
+  }, [currentUser]);
 
   useEffect(() => {
     if (isDark) {
@@ -49,7 +74,7 @@ const Layout = () => {
               <img 
                 alt="User Profile" 
                 className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 dark:border-surface-raised" 
-                src={currentUser?.photoURL || "https://ui-avatars.com/api/?name=User"} 
+                src={photoUrl} 
               />
             </button>
             <MindcraftLogo size="md" />
@@ -63,13 +88,17 @@ const Layout = () => {
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
             <button 
-              onClick={() => navigate('/notifications')}
-              className="w-10 h-10 rounded-full bg-white dark:bg-surface-container flex items-center justify-center text-green-700 dark:text-success-lime hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-200 shadow-sm dark:shadow-none relative"
+              onClick={() => {
+                setHasUnread(false);
+                navigate('/notifications');
+              }}
+              className="relative w-10 h-10 rounded-full bg-white dark:bg-surface-container flex items-center justify-center text-gray-700 dark:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-200 shadow-sm dark:shadow-none"
               aria-label="Notifications"
             >
               <Bell size={20} />
-              {/* Notification dot */}
-              <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></div>
+              {hasUnread && (
+                <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></div>
+              )}
             </button>
           </div>
         </div>

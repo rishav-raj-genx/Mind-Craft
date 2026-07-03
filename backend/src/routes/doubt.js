@@ -27,18 +27,52 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
   try {
     const { tag } = req.query;
 
-    let query = db.collection(COLLECTION_DOUBTS).orderBy('createdAt', 'desc').limit(50);
+    let query;
     if (tag && tag !== 'All Doubts') {
+      // Don't use orderBy with where on different field — avoids composite index requirement
       query = db.collection(COLLECTION_DOUBTS)
         .where('tag', '==', tag)
-        .orderBy('createdAt', 'desc')
         .limit(50);
+    } else {
+      query = db.collection(COLLECTION_DOUBTS).orderBy('createdAt', 'desc').limit(50);
     }
 
     const snapshot = await query.get();
-    const doubts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let doubts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    // Sort in-memory when filtered by tag (since we couldn't use orderBy)
+    if (tag && tag !== 'All Doubts') {
+      doubts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    }
 
     res.json({ success: true, data: doubts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/doubt/trending — Top trending tags ───────────────────────
+router.get('/trending', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const snapshot = await db.collection(COLLECTION_DOUBTS)
+      .orderBy('createdAt', 'desc')
+      .limit(200)
+      .get();
+    
+    const tagCounts = {};
+    snapshot.docs.forEach(doc => {
+      const tag = doc.data().tag;
+      if (tag) {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      }
+    });
+    
+    const trending = Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([tag, count]) => ({ tag, count }));
+    
+    res.json({ success: true, data: trending });
   } catch (err) {
     next(err);
   }

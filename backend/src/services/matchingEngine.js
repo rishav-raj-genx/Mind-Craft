@@ -18,8 +18,7 @@ const { getDriver } = require('../config/neo4j');
  *
  * The Cypher query:
  *   1. Starts from the requesting student
- *   2. Traverses LEARNS→Skill←TEACHES to find tutors who teach what
- *      the student wants to learn
+ *   2. Traverses LEARNS|TEACHES to find tutors who complement the skills
  *   3. Filters to same college only
  *   4. Counts shared skills and tutor activity (total teaching edges)
  *   5. Sorts by activity score DESC, shared skills DESC, rating DESC
@@ -42,9 +41,10 @@ async function findMatches(uid, options = {}) {
       : '';
 
     const result = await session.run(
-      `MATCH (student:User { uid: $uid })-[:LEARNS]->(skill:Skill)<-[:TEACHES]-(tutor:User)
+      `MATCH (student:User { uid: $uid })-[r1:LEARNS|TEACHES]->(skill:Skill)<-[r2:TEACHES|LEARNS]-(tutor:User)
        WHERE tutor.college = student.college
          AND tutor.uid <> student.uid
+         AND type(r1) <> type(r2)
          ${skillClause}
        WITH tutor,
             collect(DISTINCT skill.name) AS sharedSkills,
@@ -92,8 +92,9 @@ async function findBroadMatches(uid, limit = 20) {
 
   try {
     const result = await session.run(
-      `MATCH (student:User { uid: $uid })-[:LEARNS]->(skill:Skill)<-[:TEACHES]-(tutor:User)
+      `MATCH (student:User { uid: $uid })-[r1:LEARNS|TEACHES]->(skill:Skill)<-[r2:TEACHES|LEARNS]-(tutor:User)
        WHERE tutor.uid <> student.uid
+         AND type(r1) <> type(r2)
        WITH tutor,
             collect(DISTINCT skill.name) AS sharedSkills,
             SIZE([(tutor)-[:TEACHES]->(s:Skill) | s]) AS activityScore,

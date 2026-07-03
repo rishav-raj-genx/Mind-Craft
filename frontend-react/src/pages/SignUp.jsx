@@ -11,8 +11,8 @@ const SignUp = () => {
   const [college, setCollege] = useState('');
   const [teachInput, setTeachInput] = useState('');
   const [learnInput, setLearnInput] = useState('');
-  const [teaches, setTeaches] = useState(['Calculus 101']);
-  const [learns, setLearns] = useState(['Organic Chem']);
+  const [teaches, setTeaches] = useState([]);
+  const [learns, setLearns] = useState([]);
   const [error, setError] = useState('');
 
   const handleGoogleSignup = async (e) => {

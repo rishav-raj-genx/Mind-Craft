@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { doubtService } from '../services/doubtService';
 import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock } from 'lucide-react';
@@ -279,6 +280,7 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading }) => {
 // ── Main DoubtForum Component ─────────────────────────────────────────
 const DoubtForum = () => {
   const { currentUser } = useAuth();
+  const [searchParams] = useSearchParams();
   const [posts, setPosts] = useState([]);
   const [activeFilter, setActiveFilter] = useState('All Doubts');
   const [showModal, setShowModal] = useState(false);
@@ -295,7 +297,16 @@ const DoubtForum = () => {
     setFetchError('');
     try {
       const res = await doubtService.getAllDoubts(filter);
-      setPosts(res.data || []);
+      const data = res.data || [];
+      setPosts(data);
+      
+      const doubtId = searchParams.get('doubtId');
+      if (doubtId && data.length > 0) {
+        const doubtToOpen = data.find(d => d.id === doubtId);
+        if (doubtToOpen) {
+          setAnsweringDoubt(doubtToOpen);
+        }
+      }
     } catch (err) {
       console.error('Failed to fetch doubts:', err);
       setFetchError('Could not load doubts. Please check your connection.');

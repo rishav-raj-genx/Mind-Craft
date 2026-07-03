@@ -25,4 +25,10 @@ export const doubtService = {
     const response = await api.patch(`/doubt/${doubtId}/upvote`);
     return response.data;
   },
+
+  // Get trending tags from recent doubts
+  getTrending: async () => {
+    const response = await api.get('/doubt/trending');
+    return response.data;
+  },
 };

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { gamificationService } from '../services/gamificationService';
 import { matchService } from '../services/matchService';
+import { doubtService } from '../services/doubtService';
 import { Link, useNavigate } from 'react-router-dom';
-import { Flame, Trophy, Star, Code, FunctionSquare, Cpu, TestTube, Database, BrainCircuit, ChevronRight, Plus } from 'lucide-react';
+import { Flame, Trophy, Star, Hash, ChevronRight, Plus, TrendingUp } from 'lucide-react';
 import { motion, animate, useMotionValue, useTransform } from 'framer-motion';
 
 // ─── CountUp Component ────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ const Home = () => {
   const [badgeCount, setBadgeCount] = useState(0);
   const [streak, setStreak] = useState({ currentStreak: 0 });
   const [topMates, setTopMates] = useState([]);
+  const [trendingTopics, setTrendingTopics] = useState([]);
   
   useEffect(() => {
     if (currentUser) {
@@ -53,10 +55,26 @@ const Home = () => {
             setStreak(s.data || s || { currentStreak: 0 });
           } catch (_) { /* silent */ }
         }
+
+        // Fetch trending topics
+        try {
+          const trendRes = await doubtService.getTrending();
+          setTrendingTopics(trendRes.data || []);
+        } catch (_) { /* silent */ }
       };
       loadData();
     }
   }, [currentUser]);
+
+  // Color palette for trending topic pills
+  const tagColors = [
+    'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
+    'text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800',
+    'text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800',
+    'text-cyan-700 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800',
+    'text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800',
+    'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800',
+  ];
 
   return (
     <div className="flex flex-col gap-8">
@@ -131,34 +149,26 @@ const Home = () => {
         </div>
       </section>
 
-      {/* Trending Syllabus Topics */}
+      {/* Trending Syllabus Topics — Dynamic */}
       <section className="flex flex-col gap-4">
-        <h3 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">Trending Syllabus Topics</h3>
+        <div className="flex items-center gap-2">
+          <TrendingUp size={20} className="text-green-600 dark:text-success-lime" />
+          <h3 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">Trending Topics</h3>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <button className="bg-white dark:bg-surface-container hover:bg-gray-50 dark:hover:bg-surface-container-high border border-gray-200 dark:border-surface-raised rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626]">
-            <Code className="text-green-600" size={18} />
-            <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">Data Structures</span>
-          </button>
-          <button className="bg-white dark:bg-surface-container hover:bg-gray-50 dark:hover:bg-surface-container-high border border-gray-200 dark:border-surface-raised rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626]">
-            <FunctionSquare className="text-purple-600" size={18} />
-            <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">Calculus II</span>
-          </button>
-          <button className="bg-white dark:bg-surface-container hover:bg-gray-50 dark:hover:bg-surface-container-high border border-gray-200 dark:border-surface-raised rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626]">
-            <Cpu className="text-orange-500" size={18} />
-            <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">Operating Sys</span>
-          </button>
-          <button className="bg-white dark:bg-surface-container hover:bg-gray-50 dark:hover:bg-surface-container-high border border-gray-200 dark:border-surface-raised rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626]">
-            <TestTube className="text-green-600" size={18} />
-            <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">Microbiology</span>
-          </button>
-          <button className="bg-white dark:bg-surface-container hover:bg-gray-50 dark:hover:bg-surface-container-high border border-gray-200 dark:border-surface-raised rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626]">
-            <Database className="text-purple-600" size={18} />
-            <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">Econometrics</span>
-          </button>
-          <button className="bg-white dark:bg-surface-container hover:bg-gray-50 dark:hover:bg-surface-container-high border border-gray-200 dark:border-surface-raised rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626]">
-            <BrainCircuit className="text-lime-600" size={18} />
-            <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">Cognitive Psych</span>
-          </button>
+          {trendingTopics.length > 0 ? trendingTopics.map((topic, i) => (
+            <button
+              key={topic.tag}
+              onClick={() => navigate(`/forum?tag=${encodeURIComponent(topic.tag)}`)}
+              className={`border rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626] ${tagColors[i % tagColors.length]}`}
+            >
+              <Hash size={16} />
+              <span className="font-label-lg text-label-lg truncate">{topic.tag.replace('#', '')}</span>
+              <span className="text-xs opacity-60">({topic.count})</span>
+            </button>
+          )) : (
+            <div className="col-span-2 text-gray-500 dark:text-on-surface-variant italic text-sm">No trending topics yet. Be the first to post a doubt!</div>
+          )}
         </div>
       </section>
 
