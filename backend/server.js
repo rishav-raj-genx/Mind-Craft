@@ -36,6 +36,7 @@ const voiceSearchRoutes  = require('./src/routes/voiceSearch');
 const gamificationRoutes = require('./src/routes/gamification');
 const chatRoutes         = require('./src/routes/chat');
 const sessionRoutes      = require('./src/routes/session');
+const doubtRoutes        = require('./src/routes/doubt');
 
 // ── Services ─────────────────────────────────────────────────────────
 const { initWebSocketServer } = require('./src/services/chatService');
@@ -59,8 +60,8 @@ app.use(cors({
 
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Health check ─────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
@@ -80,6 +81,7 @@ app.use('/api/voice-search', voiceSearchRoutes);
 app.use('/api',              gamificationRoutes);
 app.use('/api/chat',         chatRoutes);
 app.use('/api/session',      sessionRoutes);
+app.use('/api/doubt',        doubtRoutes);
 
 // ── 404 + error handling ─────────────────────────────────────────────
 app.use(notFoundHandler);

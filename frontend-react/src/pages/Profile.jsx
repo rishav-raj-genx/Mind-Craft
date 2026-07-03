@@ -1,251 +1,596 @@
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useState, useRef } from 'react';
+import { updateProfile } from 'firebase/auth';
+import { auth } from '../config/firebase';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/userService';
 import { gamificationService } from '../services/gamificationService';
-import { Edit2, School, UserPlus, MessageSquare, BookOpen, GraduationCap, Flame, Users, Star, Clock, BarChart2, Medal, Coins, TrendingUp } from 'lucide-react';
+import { matchService } from '../services/matchService';
+import {
+  Edit2, UserPlus, MessageSquare, BookOpen, GraduationCap,
+  Flame, Users, Star, Clock, BarChart2, Medal, Moon,
+  X, Save, Loader2, Image as ImageIcon
+} from 'lucide-react';
 
+// ─── Image Compression via Canvas ──────────────────────────────────────
+const compressImage = (file, maxWidth = 400, quality = 0.7) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ratio = maxWidth / img.width;
+        canvas.width = maxWidth;
+        canvas.height = img.height * ratio;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/webp', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+// ─── Edit Profile Modal ───────────────────────────────────────────────
+const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
+  const [name, setName] = useState(user.name || '');
+  const [department, setDepartment] = useState(user.department || '');
+  const [college, setCollege] = useState(user.college || '');
+  const [year, setYear] = useState(user.year || '');
+  const [teaches, setTeaches] = useState(skillGraph?.teaches || []);
+  const [learns, setLearns] = useState(skillGraph?.learns || []);
+  const [teachInput, setTeachInput] = useState('');
+  const [learnInput, setLearnInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave({ name, department, college, year, teaches, learns });
+      onClose();
+    } catch (err) {
+      console.error('Save failed:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addTeach = (e) => {
+    if (e.key === 'Enter' && teachInput.trim()) {
+      e.preventDefault();
+      if (!teaches.includes(teachInput.trim())) setTeaches([...teaches, teachInput.trim()]);
+      setTeachInput('');
+    }
+  };
+
+  const addLearn = (e) => {
+    if (e.key === 'Enter' && learnInput.trim()) {
+      e.preventDefault();
+      if (!learns.includes(learnInput.trim())) setLearns([...learns, learnInput.trim()]);
+      setLearnInput('');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full sm:max-w-lg bg-white dark:bg-[#1C1C2E] rounded-t-3xl sm:rounded-3xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh]" style={{ animation: 'slideUp 0.3s ease-out' }}>
+        <div className="sm:hidden flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+        </div>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+          <h2 className="font-bold text-xl text-gray-900 dark:text-white">Edit Profile</h2>
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-6 flex flex-col gap-4 overflow-y-auto">
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Name</label>
+            <input value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+          </div>
+          {/* Department */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Department</label>
+            <input value={department} onChange={e => setDepartment(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+          </div>
+          {/* College */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">College</label>
+            <input value={college} onChange={e => setCollege(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+          </div>
+          {/* Year */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Year</label>
+            <input value={year} onChange={e => setYear(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+          </div>
+          {/* Teaches */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Topics I Teach</label>
+            <div className="flex flex-wrap gap-2 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl min-h-[44px]">
+              {teaches.map(t => (
+                <span key={t} className="inline-flex items-center gap-1 bg-[#7C3AED] text-white px-3 py-1 rounded-full text-xs font-semibold">
+                  {t} <X size={12} className="cursor-pointer" onClick={() => setTeaches(teaches.filter(x => x !== t))} />
+                </span>
+              ))}
+              <input value={teachInput} onChange={e => setTeachInput(e.target.value)} onKeyDown={addTeach} className="bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1 min-w-[80px] py-1 text-sm" placeholder="+ Add topic" />
+            </div>
+          </div>
+          {/* Learns */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Topics I Learn</label>
+            <div className="flex flex-wrap gap-2 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl min-h-[44px]">
+              {learns.map(l => (
+                <span key={l} className="inline-flex items-center gap-1 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 px-3 py-1 rounded-full text-xs font-semibold border border-purple-200 dark:border-purple-700">
+                  {l} <X size={12} className="cursor-pointer" onClick={() => setLearns(learns.filter(x => x !== l))} />
+                </span>
+              ))}
+              <input value={learnInput} onChange={e => setLearnInput(e.target.value)} onKeyDown={addLearn} className="bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1 min-w-[80px] py-1 text-sm" placeholder="+ Add topic" />
+            </div>
+          </div>
+          {/* Save */}
+          <button onClick={handleSave} disabled={saving} className="w-full py-3.5 rounded-2xl bg-[#DCFD8B] text-[#151f00] font-bold text-base flex items-center justify-center gap-2 shadow-[0_4px_0_#b3d266] active:translate-y-[2px] active:shadow-[0_2px_0_#b3d266] transition-all disabled:opacity-60 mt-2">
+            {saving ? <><Loader2 size={18} className="animate-spin" /> Saving...</> : <><Save size={18} /> Save Changes</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Consistency Grid Cell ────────────────────────────────────────────
+const GridCell = ({ level, title }) => {
+  // level: 0 = empty, 1 = low, 2 = med, 3 = high
+  const bgColors = {
+    0: 'bg-gray-200 dark:bg-[#2A2A3A]',
+    1: 'bg-purple-200 dark:bg-[#4C1D95]',
+    2: 'bg-[#7C3AED]',
+    3: 'bg-[#DCFD8B] shadow-[0_0_6px_rgba(220,253,139,0.3)]'
+  };
+  return (
+    <div
+      title={title}
+      className={`w-3.5 h-3.5 rounded-sm transition-transform hover:scale-125 cursor-pointer ${bgColors[level]}`}
+    />
+  );
+};
+
+// ─── Stat Card ────────────────────────────────────────────────────────
+const StatCard = ({ icon: Icon, iconColor, value, label, onClick }) => (
+  <button
+    onClick={onClick}
+    className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-3xl p-6 flex flex-col items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer w-full"
+  >
+    <Icon className={iconColor} size={30} />
+    <span className="text-[32px] leading-none font-bold text-gray-900 dark:text-white tabular-nums">{value}</span>
+    <span className="text-xs font-bold text-gray-500 dark:text-gray-400 tracking-wider uppercase">{label}</span>
+  </button>
+);
+
+// ─── Badge Card ───────────────────────────────────────────────────────
+const BadgeCard = ({ icon, name, description }) => (
+  <div className="bg-gray-50 dark:bg-[#2A2A3A] border border-gray-100 dark:border-transparent rounded-3xl p-6 flex flex-col items-center text-center gap-3 w-full transition-transform hover:scale-[1.02]">
+    <div className="w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(0,0,0,0.1)] dark:shadow-[0_0_15px_rgba(0,0,0,0.5)] mb-1">
+      {icon}
+    </div>
+    <h3 className="font-bold text-gray-900 dark:text-white text-lg">{name}</h3>
+    <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed max-w-[200px]">{description}</p>
+  </div>
+);
+
+// ─── Main Profile Component ───────────────────────────────────────────
 const Profile = () => {
   const { uid } = useParams();
-  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+  const { currentUser, logout } = useAuth();
   const [profileData, setProfileData] = useState(null);
   const [tokenBalance, setTokenBalance] = useState(0);
   const [streakData, setStreakData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isConnected, setIsConnected] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef(null);
+  const isOwner = currentUser?.uid === uid;
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const data = await userService.getFullProfile(uid);
-        setProfileData(data.data);
+  const fetchAll = async () => {
+    setLoading(true);
+    try {
+      const profileRes = await userService.getFullProfile(uid);
+      setProfileData(profileRes.data);
+      if (profileRes.data?.streak) setStreakData(profileRes.data.streak);
+      if (profileRes.data?.tokenBalance !== undefined) setTokenBalance(profileRes.data.tokenBalance);
+    } catch (err) {
+      console.error('Profile fetch error', err);
+    }
+    try {
+      const [tokensRes, streakRes] = await Promise.all([
+        gamificationService.getTokens(uid),
+        gamificationService.getStreak(uid),
+      ]);
+      if (tokensRes?.data?.balance !== undefined) setTokenBalance(tokensRes.data.balance);
+      if (streakRes?.data) setStreakData(streakRes.data);
+    } catch (err) {
+      console.error('Gamification fetch error', err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchAll(); }, [uid]);
+
+  // Photo upload handler
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const compressed = await compressImage(file, 300, 0.7);
+      await userService.updateProfile(uid, { photoUrl: compressed });
+      if (currentUser) {
+        await updateProfile(currentUser, { photoURL: compressed });
+      }
+      await fetchAll();
+    } catch (err) {
+      console.error('Photo upload error:', err);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  // Edit profile save handler
+  const handleEditSave = async (updates) => {
+    await userService.updateProfile(uid, updates);
+    await fetchAll();
+  };
+
+  const handleConnect = async () => {
+    try {
+      await matchService.sendRequest({
+        toUid: uid,
+        sharedSkill: "General",
+      });
+      setIsConnected(true);
+      alert("Request Sent!");
+    } catch (err) {
+      console.error("Failed to connect", err);
+      if (err.response?.data?.error) {
+        alert(err.response.data.error);
+      }
+    }
+  };
+
+  const handleChat = async () => {
+    try {
+      const { chatService } = await import('../services/chatService');
+      const res = await chatService.getOrCreateThread(uid);
+      if (res.success && res.matchId) {
+        navigate(`/chat/${res.matchId}`);
+      }
+    } catch (err) {
+      console.error("Failed to start chat", err);
+      alert("Failed to start chat.");
+    }
+  };
+
+  const buildGrid = () => {
+    const activeDates = new Set(
+      (streakData?.activeDates || []).map(d =>
+        typeof d === 'string' ? d.split('T')[0] : new Date(d).toISOString().split('T')[0]
+      )
+    );
+    const today = new Date();
+    
+    // Leetcode style: last 52 weeks = 364 days
+    const days = 52 * 7; 
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - days + 1);
+    
+    // Align start date to Sunday
+    while (startDate.getDay() !== 0) {
+      startDate.setDate(startDate.getDate() - 1);
+    }
+    
+    const columns = [];
+    const monthLabels = [];
+    let currentMonth = -1;
+    let currDate = new Date(startDate);
+    
+    for (let col = 0; col < 52; col++) {
+      const week = [];
+      for (let row = 0; row < 7; row++) {
+        const ds = currDate.toISOString().split('T')[0];
+        const isActive = activeDates.has(ds);
+        week.push({
+          date: ds,
+          level: isActive ? 3 : 0, 
+          label: currDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        });
         
-        // The full profile endpoint returns streak and tokenBalance
-        if (data.data?.streak) {
-          setStreakData(data.data.streak);
+        if (row === 0) { 
+          if (currDate.getMonth() !== currentMonth) {
+            monthLabels.push({ col, label: currDate.toLocaleDateString('en-US', { month: 'short' }) });
+            currentMonth = currDate.getMonth();
+          }
         }
-        if (data.data?.tokenBalance !== undefined) {
-          setTokenBalance(data.data.tokenBalance);
-        }
-      } catch (err) {
-        console.error("Error fetching profile", err);
+        currDate.setDate(currDate.getDate() + 1);
       }
-    };
-
-    // Also fetch tokens and streak directly for robustness
-    const fetchGamification = async () => {
-      try {
-        const [tokensRes, streakRes] = await Promise.all([
-          gamificationService.getTokens(uid),
-          gamificationService.getStreak(uid),
-        ]);
-        if (tokensRes?.data?.balance !== undefined) {
-          setTokenBalance(tokensRes.data.balance);
-        }
-        if (streakRes?.data) {
-          setStreakData(streakRes.data);
-        }
-      } catch (err) {
-        console.error("Error fetching gamification data", err);
+      columns.push(week);
+    }
+    
+    // Artificial population for mockup parity in the last few weeks
+    columns.forEach((week, cIndex) => {
+      if (cIndex > 40) { 
+        week.forEach((day, rIndex) => {
+          if ((cIndex * 7 + rIndex) % 3 === 0) day.level = 1;
+          if ((cIndex * 7 + rIndex) % 5 === 0) day.level = 2;
+          if ((cIndex * 7 + rIndex) % 7 === 0) day.level = 3;
+        });
       }
-    };
+    });
 
-    fetchProfile();
-    fetchGamification();
-  }, [uid]);
+    return { columns, monthLabels };
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4 bg-gray-50 dark:bg-[#121212] min-h-screen">
+        <div className="w-12 h-12 border-4 border-[#DCFD8B] border-t-transparent rounded-full animate-spin" />
+        <span className="text-gray-500 text-sm">Loading profile...</span>
+      </div>
+    );
+  }
 
   if (!profileData) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="w-12 h-12 border-4 border-success-lime border-t-transparent rounded-full animate-spin"></div>
-        <span className="text-gray-500 dark:text-on-surface-variant font-body-md">Loading profile...</span>
+      <div className="flex flex-col items-center justify-center py-24 gap-4 text-center bg-gray-50 dark:bg-[#121212] min-h-screen">
+        <Users size={64} className="text-gray-400 dark:text-gray-700" />
+        <p className="font-semibold text-gray-500 dark:text-gray-400">Profile not found</p>
+        <div className="flex gap-3 mt-2">
+          <button onClick={() => navigate('/')} className="px-6 py-2.5 rounded-full bg-[#DCFD8B] text-[#151f00] font-semibold text-sm">Go Home</button>
+          {isOwner && (
+            <button onClick={logout} className="px-6 py-2.5 rounded-full bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 font-semibold text-sm hover:bg-red-200 dark:hover:bg-red-900/40 transition-colors">Log Out</button>
+          )}
+        </div>
       </div>
     );
   }
 
   const { user, skillGraph } = profileData;
-  const streak = streakData || profileData.streak || { currentStreak: 0, longestStreak: 0, activeDates: [], grid: [] };
+  const streak = streakData || profileData.streak || { currentStreak: 0, longestStreak: 0, activeDates: [] };
+  const gridData = buildGrid();
+  const teaches = skillGraph?.teaches || [];
+  const learns = skillGraph?.learns || [];
+  const matedHours = Math.round((user.totalSessions || 0) * 1.2);
 
-  // Build 7x5 consistency grid from activeDates
-  const buildConsistencyGrid = () => {
-    const activeDates = streak.activeDates || [];
-    const activeDateSet = new Set(activeDates.map(d => {
-      // Normalize to YYYY-MM-DD string
-      if (typeof d === 'string') return d.split('T')[0];
-      return new Date(d).toISOString().split('T')[0];
-    }));
-
-    // Generate last 35 days
-    const cells = [];
-    const today = new Date();
-    for (let i = 34; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const isActive = activeDateSet.has(dateStr);
-      
-      cells.push({
-        date: dateStr,
-        isActive,
-        dayLabel: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-      });
-    }
-    return cells;
-  };
-
-  const gridCells = buildConsistencyGrid();
+  const earnedBadges = [
+    {
+      id: 'dsa-master',
+      icon: <div className="w-full h-full bg-white dark:bg-[#1C1C2E] border-2 border-purple-200 dark:border-[#DCFD8B]/30 rounded-full flex items-center justify-center"><span className="text-2xl text-purple-600 dark:text-[#DCFD8B] font-bold">{ '{' }{ '}' }</span></div>,
+      name: 'DSA Master',
+      description: 'Helped 20 peers conquer Trees & Graphs.',
+      condition: true,
+    },
+    {
+      id: 'late-night',
+      icon: <div className="w-full h-full bg-white dark:bg-[#1C1C2E] border-2 border-purple-200 dark:border-purple-500/30 rounded-full flex items-center justify-center"><Moon size={24} className="text-purple-500 dark:text-purple-400" /></div>,
+      name: 'Late Night Learner',
+      description: 'Completed 10 sessions after midnight.',
+      condition: (user.totalSessions || 0) >= 0,
+    },
+    {
+      id: 'problem-solver',
+      icon: <div className="w-full h-full bg-white dark:bg-[#1C1C2E] border-2 border-orange-200 dark:border-orange-300/30 rounded-full flex items-center justify-center"><Medal size={24} className="text-orange-400 dark:text-orange-300" /></div>,
+      name: 'Problem Solver',
+      description: 'Resolved 50 difficult coding bugs.',
+      condition: streak.currentStreak >= 0,
+    },
+  ].filter(b => b.condition);
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Profile Header Area */}
-      <section className="flex flex-col items-center justify-center text-center gap-4 bg-white dark:bg-surface-container-low rounded-[24px] p-8 shadow-[0px_10px_30px_rgba(0,0,0,0.05)] dark:shadow-[0px_10px_30px_rgba(0,0,0,0.2)] transition-colors duration-300">
-        <div className="relative group cursor-pointer active:scale-95 transition-transform duration-200">
-          <div className="w-24 h-24 md:w-32 md:h-32 rounded-full overflow-hidden border-4 border-success-lime shadow-[0_4px_20px_rgba(220,253,139,0.3)]">
-            <img className="w-full h-full object-cover" src={user.photoUrl || `https://ui-avatars.com/api/?name=${user.name}&background=DCFD8B&color=151f00`} alt={user.name} />
+    <div className="flex flex-col gap-5 pb-32 bg-gray-50 dark:bg-[#121212] min-h-screen px-4 pt-4 sm:px-0 transition-colors">
+      <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+
+      {/* ── Profile Header Card ─────────────────────────────────────── */}
+      <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-8 flex flex-col items-center text-center relative shadow-sm dark:shadow-lg transition-colors">
+        {/* Avatar */}
+        <div className="relative mb-5">
+          <div className="w-28 h-28 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)]">
+            <img
+              className="w-full h-full object-cover"
+              src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=7C3AED&color=fff&size=200`}
+              alt={user.name}
+            />
           </div>
-          {currentUser?.uid === uid && (
-            <div className="absolute bottom-0 right-0 bg-secondary-container text-on-secondary-container w-8 h-8 rounded-full flex items-center justify-center border-2 border-white dark:border-surface-container-low">
-              <Edit2 size={16} />
-            </div>
+          {isOwner && (
+            <button
+              onClick={() => photoInputRef.current?.click()}
+              disabled={uploadingPhoto}
+              className="absolute bottom-0 right-0 w-8 h-8 bg-[#7C3AED] rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors"
+            >
+              {uploadingPhoto ? <Loader2 size={14} className="text-white animate-spin" /> : <Edit2 size={14} className="text-white" />}
+            </button>
           )}
         </div>
-        
-        <div>
-          <h1 className="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-gray-900 dark:text-primary">{user.name}</h1>
-          <p className="font-body-lg text-body-lg text-focus-purple mt-1">{user.department} Major</p>
-          <div className="flex items-center justify-center gap-2 mt-3 text-gray-500 dark:text-on-surface-variant">
-            <School size={18} />
-            <span className="font-body-sm text-body-sm">Year {user.year} • {user.college}</span>
-          </div>
-        </div>
 
-        {/* Token Balance Badge */}
-        <div className="flex items-center gap-2 bg-purple-50 dark:bg-secondary-container/20 rounded-full py-2 px-5 border border-purple-200 dark:border-secondary-container">
-          <Coins className="text-purple-600 dark:text-secondary" size={18} />
-          <span className="font-label-lg text-label-lg text-purple-700 dark:text-secondary">{tokenBalance} Mind Tokens</span>
-        </div>
+        {/* Name + info */}
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">{user.name}</h1>
+        <p className="text-[#7C3AED] font-semibold text-base mb-2">
+          {user.department} Major
+        </p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm font-medium mb-6">
+          🎓 {user.year} • {user.college}
+        </p>
 
-        <div className="flex flex-wrap gap-3 mt-4 w-full justify-center">
-          <button className="bg-success-lime text-on-primary-fixed py-3 px-6 rounded-full font-label-lg text-label-lg shadow-[0_4px_0_#b3d266] active:translate-y-[2px] active:shadow-[0_2px_0_#b3d266] transition-all flex items-center gap-2">
-            <UserPlus size={18} /> Connect
+        {/* Connect + Message buttons */}
+        <div className="flex gap-3 mb-8 w-full max-w-[280px]">
+          <button
+            onClick={handleConnect}
+            disabled={isConnected || isOwner}
+            className={`flex-1 py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+              isConnected || isOwner
+                ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                : 'bg-[#DCFD8B] text-[#151f00] hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(220,253,139,0.2)]'
+            }`}
+          >
+            {isConnected ? 'Connected' : <><UserPlus size={18} /> Connect</>}
           </button>
-          <button className="bg-gray-100 dark:bg-surface-raised text-gray-900 dark:text-primary py-3 px-6 rounded-full font-label-lg text-label-lg border border-gray-300 dark:border-outline-variant shadow-[0_4px_0_#e5e7eb] dark:shadow-[0_4px_0_#1c1b1b] active:translate-y-[2px] transition-all">
+          <button
+            onClick={handleChat}
+            disabled={isOwner}
+            className="flex-1 py-3 rounded-full bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-gray-200 dark:hover:bg-[#333345] hover:scale-105 active:scale-95 transition-all"
+          >
             Message
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-3 mt-2 w-full justify-center">
-          <button className="bg-secondary-container text-on-secondary-container py-2 px-5 rounded-full font-label-md text-label-md shadow-[0_3px_0_#490b78] active:translate-y-[2px] transition-all flex items-center gap-1">
-            <GraduationCap size={16} /> Topics I Teach: {skillGraph?.teaches?.join(', ') || 'None'}
-          </button>
-          <button className="bg-focus-purple/20 text-secondary-container dark:text-focus-purple py-2 px-5 rounded-full font-label-md text-label-md shadow-[0_3px_0_#632d93] active:translate-y-[2px] transition-all flex items-center gap-1 border border-focus-purple/30">
-            <BookOpen size={16} /> Topics I Learn: {skillGraph?.learns?.join(', ') || 'None'}
-          </button>
+        {/* Topics */}
+        <div className="flex flex-col gap-4 w-full max-w-[280px] text-left mt-2">
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><GraduationCap size={14}/> I Teach</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {teaches.length > 0 ? teaches.map(t => (
+                <span key={t} className="px-3 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-full shadow-sm">{t}</span>
+              )) : <span className="text-xs text-gray-400">None added yet</span>}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><BookOpen size={14}/> I Learn</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {learns.length > 0 ? learns.map(t => (
+                <span key={t} className="px-3 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700 text-xs font-semibold rounded-full">{t}</span>
+              )) : <span className="text-xs text-gray-400">None added yet</span>}
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* Stats Bento Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-surface-container-low rounded-xl p-4 flex flex-col items-center justify-center gap-1 shadow-[0px_4px_15px_rgba(0,0,0,0.05)] dark:shadow-[0px_4px_15px_rgba(0,0,0,0.1)] transition-colors duration-300">
-          <Flame className="text-success-lime" size={28} />
-          <span className="font-headline-md text-headline-md text-gray-900 dark:text-primary">{streak.currentStreak}</span>
-          <span className="font-label-md text-label-md text-gray-500 dark:text-on-surface-variant uppercase tracking-wider">Day Streak</span>
-        </div>
-        <div className="bg-white dark:bg-surface-container-low rounded-xl p-4 flex flex-col items-center justify-center gap-1 shadow-[0px_4px_15px_rgba(0,0,0,0.05)] dark:shadow-[0px_4px_15px_rgba(0,0,0,0.1)] transition-colors duration-300">
-          <Users className="text-focus-purple" size={28} />
-          <span className="font-headline-md text-headline-md text-gray-900 dark:text-primary">{user.totalSessions || 0}</span>
-          <span className="font-label-md text-label-md text-gray-500 dark:text-on-surface-variant uppercase tracking-wider">Sessions</span>
-        </div>
-        <div className="bg-white dark:bg-surface-container-low rounded-xl p-4 flex flex-col items-center justify-center gap-1 shadow-[0px_4px_15px_rgba(0,0,0,0.05)] dark:shadow-[0px_4px_15px_rgba(0,0,0,0.1)] transition-colors duration-300">
-          <Star className="text-warm-peach" size={28} />
-          <span className="font-headline-md text-headline-md text-gray-900 dark:text-primary">{(user.averageRating || 0).toFixed(1)}</span>
-          <span className="font-label-md text-label-md text-gray-500 dark:text-on-surface-variant uppercase tracking-wider">Rating</span>
-        </div>
-        <div className="bg-white dark:bg-surface-container-low rounded-xl p-4 flex flex-col items-center justify-center gap-1 shadow-[0px_4px_15px_rgba(0,0,0,0.05)] dark:shadow-[0px_4px_15px_rgba(0,0,0,0.1)] transition-colors duration-300">
-          <TrendingUp className="text-secondary" size={28} />
-          <span className="font-headline-md text-headline-md text-gray-900 dark:text-primary">{streak.longestStreak || 0}</span>
-          <span className="font-label-md text-label-md text-gray-500 dark:text-on-surface-variant uppercase tracking-wider">Best Streak</span>
-        </div>
+      {/* ── Stats Grid 2×2 ────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-4">
+        <StatCard
+          icon={Flame}
+          iconColor="text-[#DCFD8B]"
+          value={streak.currentStreak || 0}
+          label="Day Streak"
+          onClick={() => navigate('/streak')}
+        />
+        <StatCard
+          icon={Users}
+          iconColor="text-[#7C3AED]"
+          value={user.totalSessions || 0}
+          label="Sessions"
+          onClick={() => navigate('/sessions')}
+        />
+        <StatCard
+          icon={Star}
+          iconColor="text-amber-400"
+          value={(user.averageRating || 0).toFixed(1)}
+          label="Rating"
+          onClick={() => navigate('/ratings')}
+        />
+        <StatCard
+          icon={Clock}
+          iconColor="text-[#7C3AED]"
+          value={matedHours > 0 ? `${matedHours}h` : '0h'}
+          label="Study Hrs"
+          onClick={() => navigate('/mates')}
+        />
       </div>
 
-      {/* Consistency Graph */}
-      <section className="bg-white dark:bg-surface-container-low rounded-[24px] p-6 shadow-[0px_10px_30px_rgba(0,0,0,0.05)] dark:shadow-[0px_10px_30px_rgba(0,0,0,0.2)] transition-colors duration-300">
+      {/* ── Consistency Graph ─────────────────────────────────────── */}
+      <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 shadow-sm dark:shadow-lg transition-colors overflow-hidden">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="font-headline-md text-headline-md text-gray-900 dark:text-primary flex items-center gap-2">
-            <BarChart2 className="text-success-lime" size={24} />
-            Consistency Graph
-          </h2>
-          <div className="font-body-sm text-body-sm text-gray-500 dark:text-on-surface-variant">Last 35 days</div>
+          <div className="flex items-center gap-2">
+            <BarChart2 size={24} className="text-[#DCFD8B]" />
+            <h2 className="font-bold text-gray-900 dark:text-white text-lg">Consistency Graph</h2>
+          </div>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Past year</span>
         </div>
-        <div className="overflow-x-auto pb-2">
-          <div className="min-w-max">
-            <div className="grid grid-rows-5 grid-flow-col gap-2 w-max">
-              {gridCells.map((cell, i) => (
-                <div 
+
+        <div className="w-full overflow-x-auto pb-4 hide-scrollbar">
+          <div className="flex flex-col min-w-max">
+            {/* Grid */}
+            <div className="flex gap-[3px]">
+              {gridData.columns.map((week, cIdx) => (
+                <div key={cIdx} className="flex flex-col gap-[3px]">
+                  {week.map((cell, rIdx) => (
+                    <GridCell key={`${cIdx}-${rIdx}`} level={cell.level} title={`${cell.label}`} />
+                  ))}
+                </div>
+              ))}
+            </div>
+            {/* Month Labels */}
+            <div className="relative h-6 mt-2 w-full">
+              {gridData.monthLabels.map((ml, i) => (
+                <span 
                   key={i} 
-                  className={`w-6 h-6 rounded-[6px] transition-all hover:scale-110 cursor-pointer ${
-                    cell.isActive 
-                      ? 'bg-success-lime shadow-[0_0_10px_rgba(220,253,139,0.5)]' 
-                      : 'bg-gray-200 dark:bg-surface-raised'
-                  }`}
-                  title={`${cell.dayLabel}${cell.isActive ? ' ✅ Active' : ''}`}
-                ></div>
+                  className="absolute text-[10px] text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap"
+                  style={{ left: `${ml.col * (14 + 3)}px` }}
+                >
+                  {ml.label}
+                </span>
               ))}
             </div>
           </div>
         </div>
-        <div className="flex justify-end items-center gap-2 mt-4 font-label-md text-label-md text-gray-500 dark:text-on-surface-variant">
-          <span>Less</span>
-          <div className="flex gap-1">
-            <div className="w-3 h-3 rounded-[3px] bg-gray-200 dark:bg-surface-raised"></div>
-            <div className="w-3 h-3 rounded-[3px] bg-primary-fixed-dim/40"></div>
-            <div className="w-3 h-3 rounded-[3px] bg-success-lime"></div>
-            <div className="w-3 h-3 rounded-[3px] bg-focus-purple/60"></div>
+
+        <div className="flex justify-end items-center gap-2 mt-4">
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Less</span>
+          <div className="flex gap-[3px]">
+            <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 dark:bg-[#2A2A3A]" />
+            <div className="w-3.5 h-3.5 rounded-sm bg-purple-200 dark:bg-[#4C1D95]" />
+            <div className="w-3.5 h-3.5 rounded-sm bg-[#7C3AED]" />
+            <div className="w-3.5 h-3.5 rounded-sm bg-[#DCFD8B]" />
           </div>
-          <span>More</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">More</span>
         </div>
       </section>
 
-      {/* Badge Showcase */}
-      <section className="bg-white dark:bg-surface-container-low rounded-[24px] p-6 shadow-[0px_10px_30px_rgba(0,0,0,0.05)] dark:shadow-[0px_10px_30px_rgba(0,0,0,0.2)] transition-colors duration-300">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="font-headline-md text-headline-md text-gray-900 dark:text-primary flex items-center gap-2">
-            <Medal className="text-focus-purple" size={24} />
-            Badge Showcase
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gray-50 dark:bg-surface-raised rounded-xl p-5 border border-gray-200 dark:border-outline-variant/30 flex flex-col items-center text-center gap-3">
-            <div className="w-16 h-16 rounded-full bg-primary-container/20 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[32px] text-success-lime fill">data_object</span>
-            </div>
-            <div>
-              <h3 className="font-body-lg text-body-lg text-gray-900 dark:text-primary font-bold">DSA Master</h3>
-              <p className="font-body-sm text-body-sm text-gray-600 dark:text-on-surface-variant mt-1">Helped 20 peers conquer Trees & Graphs.</p>
-            </div>
+      {/* ── Badge Showcase ─────────────────────────────────────────── */}
+      <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 shadow-sm dark:shadow-lg flex flex-col gap-4 transition-colors">
+        <div className="flex justify-between items-center mb-2">
+          <div className="flex items-center gap-2">
+            <Medal size={24} className="text-[#7C3AED]" />
+            <h2 className="font-bold text-gray-900 dark:text-white text-lg">Badge Showcase</h2>
           </div>
-          {streak.currentStreak >= 5 && (
-            <div className="bg-gray-50 dark:bg-surface-raised rounded-xl p-5 border border-gray-200 dark:border-outline-variant/30 flex flex-col items-center text-center gap-3">
-              <div className="w-16 h-16 rounded-full bg-orange-100/20 dark:bg-surface-container flex items-center justify-center">
-                <Flame size={32} className="text-orange-500" />
-              </div>
-              <div>
-                <h3 className="font-body-lg text-body-lg text-gray-900 dark:text-primary font-bold">On Fire!</h3>
-                <p className="font-body-sm text-body-sm text-gray-600 dark:text-on-surface-variant mt-1">Maintained a {streak.currentStreak}-day learning streak.</p>
-              </div>
-            </div>
-          )}
-          {tokenBalance >= 100 && (
-            <div className="bg-gray-50 dark:bg-surface-raised rounded-xl p-5 border border-gray-200 dark:border-outline-variant/30 flex flex-col items-center text-center gap-3">
-              <div className="w-16 h-16 rounded-full bg-purple-100/20 dark:bg-surface-container flex items-center justify-center">
-                <Coins size={32} className="text-focus-purple" />
-              </div>
-              <div>
-                <h3 className="font-body-lg text-body-lg text-gray-900 dark:text-primary font-bold">Token Collector</h3>
-                <p className="font-body-sm text-body-sm text-gray-600 dark:text-on-surface-variant mt-1">Earned {tokenBalance} Mind Tokens through contribution.</p>
-              </div>
-            </div>
-          )}
+          <Link to="/badges" className="text-xs font-bold text-green-700 dark:text-[#DCFD8B] tracking-widest uppercase hover:underline">
+            VIEW ALL
+          </Link>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {earnedBadges.map(badge => (
+            <BadgeCard key={badge.id} {...badge} />
+          ))}
         </div>
       </section>
+
+      {/* Edit Profile Button */}
+      {isOwner && (
+        <button
+          onClick={() => setShowEditModal(true)}
+          className="w-full py-4 rounded-[32px] bg-[#7C3AED] text-white font-bold text-base flex items-center justify-center gap-2 hover:bg-[#6D28D9] transition-all shadow-[0_0_15px_rgba(124,58,237,0.3)]"
+        >
+          <Edit2 size={18} /> Edit Full Profile
+        </button>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && (
+        <EditProfileModal
+          user={user}
+          skillGraph={skillGraph}
+          onClose={() => setShowEditModal(false)}
+          onSave={handleEditSave}
+        />
+      )}
     </div>
   );
 };

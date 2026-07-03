@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { chatService, ChatWebSocket } from '../services/chatService';
 import { sessionService } from '../services/sessionService';
@@ -196,9 +196,10 @@ const Chat = () => {
   const { matchId } = useParams();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
-  const [partner, setPartner] = useState(null);
+  const [partner, setPartner] = useState(location.state?.partner || null);
   const [isTyping, setIsTyping] = useState(false);
   
   // Session state
@@ -213,13 +214,18 @@ const Chat = () => {
   const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
-    if (!matchId) return;
+    if (!matchId || !currentUser) return;
 
     const initChat = async () => {
       try {
         // Fetch history
         const history = await chatService.getHistory(matchId);
         setMessages(history.data || history.messages || []);
+
+        const detail = await chatService.getThreadDetail(matchId).catch(() => null);
+        if (detail?.data?.partner) {
+          setPartner(detail.data.partner);
+        }
         
         // Setup WebSocket
         const token = await currentUser.getIdToken();
@@ -262,10 +268,24 @@ const Chat = () => {
   };
 
   const handleReceiveMessage = (data) => {
-    if (data.message) {
+    const incoming = data.message || (
+      data.type === 'message'
+        ? {
+            id: data.messageId,
+            messageId: data.messageId,
+            senderUid: data.senderUid,
+            senderName: data.senderName,
+            text: data.text,
+            timestamp: data.timestamp,
+            read: data.read || false,
+          }
+        : null
+    );
+
+    if (incoming) {
       setMessages(prev => {
-        if (prev.find(m => m.id === data.message.id || m.messageId === data.message.messageId)) return prev;
-        return [...prev, data.message];
+        if (prev.find(m => m.id === incoming.id || m.messageId === incoming.messageId)) return prev;
+        return [...prev, incoming];
       });
       setIsTyping(false);
     }
@@ -300,7 +320,10 @@ const Chat = () => {
 
     try {
       if (wsRef.current) {
-        wsRef.current.sendMessage(text);
+        const sentOverSocket = wsRef.current.sendMessage(text);
+        if (!sentOverSocket) {
+          await chatService.sendMessage(matchId, text);
+        }
         setTimeout(() => {
           setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? {...m, status: 'sent'} : m));
         }, 500);
@@ -399,12 +422,15 @@ const Chat = () => {
           </button>
           <div className="flex items-center gap-3">
             <div className="relative">
-              <img src={`https://ui-avatars.com/api/?name=${matchId}&background=DCFD8B&color=151f00`} alt="Partner" className="w-10 h-10 rounded-full object-cover" />
+              <img src={partner?.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.name || 'Study Partner')}&background=DCFD8B&color=151f00`} alt={partner?.name || 'Study Partner'} className="w-10 h-10 rounded-full object-cover" />
               <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-background-deep rounded-full"></div>
             </div>
             <div>
-              <h2 className="font-label-lg text-lg text-gray-900 dark:text-on-surface leading-tight">Study Partner</h2>
-              <p className="font-label-md text-gray-500 text-xs">Online</p>
+              <h2 className="font-label-lg text-lg text-gray-900 dark:text-on-surface leading-tight">{partner?.name || 'Study Partner'}</h2>
+              <p className="font-label-md text-gray-500 text-xs">
+                {partner?.averageRating > 0 ? `${Number(partner.averageRating).toFixed(1)} rating` : 'New mate'}
+                {partner?.college ? ` • ${partner.college}` : ''}
+              </p>
             </div>
           </div>
         </div>

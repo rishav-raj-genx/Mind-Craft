@@ -15,6 +15,16 @@ export const chatService = {
   getThreads: async (uid) => {
     const response = await api.get(`/chat/threads/${uid}`);
     return response.data;
+  },
+
+  getThreadDetail: async (matchId) => {
+    const response = await api.get(`/chat/${matchId}/detail`);
+    return response.data;
+  },
+
+  getOrCreateThread: async (partnerUid) => {
+    const response = await api.post(`/chat/thread`, { partnerUid });
+    return response.data;
   }
 };
 
@@ -25,10 +35,11 @@ export class ChatWebSocket {
     this.onMessage = onMessage;
     this.onTyping = onTyping;
     this.onPresence = onPresence;
+    this.shouldReconnect = true;
     
     // Replace http:// or https:// with ws:// or wss://
     const wsBaseUrl = API_BASE_URL.replace(/^http/, 'ws');
-    this.wsUrl = `${wsBaseUrl}/ws?token=${token}`;
+    this.wsUrl = `${wsBaseUrl}/ws?token=${encodeURIComponent(token)}`;
     
     this.connect();
   }
@@ -57,8 +68,11 @@ export class ChatWebSocket {
     };
 
     this.ws.onclose = () => {
+      if (!this.shouldReconnect) return;
       console.log('WebSocket disconnected. Reconnecting in 3s...');
-      setTimeout(() => this.connect(), 3000);
+      setTimeout(() => {
+        if (this.shouldReconnect) this.connect();
+      }, 3000);
     };
 
     this.ws.onerror = (err) => {
@@ -76,8 +90,10 @@ export class ChatWebSocket {
   sendMessage(text) {
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'message', matchId: this.matchId, text }));
+      return true;
     } else {
       console.warn('WebSocket not open. Cannot send message.');
+      return false;
     }
   }
 
@@ -88,6 +104,7 @@ export class ChatWebSocket {
   }
 
   disconnect() {
+    this.shouldReconnect = false;
     if (this.ws) {
       this.ws.onclose = null; // Prevent auto-reconnect
       this.ws.close();

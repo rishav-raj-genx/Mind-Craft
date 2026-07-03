@@ -6,23 +6,71 @@
  *   - Longest streak ever achieved
  *   - A 35-element array of active dates for the 7×5 GitHub-style
  *     consistency graph on the user profile page
+ *   - Dynamic badge milestones (earned + next target)
+ *   - Streak freeze inventory
  *
  * The "grid" output maps to 7 columns (days of the week) × 5 rows
  * (weeks), covering the most recent 35 calendar days.
  */
 
-const { db }               = require('../config/firebase');
+const { db, admin }            = require('../config/firebase');
 const { COLLECTION_USERS, COLLECTION_ACTIVITY_LOG } = require('../utils/constants');
+
+const FieldValue = admin.firestore.FieldValue;
+
+// ── Badge Milestone Definitions ──────────────────────────────────────
+const BADGE_MILESTONES = [
+  { days: 3,   name: 'Spark Starter',    emoji: '🌱', icon: 'Sprout',    level: 1, freezeReward: 1 },
+  { days: 7,   name: 'Week Warrior',     emoji: '⚡', icon: 'Zap',       level: 2, freezeReward: 1 },
+  { days: 14,  name: 'Fortnight Focus',  emoji: '🔥', icon: 'Flame',     level: 3, freezeReward: 1 },
+  { days: 30,  name: 'Monthly Master',   emoji: '🏆', icon: 'Trophy',    level: 4, freezeReward: 1 },
+  { days: 60,  name: 'Discipline King',  emoji: '💎', icon: 'Diamond',   level: 5, freezeReward: 1 },
+  { days: 100, name: 'Century Legend',    emoji: '👑', icon: 'Crown',     level: 6, freezeReward: 2 },
+];
+
+/**
+ * Records a daily check-in for a user. Idempotent — uses the date
+ * string as the Firestore document ID so multiple calls on the same
+ * day will not create duplicate entries.
+ *
+ * @param {string} uid — Firebase UID
+ * @returns {Promise<{ alreadyCheckedIn: boolean }>}
+ */
+async function recordCheckIn(uid) {
+  const todayStr = toDateString(new Date());
+  const activityRef = db
+    .collection(COLLECTION_USERS)
+    .doc(uid)
+    .collection(COLLECTION_ACTIVITY_LOG)
+    .doc(todayStr);
+
+  const existing = await activityRef.get();
+
+  if (existing.exists) {
+    return { alreadyCheckedIn: true };
+  }
+
+  await activityRef.set({
+    type:      'app_open',
+    timestamp: FieldValue.serverTimestamp(),
+    date:      todayStr,
+  });
+
+  return { alreadyCheckedIn: false };
+}
 
 /**
  * Calculates streak data for a user.
  *
  * @param {string} uid — Firebase UID
  * @returns {Promise<{
- *   currentStreak:  number,
- *   longestStreak:  number,
- *   activeDates:    string[],
- *   grid:           Array<{ date: string, active: boolean, dayOfWeek: number }>
+ *   currentStreak:   number,
+ *   longestStreak:   number,
+ *   activeDates:     string[],
+ *   grid:            Array<{ date: string, active: boolean, dayOfWeek: number }>,
+ *   badges:          object,
+ *   streakFreezes:   number,
+ *   totalActiveDays: number,
  * }>}
  */
 async function calculateStreak(uid) {
@@ -57,12 +105,85 @@ async function calculateStreak(uid) {
   // ── Build the 7×5 grid (35 days) for the frontend ────────────────
   const grid = buildConsistencyGrid(activeDateSet, now);
 
+  // ── Total active days (within 90-day window) ──────────────────────
+  const totalActiveDays = activeDates.length;
+
+  // ── Compute badges & streak freezes ───────────────────────────────
+  const badges = computeBadges(currentStreak, longestStreak, totalActiveDays);
+  const streakFreezes = computeStreakFreezes(longestStreak);
+
   return {
     currentStreak,
     longestStreak,
     activeDates: getLast35ActiveDates(activeDateSet, now),
     grid,
+    badges,
+    streakFreezes,
+    totalActiveDays,
   };
+}
+
+/**
+ * Computes badge progress based on current streak, longest streak,
+ * and total active days.
+ *
+ * Returns:
+ *   - earned:    Array of badges the user has already unlocked (based on longest streak)
+ *   - next:      The next badge to unlock (null if all earned)
+ *   - daysToNext: How many more days needed for the next badge
+ *   - progress:  0–100 percentage towards the next badge
+ *
+ * @param {number} currentStreak
+ * @param {number} longestStreak
+ * @param {number} totalActiveDays
+ * @returns {{ earned: object[], next: object|null, daysToNext: number, progress: number }}
+ */
+function computeBadges(currentStreak, longestStreak, totalActiveDays) {
+  // Badge is "earned" if the user ever reached that streak length
+  const bestStreak = Math.max(currentStreak, longestStreak);
+
+  const earned = BADGE_MILESTONES.filter(b => bestStreak >= b.days);
+  const remaining = BADGE_MILESTONES.filter(b => bestStreak < b.days);
+
+  const next = remaining.length > 0 ? remaining[0] : null;
+  const daysToNext = next ? next.days - currentStreak : 0;
+
+  // Progress towards the next badge
+  let progress = 0;
+  if (next) {
+    const prevMilestoneDays = earned.length > 0 ? earned[earned.length - 1].days : 0;
+    const range = next.days - prevMilestoneDays;
+    const completed = currentStreak - prevMilestoneDays;
+    progress = range > 0 ? Math.max(0, Math.min(100, Math.round((completed / range) * 100))) : 0;
+  } else {
+    progress = 100; // All badges earned
+  }
+
+  return {
+    earned,
+    next,
+    daysToNext: Math.max(0, daysToNext),
+    progress,
+    totalActiveDays,
+  };
+}
+
+/**
+ * Computes the number of streak freezes a user has.
+ * Base: 2 freezes. Gains +1 for each badge milestone earned
+ * (Century Legend gives +2).
+ *
+ * @param {number} longestStreak
+ * @returns {number}
+ */
+function computeStreakFreezes(longestStreak) {
+  let freezes = 2; // Base freezes every user starts with
+  for (const milestone of BADGE_MILESTONES) {
+    if (longestStreak >= milestone.days) {
+      freezes += milestone.freezeReward;
+    }
+  }
+  return freezes;
 }
 
 /**
@@ -190,4 +311,4 @@ function toDateString(date) {
   return date.toISOString().split('T')[0];
 }
 
-module.exports = { calculateStreak };
+module.exports = { calculateStreak, recordCheckIn, BADGE_MILESTONES };

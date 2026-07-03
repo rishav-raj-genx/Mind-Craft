@@ -4,7 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 
 const Login = () => {
-  const { loginWithGoogle, loginWithEmail } = useAuth();
+  const { loginWithGoogle, loginWithEmail, logout } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -129,6 +129,14 @@ const Login = () => {
           Don't have an account? <br className="sm:hidden" />
           <Link to="/signup" className="font-label-lg text-label-lg text-success-lime hover:text-focus-purple transition-colors underline decoration-2 underline-offset-4 ml-1">Sign Up</Link>
         </p>
+
+        {/* Force Logout / Reset */}
+        <button 
+          onClick={async () => { try { await logout(); } catch (e) {} }}
+          className="font-label-sm text-on-surface-variant hover:text-red-500 mt-6 underline text-xs transition-colors"
+        >
+          Having trouble? Force Log Out
+        </button>
       </main>
     </div>
   );

@@ -208,14 +208,6 @@ router.post('/:sessionId/cancel', verifyFirebaseToken, async (req, res, next) =>
 router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { googleTokens } = req.body;
-
-    if (!googleTokens || !googleTokens.access_token) {
-      return res.status(400).json({
-        success: false,
-        error: 'Google OAuth tokens required. Use GET /api/session/auth/google first.',
-      });
-    }
 
     // Fetch session data
     const sessionDoc = await db.collection(COLLECTION_SESSIONS).doc(sessionId).get();
@@ -225,17 +217,24 @@ router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res,
 
     const session = sessionDoc.data();
 
-    // Get peer name
-    const peerUid = req.user.uid === session.teacherUid
-      ? session.learnerUid
-      : session.teacherUid;
+    const start = new Date(session.scheduledAt);
+    const end = new Date(start.getTime() + 60 * 60 * 1000); // 1-hour default
 
-    const peerDoc = await db.collection(COLLECTION_USERS).doc(peerUid).get();
-    const peerName = peerDoc.exists ? peerDoc.data().name : 'Peer';
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmt = (d) =>
+      `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
 
-    const result = await exportSessionToCalendar(session, googleTokens, peerName);
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: `MindCraft Session: ${session.skill || 'Tutoring'}`,
+      dates: `${fmt(start)}/${fmt(end)}`,
+      details: `MindCraft P2P Tutoring Session\nSkill: ${session.skill || 'General'}\nMode: ${session.mode || 'Online'}${session.meetLink ? `\nJoin: ${session.meetLink}` : ''}`,
+      location: session.meetLink || session.location || 'MindCraft App',
+    });
 
-    res.json({ success: true, data: result });
+    const url = `https://calendar.google.com/calendar/render?${params.toString()}`;
+
+    res.json({ success: true, data: { htmlLink: url } });
   } catch (err) {
     next(err);
   }

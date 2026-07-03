@@ -15,7 +15,8 @@ const SignUp = () => {
   const [learns, setLearns] = useState(['Organic Chem']);
   const [error, setError] = useState('');
 
-  const handleGoogleSignup = async () => {
+  const handleGoogleSignup = async (e) => {
+    e.preventDefault();
     try {
       setError('');
       // 1. Authenticate with Firebase via Google popup
@@ -76,7 +77,7 @@ const SignUp = () => {
 
         {error && <div className="text-red-500 mb-4 z-10 relative">{error}</div>}
 
-        <form className="space-y-6 relative z-10">
+        <form onSubmit={handleGoogleSignup} className="space-y-6 relative z-10">
           <div>
             <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Preferred Name</label>
             <div className="relative">
@@ -85,6 +86,7 @@ const SignUp = () => {
                 value={name} onChange={(e) => setName(e.target.value)}
                 className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50" 
                 placeholder="What should we call you?" 
+                required
               />
             </div>
           </div>
@@ -97,6 +99,7 @@ const SignUp = () => {
                 value={college} onChange={(e) => setCollege(e.target.value)}
                 className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50" 
                 placeholder="e.g., University of Science" 
+                required
               />
             </div>
           </div>
@@ -136,7 +139,7 @@ const SignUp = () => {
           </div>
 
           <button 
-            type="button" onClick={handleGoogleSignup}
+            type="submit"
             className="w-full bg-success-lime text-on-primary-fixed font-headline-md text-[18px] rounded-full py-4 px-6 flex items-center justify-center gap-2 tactile-button border-[#b3d266] mt-8 hover:bg-primary-fixed"
           >
             Start Crafting with Google <Rocket size={20} />

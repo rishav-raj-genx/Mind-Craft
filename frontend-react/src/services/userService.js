@@ -19,5 +19,11 @@ export const userService = {
   updateProfile: async (uid, updates) => {
     const response = await api.patch(`/user/${uid}`, updates);
     return response.data;
+  },
+
+  // Search users globally
+  searchUsers: async (query) => {
+    const response = await api.get(`/user/search?q=${encodeURIComponent(query)}`);
+    return response.data;
   }
 };

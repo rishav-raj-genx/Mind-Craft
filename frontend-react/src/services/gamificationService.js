@@ -11,6 +11,24 @@ export const gamificationService = {
     return response.data;
   },
 
+  /**
+   * Records a daily check-in (app open). Idempotent — safe to call
+   * multiple times per day. Returns full streak data including badges.
+   */
+  checkIn: async () => {
+    const response = await api.post('/streak/checkin');
+    return response.data;
+  },
+
+  /**
+   * Gets dynamic badge progress for a user.
+   * Returns badges, totalEarned, sessionHistory, badgeHistory.
+   */
+  getBadges: async (uid) => {
+    const response = await api.get(`/badges/${uid}`);
+    return response.data;
+  },
+
   awardForumTokens: async () => {
     const response = await api.post('/tokens/award/forum');
     return response.data;

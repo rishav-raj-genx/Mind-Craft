@@ -1,13 +1,15 @@
 /**
- * gamification.js — Token Economy & Streak Routes
+ * gamification.js — Token Economy, Streak & Badge Routes
  *
- * Endpoints for the Mind Token system and daily consistency streaks.
+ * Endpoints for the Mind Token system, daily consistency streaks, and badges.
  *
  * Endpoints:
  *   GET  /api/tokens/:uid              — Get token balance + recent transactions
  *   POST /api/tokens/award/forum       — Award tokens for forum answer
  *   POST /api/tokens/award/session     — Award tokens for session completion
- *   GET  /api/streak/:uid              — Get streak data + 7×5 grid
+ *   GET  /api/streak/:uid              — Get streak data + grid + badges
+ *   POST /api/streak/checkin           — Record daily check-in (app open)
+ *   GET  /api/badges/:uid              — Get dynamic badge progress
  */
 
 const express = require('express');
@@ -23,7 +25,8 @@ const {
   getBalance,
   getTransactionHistory,
 } = require('../services/tokenEconomy');
-const { calculateStreak } = require('../services/streakCalculator');
+const { calculateStreak, recordCheckIn } = require('../services/streakCalculator');
+const { calculateBadges, recordBadgeEarned } = require('../services/badgeCalculator');
 
 // ── GET /api/tokens/:uid ──────────────────────────────────────────────
 router.get('/tokens/:uid', verifyFirebaseToken, async (req, res, next) => {
@@ -108,6 +111,38 @@ router.post(
   },
 );
 
+// ── POST /api/streak/checkin ──────────────────────────────────────────
+// Records that the user opened the app today. Idempotent — safe to
+// call multiple times per day without creating duplicate entries.
+router.post('/streak/checkin', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const uid = req.user.uid;
+
+    // Record today's check-in (idempotent)
+    const checkInResult = await recordCheckIn(uid);
+
+    // Return full updated streak data
+    const streak = await calculateStreak(uid);
+
+    // Check and award streak bonus at milestones
+    let streakBonus = null;
+    if ([5, 10, 30].includes(streak.currentStreak) && !checkInResult.alreadyCheckedIn) {
+      streakBonus = await awardStreakBonus(uid, streak.currentStreak);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...streak,
+        alreadyCheckedIn: checkInResult.alreadyCheckedIn,
+        streakBonus,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET /api/streak/:uid ──────────────────────────────────────────────
 router.get('/streak/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
@@ -117,11 +152,38 @@ router.get('/streak/:uid', verifyFirebaseToken, async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        currentStreak: streak.currentStreak,
-        longestStreak: streak.longestStreak,
-        activeDates:   streak.activeDates,
-        grid:          streak.grid,
+        currentStreak:   streak.currentStreak,
+        longestStreak:   streak.longestStreak,
+        activeDates:     streak.activeDates,
+        grid:            streak.grid,
+        badges:          streak.badges,
+        streakFreezes:   streak.streakFreezes,
+        totalActiveDays: streak.totalActiveDays,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/badges/:uid ──────────────────────────────────────────────
+router.get('/badges/:uid', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const uid = req.params.uid;
+    const result = await calculateBadges(uid);
+
+    // Record any newly earned badges in history
+    for (const badge of result.badges) {
+      if (badge.level > 0) {
+        try {
+          await recordBadgeEarned(uid, badge.id, badge.name, badge.level);
+        } catch (_) { /* non-critical */ }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: result,
     });
   } catch (err) {
     next(err);

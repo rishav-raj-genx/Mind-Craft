@@ -86,6 +86,36 @@ router.post(
   },
 );
 
+// ── GET /api/user/search ──────────────────────────────────────────────
+router.get('/search', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const q = (req.query.q || '').trim().toLowerCase();
+    const snapshot = await db.collection(COLLECTION_USERS).get();
+    
+    let users = snapshot.docs
+      .map(doc => ({ uid: doc.id, ...doc.data() }))
+      .filter((u) => u.uid !== req.user.uid);
+    
+    if (q) {
+      users = users.filter((u) => {
+        const skills = [...(u.teaches || []), ...(u.learns || [])];
+        return [
+          u.name,
+          u.email,
+          u.college,
+          u.department,
+          u.year,
+          ...skills,
+        ].some((value) => String(value || '').toLowerCase().includes(q));
+      });
+    }
+    
+    res.json({ success: true, count: users.length, data: users });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET /api/user/:uid ────────────────────────────────────────────────
 router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
@@ -114,7 +144,7 @@ router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
     // Whitelist updateable fields
     const allowedFields = [
       'name', 'college', 'department', 'year', 'teaches', 'learns',
-      'fcmToken', 'latitude', 'longitude', 'photoUrl',
+      'fcmToken', 'latitude', 'longitude', 'photoUrl', 'bannerUrl',
       'leetcodeUsername', 'codeforcesUsername', 'codechefUsername',
     ];
 

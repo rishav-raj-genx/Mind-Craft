@@ -126,4 +126,45 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
   }
 });
 
+// ── POST /api/chat/thread ──────────────────────────────────────────────
+router.post('/thread', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const fromUid = req.user.uid;
+    const { partnerUid } = req.body;
+    
+    if (!partnerUid) {
+      return res.status(400).json({ success: false, error: 'partnerUid is required' });
+    }
+
+    // Check if match exists
+    const matchCheck1 = await db.collection(COLLECTION_MATCHES)
+      .where('user1Uid', '==', fromUid).where('user2Uid', '==', partnerUid).get();
+    const matchCheck2 = await db.collection(COLLECTION_MATCHES)
+      .where('user1Uid', '==', partnerUid).where('user2Uid', '==', fromUid).get();
+      
+    if (!matchCheck1.empty) {
+      return res.json({ success: true, matchId: matchCheck1.docs[0].id });
+    }
+    if (!matchCheck2.empty) {
+      return res.json({ success: true, matchId: matchCheck2.docs[0].id });
+    }
+    
+    // Create new match if none exists
+    const matchRef = db.collection(COLLECTION_MATCHES).doc();
+    const match = {
+      matchId:         matchRef.id,
+      user1Uid:        fromUid,
+      user2Uid:        partnerUid,
+      sharedSkills:    [],
+      createdAt:       Date.now(),
+      lastMessage:     '',
+      lastMessageTime: 0,
+    };
+    await matchRef.set(match);
+    res.json({ success: true, matchId: matchRef.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

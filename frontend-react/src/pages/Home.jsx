@@ -2,12 +2,27 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { gamificationService } from '../services/gamificationService';
 import { matchService } from '../services/matchService';
-import { Link } from 'react-router-dom';
-import { Flame, Coins, Star, Code, FunctionSquare, Cpu, TestTube, Database, BrainCircuit } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Flame, Trophy, Star, Code, FunctionSquare, Cpu, TestTube, Database, BrainCircuit, ChevronRight, Plus } from 'lucide-react';
+import { motion, animate, useMotionValue, useTransform } from 'framer-motion';
+
+// ─── CountUp Component ────────────────────────────────────────────────────────
+const CountUp = ({ to, duration = 1.5 }) => {
+  const count = useMotionValue(0);
+  const rounded = useTransform(count, Math.round);
+
+  useEffect(() => {
+    const animation = animate(count, to, { duration, ease: "easeOut" });
+    return animation.stop;
+  }, [to, duration, count]);
+
+  return <motion.span>{rounded}</motion.span>;
+};
 
 const Home = () => {
   const { currentUser } = useAuth();
-  const [tokens, setTokens] = useState(0);
+  const navigate = useNavigate();
+  const [badgeCount, setBadgeCount] = useState(0);
   const [streak, setStreak] = useState({ currentStreak: 0 });
   const [topMates, setTopMates] = useState([]);
   
@@ -15,11 +30,16 @@ const Home = () => {
     if (currentUser) {
       const loadData = async () => {
         try {
-          const t = await gamificationService.getTokens(currentUser.uid);
-          setTokens(t.data?.balance || t.balance || 0);
+          // Check-in records today's app open AND returns full streak data
+          const checkInRes = await gamificationService.checkIn();
+          const streakData = checkInRes.data || checkInRes || { currentStreak: 0 };
+          setStreak(streakData);
           
-          const s = await gamificationService.getStreak(currentUser.uid);
-          setStreak(s.data || s || { currentStreak: 0 });
+          // Fetch badge count
+          try {
+            const badgeRes = await gamificationService.getBadges(currentUser.uid);
+            setBadgeCount(badgeRes.data?.totalEarned || 0);
+          } catch (_) { /* silent */ }
           
           const m = await matchService.getMatches(currentUser.uid);
           // Just take top 3 for dashboard
@@ -27,6 +47,11 @@ const Home = () => {
           setTopMates(matchList.slice(0, 3));
         } catch (err) {
           console.error("Error loading home data:", err);
+          // Fallback: try getting streak without check-in
+          try {
+            const s = await gamificationService.getStreak(currentUser.uid);
+            setStreak(s.data || s || { currentStreak: 0 });
+          } catch (_) { /* silent */ }
         }
       };
       loadData();
@@ -43,14 +68,31 @@ const Home = () => {
             <p className="font-body-md text-body-md text-gray-600 dark:text-on-surface-variant mt-1">Ready to crush some concepts today?</p>
           </div>
           <div className="flex flex-wrap gap-4 mt-2">
-            <div className="flex items-center gap-2 bg-gray-50 dark:bg-surface-raised rounded-full py-2 px-4 shadow-sm border border-gray-200 dark:border-[#262626]">
-              <Flame className="text-orange-500" size={20} />
-              <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">{streak.currentStreak} Day Streak</span>
-            </div>
-            <div className="flex items-center gap-2 bg-purple-50 dark:bg-secondary-container/20 rounded-full py-2 px-4 shadow-sm border border-purple-200 dark:border-secondary-container">
-              <Coins className="text-purple-600" size={20} />
-              <span className="font-label-lg text-label-lg text-purple-700 dark:text-secondary">{tokens} Mind Tokens</span>
-            </div>
+            {/* Streak Pill — tappable, links to streak detail */}
+            <button
+              onClick={() => navigate('/streak')}
+              className="flex items-center gap-2 bg-gray-50 dark:bg-surface-raised rounded-full py-2 px-4 shadow-sm border border-gray-200 dark:border-[#262626] hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95"
+            >
+              <motion.div
+                animate={streak.currentStreak > 0 ? { y: [0, -3, 0] } : {}}
+                transition={{ duration: 1, repeat: Infinity, repeatDelay: 1 }}
+              >
+                <Flame className="text-orange-500" size={20} />
+              </motion.div>
+              <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">
+                <CountUp to={streak.currentStreak} /> Day Streak
+              </span>
+              <ChevronRight size={14} className="text-gray-400" />
+            </button>
+            {/* Badges Pill — tappable, links to badges page */}
+            <button
+              onClick={() => navigate('/badges')}
+              className="flex items-center gap-2 bg-purple-50 dark:bg-secondary-container/20 rounded-full py-2 px-4 shadow-sm border border-purple-200 dark:border-secondary-container hover:bg-purple-100 dark:hover:bg-secondary-container/30 transition-colors active:scale-95"
+            >
+              <Trophy className="text-purple-600" size={20} />
+              <span className="font-label-lg text-label-lg text-purple-700 dark:text-secondary">{badgeCount} Badges</span>
+              <ChevronRight size={14} className="text-purple-400" />
+            </button>
           </div>
         </div>
         <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-success-lime/20 dark:bg-success-lime/5 rounded-full blur-2xl pointer-events-none"></div>
@@ -60,11 +102,15 @@ const Home = () => {
       <section className="flex flex-col gap-4">
         <div className="flex justify-between items-end">
           <h3 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">Top Recommended Mates</h3>
-          <Link to="/find" className="font-label-md text-label-md text-success-lime text-green-700 hover:underline">View All</Link>
+          <Link to="/find" className="font-label-md text-label-md text-green-700 dark:text-success-lime hover:underline">View All</Link>
         </div>
         <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-4 -mx-margin-mobile px-margin-mobile snap-x">
           {topMates.map((mate, i) => (
-            <div key={i} className="min-w-[200px] bg-white dark:bg-surface-container rounded-xl p-4 flex flex-col items-center gap-3 snap-center border border-gray-200 dark:border-surface-raised shadow-lg cursor-pointer hover:bg-gray-50 transition-colors">
+            <div 
+              key={i} 
+              className="min-w-[200px] bg-white dark:bg-surface-container rounded-xl p-4 flex flex-col items-center gap-3 snap-center border border-gray-200 dark:border-surface-raised shadow-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-container-high transition-colors active:scale-[0.98]"
+              onClick={() => navigate(`/profile/${mate.uid}`)}
+            >
               <img alt="Mate Avatar" className="w-16 h-16 rounded-full object-cover border-2 border-focus-purple" src={mate.photoUrl || "https://ui-avatars.com/api/?name="+mate.name} />
               <div className="text-center">
                 <h4 className="font-body-lg text-body-lg text-gray-900 dark:text-on-surface font-semibold">{mate.name}</h4>
@@ -86,7 +132,7 @@ const Home = () => {
       </section>
 
       {/* Trending Syllabus Topics */}
-      <section className="flex flex-col gap-4 mb-20">
+      <section className="flex flex-col gap-4">
         <h3 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">Trending Syllabus Topics</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <button className="bg-white dark:bg-surface-container hover:bg-gray-50 dark:hover:bg-surface-container-high border border-gray-200 dark:border-surface-raised rounded-full py-3 px-4 flex items-center justify-center gap-2 transition-colors tactile-press shadow-[0px_4px_0px_#e5e7eb] dark:shadow-[0px_4px_0px_#262626]">
@@ -114,6 +160,17 @@ const Home = () => {
             <span className="font-label-lg text-label-lg text-gray-900 dark:text-on-surface">Cognitive Psych</span>
           </button>
         </div>
+      </section>
+
+      {/* Post a Doubt CTA */}
+      <section className="mb-6">
+        <button
+          onClick={() => navigate('/forum')}
+          className="w-full bg-focus-purple/10 dark:bg-secondary-container/20 hover:bg-focus-purple/20 dark:hover:bg-secondary-container/30 text-purple-700 dark:text-focus-purple font-label-lg text-label-lg rounded-2xl py-4 px-6 flex items-center justify-center gap-2 border border-purple-200 dark:border-secondary-container/40 transition-all active:scale-[0.98]"
+        >
+          <Plus size={20} />
+          Post a Doubt
+        </button>
       </section>
 
     </div>

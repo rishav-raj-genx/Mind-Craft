@@ -33,16 +33,35 @@
     box-shadow: 0px 2px 0px rgba(0,0,0,0.2) inset !important;
   }
 
-  /* Custom input focus states */
+  /* Custom input focus states — works for both light and dark */
   .glass-input {
-    background-color: #0F0F0F;
-    border: 1px solid #262626;
+    border: 1px solid transparent;
     transition: all 0.2s ease;
+  }
+  /* Dark mode: dark bg, dark border */
+  .dark .glass-input {
+    background-color: #0F0F0F;
+    border-color: #262626;
+  }
+  /* Light mode: light bg, light border */
+  :not(.dark) .glass-input,
+  .glass-input-light {
+    background-color: #f3f4f6;
+    border-color: #d1d5db;
+    color: #111827;
   }
   .glass-input:focus {
     outline: none;
     border-color: #DCFD8B;
     box-shadow: 0 0 10px rgba(220, 253, 139, 0.2);
+  }
+  .dark .glass-input:focus {
+    border-color: #DCFD8B;
+    box-shadow: 0 0 10px rgba(220, 253, 139, 0.2);
+  }
+  :not(.dark) .glass-input:focus {
+    border-color: #4e6700;
+    box-shadow: 0 0 10px rgba(78, 103, 0, 0.15);
   }
   .glass-input.purple-focus:focus {
     border-color: #BC84EE;
@@ -56,6 +75,20 @@
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Mindcraft logo gradient for light theme */
+  .logo-gradient-light {
+    background: linear-gradient(135deg, #3a4d00 0%, #4e6700 35%, #632d93 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Mindcraft logo glow for dark theme */
+  .logo-glow-dark {
+    color: #DCFD8B;
+    text-shadow: 0 0 20px rgba(220, 253, 139, 0.3);
   }
 }
 
@@ -116,6 +149,16 @@
 @keyframes fadeIn {
   from { opacity: 0; transform: scale(0.95) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
 }
 
 /* Safe area insets for mobile */

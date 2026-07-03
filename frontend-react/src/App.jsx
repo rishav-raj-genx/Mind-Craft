@@ -8,6 +8,13 @@ import FindMate from './pages/FindMate';
 import Chat from './pages/Chat';
 import Leaderboard from './pages/Leaderboard';
 import DoubtForum from './pages/DoubtForum';
+import Notifications from './pages/Notifications';
+import Wallet from './pages/Wallet';
+import BadgeProgress from './pages/BadgeProgress';
+import StreakDetail from './pages/StreakDetail';
+import SessionsDetail from './pages/SessionsDetail';
+import RatingDetail from './pages/RatingDetail';
+import MatesDetail from './pages/MatesDetail';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children }) => {
@@ -21,7 +28,7 @@ function App() {
 
   return (
     <Router>
-      <div className="dark">
+      <div>
         <Routes>
           <Route path="/login" element={currentUser ? <Navigate to="/" replace /> : <Login />} />
           <Route path="/signup" element={currentUser ? <Navigate to="/" replace /> : <SignUp />} />
@@ -34,6 +41,13 @@ function App() {
             <Route path="/chat" element={<Chat />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/forum" element={<DoubtForum />} />
+            <Route path="/notifications" element={<Notifications />} />
+            <Route path="/wallet" element={<Wallet />} />
+            <Route path="/badges" element={<BadgeProgress />} />
+            <Route path="/streak" element={<StreakDetail />} />
+            <Route path="/sessions" element={<SessionsDetail />} />
+            <Route path="/ratings" element={<RatingDetail />} />
+            <Route path="/mates" element={<MatesDetail />} />
           </Route>
         </Routes>
       </div>
