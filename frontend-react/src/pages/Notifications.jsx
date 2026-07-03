@@ -5,13 +5,14 @@ import { sessionService } from '../services/sessionService';
 import { gamificationService } from '../services/gamificationService';
 import { doubtService } from '../services/doubtService';
 import { chatService } from '../services/chatService';
-import { ArrowLeft, Check, X, MessageCircle, Coins, Flame, UserPlus, Calendar, Bell, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Check, X, MessageCircle, Coins, Flame, UserPlus, Calendar, CalendarPlus, Bell, MessageSquare, Loader2, Clock } from 'lucide-react';
 
 const Notifications = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState({});
 
   useEffect(() => {
     if (!currentUser) return;
@@ -23,6 +24,7 @@ const Notifications = () => {
     setLoading(true);
     const notifs = [];
 
+    try {
       // 1. Upcoming sessions (session requests)
       const sessRes = await sessionService.getSessions(currentUser.uid, 'upcoming');
       const upcomingSessions = sessRes.data || [];
@@ -48,15 +50,28 @@ const Notifications = () => {
       pendingSessions.forEach(s => {
         const isTeacher = s.teacherUid === currentUser.uid;
         if (isTeacher) {
+          // Teacher sees accept/reject
           notifs.push({
             id: `session-req-${s.sessionId}`,
             type: 'SESSION_PENDING',
             title: 'Session Request',
-            message: `Someone requested a tutoring session for "${s.skill}" on ${new Date(s.scheduledAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}.`,
+            message: `You received a session request for "${s.skill}" on ${new Date(s.scheduledAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}.`,
             timeAgo: formatTime(s.createdAt || s.scheduledAt),
             read: false,
             sessionId: s.sessionId,
             actionable: true,
+          });
+        } else {
+          // Learner sees a waiting notification
+          notifs.push({
+            id: `session-wait-${s.sessionId}`,
+            type: 'SESSION_WAITING',
+            title: 'Session Pending',
+            message: `Your session request for "${s.skill}" is waiting for approval.`,
+            timeAgo: formatTime(s.createdAt || s.scheduledAt),
+            read: false,
+            sessionId: s.sessionId,
+            actionable: false,
           });
         }
       });
@@ -188,12 +203,65 @@ const Notifications = () => {
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  const handleAcceptSession = async (sessionId) => {
+    setActionLoading(prev => ({ ...prev, [sessionId]: true }));
+    try {
+      // Try Google Calendar auth first
+      let googleTokens = null;
+      try {
+        const authRes = await sessionService.getGoogleAuthUrl();
+        if (authRes.data?.authUrl) {
+          googleTokens = await new Promise((resolve, reject) => {
+            const popup = window.open(authRes.data.authUrl, 'googleAuth', 'width=500,height=600');
+            const handleMessage = (event) => {
+              if (event.data?.googleTokens) {
+                window.removeEventListener('message', handleMessage);
+                resolve(event.data.googleTokens);
+              }
+            };
+            window.addEventListener('message', handleMessage);
+            // Timeout after 2 minutes
+            setTimeout(() => {
+              window.removeEventListener('message', handleMessage);
+              resolve(null);
+            }, 120000);
+          });
+        }
+      } catch (calErr) {
+        console.warn('Google auth not available, accepting without calendar:', calErr);
+      }
 
+      await sessionService.acceptSession(sessionId, googleTokens);
+      alert('Session accepted! 🎉');
+      buildNotifications(); // Refresh
+    } catch (err) {
+      console.error('Accept session error:', err);
+      alert('Failed to accept session: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setActionLoading(prev => ({ ...prev, [sessionId]: false }));
+    }
+  };
+
+  const handleRejectSession = async (sessionId) => {
+    if (!confirm('Are you sure you want to reject this session request?')) return;
+    setActionLoading(prev => ({ ...prev, [sessionId]: true }));
+    try {
+      await sessionService.rejectSession(sessionId);
+      alert('Session rejected.');
+      buildNotifications(); // Refresh
+    } catch (err) {
+      console.error('Reject session error:', err);
+      alert('Failed to reject session.');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [sessionId]: false }));
+    }
+  };
 
   const getIcon = (type) => {
     switch (type) {
       case 'SESSION_REQUEST': return <Calendar size={18} className="text-blue-500" />;
       case 'SESSION_PENDING': return <CalendarPlus size={18} className="text-emerald-500" />;
+      case 'SESSION_WAITING': return <Clock size={18} className="text-amber-500" />;
       case 'FORUM_REPLY': return <MessageCircle size={18} className="text-[#7C3AED]" />;
       case 'REWARD': return <Coins size={18} className="text-amber-500" />;
       case 'STREAK_ALERT': return <Flame size={18} className="text-orange-500" />;
@@ -207,6 +275,7 @@ const Notifications = () => {
     switch (type) {
       case 'SESSION_REQUEST': return 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700';
       case 'SESSION_PENDING': return 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700';
+      case 'SESSION_WAITING': return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700';
       case 'FORUM_REPLY': return 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700';
       case 'REWARD': return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700';
       case 'STREAK_ALERT': return 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-700';
@@ -262,6 +331,24 @@ const Notifications = () => {
               <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed mb-3">{notif.message}</p>
 
               {/* Action Buttons */}
+              {notif.type === 'SESSION_PENDING' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleAcceptSession(notif.sessionId)}
+                    disabled={actionLoading[notif.sessionId]}
+                    className="text-xs font-bold bg-emerald-500 text-white px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
+                  >
+                    {actionLoading[notif.sessionId] ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Accept
+                  </button>
+                  <button
+                    onClick={() => handleRejectSession(notif.sessionId)}
+                    disabled={actionLoading[notif.sessionId]}
+                    className="text-xs font-bold bg-red-500 text-white px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
+                  >
+                    <X size={12} /> Reject
+                  </button>
+                </div>
+              )}
               {notif.type === 'NEW_DOUBT' && (
                 <button onClick={() => navigate(`/forum?doubtId=${notif.doubtId}`)} className="text-xs font-bold bg-[#DCFD8B] text-[#151f00] px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
                   <MessageCircle size={12} /> Answer Doubt

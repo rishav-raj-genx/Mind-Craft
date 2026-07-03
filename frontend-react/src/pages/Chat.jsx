@@ -98,11 +98,15 @@ const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId
 
   const handleBook = async () => {
     if (!skill.trim() || !scheduledAt) return;
+    if (!partnerId) {
+      alert("Still loading partner info, please try again in a moment.");
+      return;
+    }
     setBooking(true);
     try {
       await onBook({
         matchId,
-        teacherUid: partnerId || 'partner',
+        teacherUid: partnerId,
         learnerUid: currentUser.uid,
         skill,
         scheduledAt: new Date(scheduledAt).getTime(),
@@ -371,7 +375,7 @@ const Chat = () => {
   const handleBookSession = async (sessionData) => {
     try {
       await sessionService.book(sessionData);
-      alert('Session booked successfully! 🎉');
+      alert('Session request sent! 📩 The other user will receive a notification to accept or reject it.');
       loadSessions();
     } catch (err) {
       console.error('Booking failed:', err);
@@ -382,29 +386,16 @@ const Chat = () => {
   const handleExportCalendar = async (sessionId) => {
     setCalendarLoading(prev => ({ ...prev, [sessionId]: true }));
     try {
-      // First, get Google Auth URL
-      const authRes = await sessionService.getGoogleAuthUrl();
-      if (authRes.data?.authUrl) {
-        // Open Google OAuth in a popup
-        const popup = window.open(authRes.data.authUrl, 'googleAuth', 'width=500,height=600');
-        
-        // Listen for the callback
-        const handleMessage = async (event) => {
-          if (event.data?.googleTokens) {
-            window.removeEventListener('message', handleMessage);
-            try {
-              await sessionService.exportToCalendar(sessionId, event.data.googleTokens);
-              alert('Session added to Google Calendar! 📅');
-            } catch (err) {
-              console.error('Calendar export failed:', err);
-            }
-          }
-        };
-        window.addEventListener('message', handleMessage);
+      // Use the URL-based Google Calendar export (no OAuth required)
+      const res = await sessionService.exportToCalendar(sessionId);
+      if (res.data?.htmlLink) {
+        window.open(res.data.htmlLink, '_blank');
+      } else {
+        alert('Could not generate calendar link.');
       }
     } catch (err) {
-      console.error('Calendar auth failed:', err);
-      alert('Google Calendar integration is not available right now.');
+      console.error('Calendar export failed:', err);
+      alert('Failed to add to calendar.');
     } finally {
       setCalendarLoading(prev => ({ ...prev, [sessionId]: false }));
     }
@@ -478,6 +469,7 @@ const Chat = () => {
 
   // Upcoming sessions for this match
   const upcomingSessions = sessions.filter(s => s.status === 'upcoming');
+  const pendingSessions = sessions.filter(s => s.status === 'pending');
   const completedUnrated = sessions.filter(s => s.status === 'completed' && (!s.rating || s.rating === 0));
 
   return (
@@ -513,9 +505,22 @@ const Chat = () => {
         </div>
       </header>
 
-      {/* Session Cards (Upcoming + Unrated) */}
-      {(upcomingSessions.length > 0 || completedUnrated.length > 0) && (
+      {/* Session Cards (Pending + Upcoming + Unrated) */}
+      {(pendingSessions.length > 0 || upcomingSessions.length > 0 || completedUnrated.length > 0) && (
         <div className="py-3 flex flex-col gap-2 border-b border-gray-100 dark:border-surface-raised">
+          {pendingSessions.map(session => (
+            <div key={session.sessionId} className="bg-amber-50 dark:bg-surface-container rounded-xl p-3 flex items-center justify-between border border-amber-200 dark:border-amber-500/30">
+              <div className="flex-1">
+                <div className="font-label-md text-amber-700 dark:text-amber-400 text-xs uppercase tracking-wider flex items-center gap-1">
+                  <Clock size={12} /> Pending Approval
+                </div>
+                <div className="font-body-md text-gray-900 dark:text-white text-sm mt-0.5">{session.skill}</div>
+                <div className="font-label-md text-gray-500 dark:text-gray-400 text-xs mt-0.5">
+                  {new Date(session.scheduledAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                </div>
+              </div>
+            </div>
+          ))}
           {upcomingSessions.map(session => (
             <div key={session.sessionId} className="bg-green-50 dark:bg-surface-container rounded-xl p-3 flex items-center justify-between border border-green-200 dark:border-success-lime/20">
               <div className="flex-1">

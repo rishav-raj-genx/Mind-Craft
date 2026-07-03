@@ -113,15 +113,89 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
       db.collection(COLLECTION_MATCHES).where('user2Uid', '==', uid).get(),
     ]);
 
-    const matches = [
-      ...asUser1.docs.map((d) => d.data()),
-      ...asUser2.docs.map((d) => d.data()),
+    const allMatches = [
+      ...asUser1.docs.map((d) => ({ ...d.data(), matchId: d.id })),
+      ...asUser2.docs.map((d) => ({ ...d.data(), matchId: d.id })),
     ].sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+
+    // Resolve partner profiles
+    const COLLECTION_USERS = 'users';
+    const threads = await Promise.all(
+      allMatches.map(async (match) => {
+        const partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
+        let partner = { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
+        try {
+          const userDoc = await db.collection(COLLECTION_USERS).doc(partnerUid).get();
+          if (userDoc.exists) {
+            const u = userDoc.data();
+            partner = {
+              uid: partnerUid,
+              name: u.name || u.displayName || 'Study Partner',
+              photoUrl: u.photoUrl || u.photoURL || '',
+              college: u.college || '',
+              department: u.department || '',
+            };
+          }
+        } catch (_) { /* ignore */ }
+        return {
+          matchId: match.matchId,
+          partner,
+          lastMessage: match.lastMessage || '',
+          lastMessageTime: match.lastMessageTime || 0,
+          lastMessageSender: match.lastMessageSender || '',
+          unread: match.unread || false,
+        };
+      })
+    );
 
     res.json({
       success: true,
-      count:   matches.length,
-      data:    matches,
+      count:   threads.length,
+      data:    threads,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/chat/:matchId/detail ─────────────────────────────────────
+router.get('/:matchId/detail', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const { matchId } = req.params;
+    const uid = req.user.uid;
+
+    const matchDoc = await db.collection(COLLECTION_MATCHES).doc(matchId).get();
+    if (!matchDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Thread not found' });
+    }
+
+    const match = matchDoc.data();
+    const partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
+
+    let partner = { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
+    try {
+      const userDoc = await db.collection('users').doc(partnerUid).get();
+      if (userDoc.exists) {
+        const u = userDoc.data();
+        partner = {
+          uid: partnerUid,
+          name: u.name || u.displayName || 'Study Partner',
+          photoUrl: u.photoUrl || u.photoURL || '',
+          college: u.college || '',
+          department: u.department || '',
+          averageRating: u.averageRating || 0,
+        };
+      }
+    } catch (_) { /* ignore */ }
+
+    res.json({
+      success: true,
+      data: {
+        matchId: matchDoc.id,
+        partner,
+        lastMessage: match.lastMessage || '',
+        lastMessageTime: match.lastMessageTime || 0,
+      },
     });
   } catch (err) {
     next(err);

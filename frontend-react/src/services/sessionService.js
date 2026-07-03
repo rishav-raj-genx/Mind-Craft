@@ -79,8 +79,9 @@ export const sessionService = {
    * Export session to Google Calendar.
    * POST /api/session/:sessionId/export-calendar
    */
-  exportToCalendar: async (sessionId, googleTokens) => {
-    const response = await api.post(`/session/${sessionId}/export-calendar`, { googleTokens });
+  exportToCalendar: async (sessionId, googleTokens = null) => {
+    const body = googleTokens ? { googleTokens } : {};
+    const response = await api.post(`/session/${sessionId}/export-calendar`, body);
     return response.data;
   },
 
