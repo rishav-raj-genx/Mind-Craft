@@ -72,9 +72,10 @@ async function exchangeCodeForTokens(code) {
  * @param {string} tokens.access_token
  * @param {string} [tokens.refresh_token]
  * @param {string} peerName             — Name of the other user (for event summary)
- * @returns {Promise<{ eventId: string, htmlLink: string }>}
+ * @param {string} [peerEmail]          — Email of the other user (for attendees)
+ * @returns {Promise<{ eventId: string, htmlLink: string, meetLink?: string }>}
  */
-async function exportSessionToCalendar(session, tokens, peerName = 'Peer') {
+async function exportSessionToCalendar(session, tokens, peerName = 'Peer', peerEmail = null) {
   if (!process.env.GOOGLE_CLIENT_ID) {
     throw Object.assign(
       new Error('Google Calendar API not configured. Set GOOGLE_CLIENT_ID in .env'),
@@ -115,24 +116,35 @@ async function exportSessionToCalendar(session, tokens, peerName = 'Peer') {
         mindcraft_match_id:   session.matchId   || '',
       },
     },
+    attendees: peerEmail ? [{ email: peerEmail }] : [],
   };
 
   // ── Add location or conferencing based on mode ────────────────────
-  if (session.mode === 'Online' && session.meetLink) {
-    event.location = session.meetLink;
-    event.conferenceData = {
-      entryPoints: [
-        {
-          entryPointType: 'video',
-          uri:            session.meetLink,
-          label:          'Google Meet',
+  if (session.mode === 'Online') {
+    if (session.meetLink) {
+      event.location = session.meetLink;
+      event.conferenceData = {
+        entryPoints: [
+          {
+            entryPointType: 'video',
+            uri:            session.meetLink,
+            label:          'Google Meet',
+          },
+        ],
+        conferenceSolution: {
+          name: 'Google Meet',
+          key:  { type: 'hangoutsMeet' },
         },
-      ],
-      conferenceSolution: {
-        name: 'Google Meet',
-        key:  { type: 'hangoutsMeet' },
-      },
-    };
+      };
+    } else {
+      // Auto-generate meet link
+      event.conferenceData = {
+        createRequest: {
+          requestId: session.sessionId || Math.random().toString(36).substring(7),
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        },
+      };
+    }
   } else if (session.mode === 'In-Person' && session.location) {
     event.location = session.location;
   }
@@ -146,10 +158,20 @@ async function exportSessionToCalendar(session, tokens, peerName = 'Peer') {
   });
 
   console.log(`📅 Calendar event created: ${response.data.htmlLink}`);
+  
+  let generatedMeetLink = null;
+  if (session.mode === 'Online' && !session.meetLink && response.data.conferenceData) {
+    const entryPoint = response.data.conferenceData.entryPoints?.find(ep => ep.entryPointType === 'video');
+    if (entryPoint && entryPoint.uri) {
+      generatedMeetLink = entryPoint.uri;
+      console.log(`📹 Generated Meet Link: ${generatedMeetLink}`);
+    }
+  }
 
   return {
     eventId:  response.data.id,
     htmlLink: response.data.htmlLink,
+    meetLink: generatedMeetLink,
   };
 }
 

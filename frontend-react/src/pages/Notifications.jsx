@@ -23,7 +23,6 @@ const Notifications = () => {
     setLoading(true);
     const notifs = [];
 
-    try {
       // 1. Upcoming sessions (session requests)
       const sessRes = await sessionService.getSessions(currentUser.uid, 'upcoming');
       const upcomingSessions = sessRes.data || [];
@@ -41,6 +40,25 @@ const Notifications = () => {
           sessionId: s.sessionId,
           actionable: false,
         });
+      });
+
+      // 1a. Pending session requests
+      const pendingRes = await sessionService.getSessions(currentUser.uid, 'pending');
+      const pendingSessions = pendingRes.data || [];
+      pendingSessions.forEach(s => {
+        const isTeacher = s.teacherUid === currentUser.uid;
+        if (isTeacher) {
+          notifs.push({
+            id: `session-req-${s.sessionId}`,
+            type: 'SESSION_PENDING',
+            title: 'Session Request',
+            message: `Someone requested a tutoring session for "${s.skill}" on ${new Date(s.scheduledAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}.`,
+            timeAgo: formatTime(s.createdAt || s.scheduledAt),
+            read: false,
+            sessionId: s.sessionId,
+            actionable: true,
+          });
+        }
       });
     } catch (err) {
       console.error('Session notifs error:', err);
@@ -175,6 +193,7 @@ const Notifications = () => {
   const getIcon = (type) => {
     switch (type) {
       case 'SESSION_REQUEST': return <Calendar size={18} className="text-blue-500" />;
+      case 'SESSION_PENDING': return <CalendarPlus size={18} className="text-emerald-500" />;
       case 'FORUM_REPLY': return <MessageCircle size={18} className="text-[#7C3AED]" />;
       case 'REWARD': return <Coins size={18} className="text-amber-500" />;
       case 'STREAK_ALERT': return <Flame size={18} className="text-orange-500" />;
@@ -187,6 +206,7 @@ const Notifications = () => {
   const getTagColor = (type) => {
     switch (type) {
       case 'SESSION_REQUEST': return 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700';
+      case 'SESSION_PENDING': return 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700';
       case 'FORUM_REPLY': return 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700';
       case 'REWARD': return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700';
       case 'STREAK_ALERT': return 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-700';

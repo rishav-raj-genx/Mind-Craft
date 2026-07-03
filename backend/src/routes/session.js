@@ -29,11 +29,12 @@ const {
   getAuthUrl,
   exchangeCodeForTokens,
 } = require('../services/calendarExport');
-const {
   COLLECTION_SESSIONS,
   COLLECTION_USERS,
+  SESSION_PENDING,
   SESSION_UPCOMING,
   SESSION_COMPLETED,
+  SESSION_REJECTED,
 } = require('../utils/constants');
 
 // ── POST /api/session/book ────────────────────────────────────────────
@@ -65,7 +66,7 @@ router.post(
         meetLink:    req.body.meetLink || '',
         location:    req.body.location || '',
         notes:       req.body.notes    || '',
-        status:      SESSION_UPCOMING,
+        status:      SESSION_PENDING,
         rating:      0,
         ratingComment: '',
         createdAt:   Date.now(),
@@ -110,6 +111,63 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
       count:   sessions.length,
       data:    sessions,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/session/:sessionId/accept ──────────────────────────────
+router.patch('/:sessionId/accept', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { googleTokens } = req.body;
+    const sessionRef = db.collection(COLLECTION_SESSIONS).doc(sessionId);
+    const sessionDoc = await sessionRef.get();
+    
+    if (!sessionDoc.exists) return res.status(404).json({ success: false, error: 'Session not found' });
+    
+    let sessionData = sessionDoc.data();
+    
+    // Check if googleTokens provided to export to calendar automatically
+    if (googleTokens) {
+      try {
+        const peerDoc = await db.collection(COLLECTION_USERS).doc(sessionData.learnerUid).get();
+        const peerData = peerDoc.data() || {};
+        
+        // Export to calendar (will generate meet link if online)
+        const calendarRes = await exportSessionToCalendar(sessionData, googleTokens, peerData.name || 'Peer', peerData.email);
+        
+        if (calendarRes && calendarRes.meetLink) {
+          sessionData.meetLink = calendarRes.meetLink;
+        }
+      } catch (calErr) {
+        console.error('Calendar export error during accept:', calErr);
+        // Continue even if calendar export fails
+      }
+    }
+
+    await sessionRef.update({
+      status: SESSION_UPCOMING,
+      meetLink: sessionData.meetLink || '',
+    });
+
+    res.json({ success: true, message: 'Session accepted', meetLink: sessionData.meetLink });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/session/:sessionId/reject ──────────────────────────────
+router.patch('/:sessionId/reject', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const sessionRef = db.collection(COLLECTION_SESSIONS).doc(sessionId);
+    
+    await sessionRef.update({
+      status: SESSION_REJECTED,
+    });
+
+    res.json({ success: true, message: 'Session rejected' });
   } catch (err) {
     next(err);
   }

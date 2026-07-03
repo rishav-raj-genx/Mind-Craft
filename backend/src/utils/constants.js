@@ -23,9 +23,11 @@ const STATUS_ACCEPTED = 'accepted';
 const STATUS_DECLINED = 'declined';
 
 // ── Session Status ────────────────────────────────────────────────────
+const SESSION_PENDING   = 'pending';
 const SESSION_UPCOMING  = 'upcoming';
 const SESSION_COMPLETED = 'completed';
 const SESSION_CANCELLED = 'cancelled';
+const SESSION_REJECTED  = 'rejected';
 
 // ── Session Mode ──────────────────────────────────────────────────────
 const MODE_ONLINE    = 'Online';
@@ -107,9 +109,11 @@ module.exports = {
   STATUS_PENDING,
   STATUS_ACCEPTED,
   STATUS_DECLINED,
+  SESSION_PENDING,
   SESSION_UPCOMING,
   SESSION_COMPLETED,
   SESSION_CANCELLED,
+  SESSION_REJECTED,
   MODE_ONLINE,
   MODE_IN_PERSON,
 

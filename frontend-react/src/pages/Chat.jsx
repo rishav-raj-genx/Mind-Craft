@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { chatService, ChatWebSocket } from '../services/chatService';
 import { sessionService } from '../services/sessionService';
 import { ArrowLeft, Send, Phone, Video, Info, Check, CheckCheck, Clock, CalendarPlus, Star, X, Loader2, MessageSquare } from 'lucide-react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 // ── Rating Modal Component ──────────────────────────────────────────────
 const RatingModal = ({ isOpen, onClose, onSubmit, sessionId }) => {
@@ -87,7 +89,7 @@ const RatingModal = ({ isOpen, onClose, onSubmit, sessionId }) => {
 // ── Session Booking Modal ───────────────────────────────────────────────
 const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId }) => {
   const [skill, setSkill] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
+  const [scheduledAt, setScheduledAt] = useState(new Date());
   const [mode, setMode] = useState('Online');
   const [notes, setNotes] = useState('');
   const [booking, setBooking] = useState(false);
@@ -135,13 +137,18 @@ const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId
             />
           </div>
 
-          <div>
+          <div className="flex flex-col relative z-[200]">
             <label className="block font-label-md text-label-md text-gray-700 dark:text-on-surface-variant mb-1.5">When?</label>
-            <input
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
+            <DatePicker
+              selected={scheduledAt}
+              onChange={(date) => setScheduledAt(date)}
+              showTimeSelect
+              timeFormat="HH:mm"
+              timeIntervals={15}
+              timeCaption="Time"
+              dateFormat="MMMM d, yyyy h:mm aa"
               className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime"
+              minDate={new Date()}
             />
           </div>
 

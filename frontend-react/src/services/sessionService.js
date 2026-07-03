@@ -58,6 +58,24 @@ export const sessionService = {
   },
 
   /**
+   * Accept a pending session.
+   * PATCH /api/session/:sessionId/accept
+   */
+  acceptSession: async (sessionId, googleTokens = null) => {
+    const response = await api.patch(`/session/${sessionId}/accept`, { googleTokens });
+    return response.data;
+  },
+
+  /**
+   * Reject a pending session.
+   * PATCH /api/session/:sessionId/reject
+   */
+  rejectSession: async (sessionId) => {
+    const response = await api.patch(`/session/${sessionId}/reject`);
+    return response.data;
+  },
+
+  /**
    * Export session to Google Calendar.
    * POST /api/session/:sessionId/export-calendar
    */
