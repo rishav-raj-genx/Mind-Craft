@@ -238,6 +238,7 @@ const Profile = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [topicsModal, setTopicsModal] = useState(null); // { title, topics, color }
   const photoInputRef = useRef(null);
+  const graphScrollRef = useRef(null);
   const isOwner = currentUser?.uid === uid;
 
   const fetchAll = async () => {
@@ -276,6 +277,19 @@ const Profile = () => {
 
   useEffect(() => { fetchAll(); }, [uid]);
 
+  // Auto-scroll consistency graph to the right (current month) when data loads
+  useEffect(() => {
+    if (!loading && graphScrollRef.current) {
+      // Small delay to ensure the grid is rendered
+      const timer = setTimeout(() => {
+        if (graphScrollRef.current) {
+          graphScrollRef.current.scrollLeft = graphScrollRef.current.scrollWidth;
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [loading]);
+
   // Photo upload handler
   const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -299,6 +313,13 @@ const Profile = () => {
   // Edit profile save handler
   const handleEditSave = async (updates) => {
     await userService.updateProfile(uid, updates);
+    // Sync name to Firebase Auth displayName so all pages show the updated name
+    if (updates.name && currentUser) {
+      try {
+        await updateProfile(currentUser, { displayName: updates.name });
+      } catch (_) { /* silent */ }
+    }
+    window.dispatchEvent(new CustomEvent('profile-updated', { detail: { name: updates.name } }));
     await fetchAll();
   };
 
@@ -571,7 +592,7 @@ const Profile = () => {
           <span className="text-xs text-gray-500 dark:text-gray-400">Past year</span>
         </div>
 
-        <div className="w-full overflow-x-auto pb-4 hide-scrollbar">
+        <div className="w-full overflow-x-auto pb-4 hide-scrollbar" ref={graphScrollRef}>
           <div className="flex flex-col min-w-max">
             {/* Grid */}
             <div className="flex gap-[3px]">

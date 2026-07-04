@@ -379,16 +379,16 @@ const FindMate = () => {
       </header>
 
       {/* Voice Search Area */}
-      <section className="bg-white dark:bg-surface-container rounded-2xl p-6 shadow-lg border border-gray-200 dark:border-surface-raised flex flex-col items-center justify-center gap-4 transition-colors">
-        <h3 className="font-headline-md text-headline-md text-center text-gray-900 dark:text-on-surface">Describe what you need</h3>
+      <section className="bg-white dark:bg-surface-container rounded-2xl p-4 shadow-lg border border-gray-200 dark:border-surface-raised flex flex-col items-center justify-center gap-3 transition-colors">
+        <h3 className="font-label-lg text-label-lg text-center text-gray-900 dark:text-on-surface">Describe what you need</h3>
 
         {/* Language Selector */}
         <div className="flex items-center gap-2">
-          <Globe size={16} className="text-gray-500 dark:text-on-surface-variant" />
+          <Globe size={14} className="text-gray-500 dark:text-on-surface-variant" />
           <select
             value={selectedLang}
             onChange={(e) => setSelectedLang(e.target.value)}
-            className="bg-gray-100 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-full px-3 py-1.5 text-sm font-label-md text-gray-700 dark:text-on-surface focus:outline-none focus:border-success-lime"
+            className="bg-gray-100 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-full px-3 py-1 text-xs font-label-md text-gray-700 dark:text-on-surface focus:outline-none focus:border-success-lime"
           >
             {LANGUAGE_OPTIONS.map(lang => (
               <option key={lang.code} value={lang.code}>{lang.label}</option>
@@ -401,49 +401,18 @@ const FindMate = () => {
           whileTap={{ scale: 0.92 }}
           animate={recording ? { scale: [1, 1.08, 1], boxShadow: ['0 0 0px rgba(239,68,68,0)', '0 0 28px rgba(239,68,68,0.5)', '0 0 0px rgba(239,68,68,0)'] } : {}}
           transition={recording ? { repeat: Infinity, duration: 1.4 } : {}}
-          className={`w-24 h-24 rounded-full flex items-center justify-center transition-colors ${
+          className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${
             recording
               ? 'bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.4)]'
-              : 'bg-success-lime text-green-900 shadow-[0_4px_0_#b3d266] active:translate-y-1 active:shadow-none'
+              : 'bg-success-lime text-green-900 shadow-[0_3px_0_#b3d266] active:translate-y-1 active:shadow-none'
           }`}
         >
-          {recording ? <Square size={32} fill="currentColor" /> : <Mic size={36} />}
+          {recording ? <Square size={22} fill="currentColor" /> : <Mic size={26} />}
         </motion.button>
 
-        <p className="font-label-md text-gray-500 dark:text-on-surface-variant text-center">
+        <p className="font-label-md text-xs text-gray-500 dark:text-on-surface-variant text-center">
           {recording ? "Listening... Tap to stop" : "Tap to speak (e.g. 'I need help with Data Structures')"}
         </p>
-
-        <AnimatePresence>
-          {voiceResult && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="mt-4 p-4 bg-gray-50 dark:bg-surface-raised rounded-xl flex items-start justify-between w-full border border-gray-200 dark:border-outline-variant/30"
-            >
-              <div>
-                <div className="font-label-md text-purple-600 dark:text-secondary uppercase tracking-wide">Detected Intent</div>
-                <p className="font-body-md text-gray-900 dark:text-on-surface mt-1">"{voiceResult.text}"</p>
-                {voiceResult.skill && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="bg-success-lime/20 text-green-700 dark:text-success-lime px-3 py-1 rounded-full text-xs font-label-md border border-success-lime/30">
-                      Skill: {voiceResult.skill}
-                    </span>
-                    {voiceResult.confidence > 0 && (
-                      <span className="text-xs text-gray-500 dark:text-on-surface-variant">
-                        ({Math.round(voiceResult.confidence * 100)}% confident)
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-              <button onClick={() => { setVoiceResult(null); loadInitialMatches(); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-on-surface transition-colors">
-                <X size={20} />
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </section>
 
       {/* Manual Search */}

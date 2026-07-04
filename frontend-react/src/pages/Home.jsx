@@ -29,10 +29,20 @@ const Home = () => {
   const [topMates, setTopMates] = useState([]);
   const [trendingTopics, setTrendingTopics] = useState([]);
   const [followedUsers, setFollowedUsers] = useState([]);
+  const [profileName, setProfileName] = useState('');
   
   useEffect(() => {
     if (currentUser) {
       const loadData = async () => {
+        // Fetch the real profile name from Firestore (source of truth)
+        try {
+          const profileRes = await userService.getProfile(currentUser.uid);
+          const firestoreName = profileRes?.data?.name;
+          if (firestoreName) {
+            setProfileName(firestoreName);
+          }
+        } catch (_) { /* silent */ }
+
         try {
           // Check-in records today's app open AND returns full streak data
           const checkInRes = await gamificationService.checkIn();
@@ -90,7 +100,7 @@ const Home = () => {
       <section className="bg-white dark:bg-surface-container rounded-xl p-6 relative overflow-hidden shadow-lg dark:shadow-[0px_10px_30px_rgba(0,0,0,0.4)] border border-gray-200 dark:border-surface-raised transition-colors duration-200">
         <div className="relative z-10 flex flex-col gap-4">
           <div>
-            <h2 className="font-headline-lg-mobile text-headline-lg-mobile text-gray-900 dark:text-on-surface">Welcome Back, {currentUser?.displayName?.split(' ')[0] || 'User'}!</h2>
+            <h2 className="font-headline-lg-mobile text-headline-lg-mobile text-gray-900 dark:text-on-surface">Welcome Back, {(profileName || currentUser?.displayName || 'User').split(' ')[0]}!</h2>
             <p className="font-body-md text-body-md text-gray-600 dark:text-on-surface-variant mt-1">Ready to crush some concepts today?</p>
           </div>
           <div className="flex flex-wrap gap-4 mt-2">
