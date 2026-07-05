@@ -8,6 +8,49 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Flame, Trophy, Star, Hash, ChevronRight, Plus, TrendingUp } from 'lucide-react';
 import { motion, animate, useMotionValue, useTransform } from 'framer-motion';
 
+const normalizeTopic = (topic) => String(topic || '').trim().toLowerCase();
+
+const findTopicOverlap = (left = [], right = []) => {
+  const rightMap = new Map(right.map(topic => [normalizeTopic(topic), topic]).filter(([key]) => key));
+  return left
+    .map(topic => rightMap.get(normalizeTopic(topic)))
+    .filter(Boolean);
+};
+
+const scoreRecommendedMates = (currentProfile, candidates = []) => {
+  const currentLearns = currentProfile?.learns || [];
+  const currentTeaches = currentProfile?.teaches || [];
+  const currentCollege = normalizeTopic(currentProfile?.college);
+
+  return candidates
+    .filter(mate => mate?.uid && mate.uid !== currentProfile?.uid)
+    .map((mate) => {
+      const teachesMe = findTopicOverlap(currentLearns, mate.teaches || []);
+      const learnsFromMe = findTopicOverlap(currentTeaches, mate.learns || []);
+      const sharedSkills = [...new Set([...teachesMe, ...learnsFromMe])];
+      const sameCollege = currentCollege && normalizeTopic(mate.college) === currentCollege;
+      const rating = Number(mate.averageRating || 0);
+      const sessions = Number(mate.totalSessions || 0);
+      const score =
+        teachesMe.length * 5 +
+        learnsFromMe.length * 3 +
+        (sameCollege ? 1.5 : 0) +
+        Math.min(rating, 5) * 0.35 +
+        Math.min(sessions, 20) * 0.05;
+
+      return {
+        ...mate,
+        sharedSkills,
+        teachesMe,
+        learnsFromMe,
+        matchScore: score,
+      };
+    })
+    .filter(mate => mate.sharedSkills.length > 0)
+    .sort((a, b) => b.matchScore - a.matchScore)
+    .slice(0, 3);
+};
+
 // ─── CountUp Component ────────────────────────────────────────────────────────
 const CountUp = ({ to, duration = 1.5 }) => {
   const count = useMotionValue(0);
@@ -34,17 +77,16 @@ const Home = () => {
   useEffect(() => {
     if (currentUser) {
       const loadData = async () => {
-        // Fetch the real profile name from Firestore (source of truth)
+        let currentProfile = null;
+
         try {
           const profileRes = await userService.getProfile(currentUser.uid);
-          const firestoreName = profileRes?.data?.name;
-          if (firestoreName) {
-            setProfileName(firestoreName);
-          }
-        } catch (_) { /* silent */ }
+          currentProfile = profileRes?.data || null;
+          if (currentProfile?.name) setProfileName(currentProfile.name);
+        } catch { /* silent */ }
 
-          // 1. Fetch Streak
-          try {
+        const loadStreak = async () => {
+          try { 
             const checkInRes = await gamificationService.checkIn();
             const streakData = checkInRes.data || checkInRes || { currentStreak: 0 };
             setStreak(streakData);
@@ -53,16 +95,31 @@ const Home = () => {
             try {
               const s = await gamificationService.getStreak(currentUser.uid);
               setStreak(s.data || s || { currentStreak: 0 });
-            } catch (_) { /* silent */ }
+            } catch { /* silent */ }
           }
+        };
 
-          // 2. Fetch Badge Count
+        const loadBadges = async () => {
           try {
             const badgeRes = await gamificationService.getBadges(currentUser.uid);
             setBadgeCount(badgeRes.data?.totalEarned || 0);
-          } catch (_) { /* silent */ }
+          } catch { /* silent */ }
+        };
 
-          // 3. Fetch Matches
+        const loadMatches = async () => {
+          if (currentProfile) {
+            try {
+              const usersRes = await userService.searchUsers('');
+              const recommended = scoreRecommendedMates(currentProfile, usersRes.data || []);
+              if (recommended.length > 0) {
+                setTopMates(recommended);
+                return;
+              }
+            } catch (err) {
+              console.error("Recommended mates scoring failed:", err);
+            }
+          }
+
           try {
             let m = await matchService.getMatches(currentUser.uid);
             let matchList = m.data || m.matches || [];
@@ -75,22 +132,36 @@ const Home = () => {
               sharedSkills: item.sharedSkills,
               activityScore: item.activityScore
             }));
-            setTopMates(flattened.slice(0, 3));
+            if (flattened.length > 0) {
+              setTopMates(flattened.slice(0, 3));
+              return;
+            }
           } catch (err) {
             console.error("Match fetching failed:", err);
           }
+        };
 
-          // 4. Fetch Trending Topics
+        const loadTrending = async () => {
           try {
             const trendRes = await doubtService.getTrending();
             setTrendingTopics(trendRes.data || []);
-          } catch (_) { /* silent */ }
+          } catch { /* silent */ }
+        };
 
-          // 5. Fetch Followed Users
+        const loadFollowing = async () => {
           try {
             const followingRes = await userService.getFollowing(currentUser.uid);
             setFollowedUsers(followingRes.data || []);
-          } catch (_) { /* silent */ }
+          } catch { /* silent */ }
+        };
+
+        await Promise.all([
+          loadStreak(),
+          loadBadges(),
+          loadMatches(),
+          loadTrending(),
+          loadFollowing(),
+        ]);
       };
       loadData();
     }
@@ -162,14 +233,14 @@ const Home = () => {
               <img alt="Mate Avatar" className="w-16 h-16 rounded-full object-cover border-2 border-focus-purple" src={mate.photoUrl || "https://ui-avatars.com/api/?name="+mate.name} />
               <div className="text-center">
                 <h4 className="font-body-lg text-body-lg text-gray-900 dark:text-on-surface font-semibold">{mate.name}</h4>
-                <p className="font-label-md text-label-md text-gray-600 dark:text-on-surface-variant truncate w-32">{mate.sharedSkills?.[0] || mate.department}</p>
+                <p className="font-label-md text-label-md text-gray-600 dark:text-on-surface-variant truncate w-32">{mate.sharedSkills?.slice(0, 2).join(', ') || mate.department}</p>
               </div>
               <div className="flex items-center gap-1 bg-gray-50 dark:bg-surface-raised rounded-full py-1 px-3">
                 <Star className="text-orange-500 fill-orange-500" size={14} />
                 <span className="font-label-md text-label-md text-gray-900 dark:text-on-surface">{mate.averageRating || "New"}</span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-surface-raised rounded-full h-2 mt-1 relative overflow-hidden">
-                <div className="absolute top-0 left-0 h-full bg-success-lime w-[85%] rounded-full"></div>
+                <div className="absolute top-0 left-0 h-full bg-success-lime rounded-full" style={{ width: `${Math.min(100, Math.max(35, (mate.matchScore || mate.activityScore || 4) * 12))}%` }}></div>
               </div>
             </div>
           ))}

@@ -67,6 +67,12 @@ export class ChatWebSocket {
         const data = JSON.parse(event.data);
         if (data.type === 'message' && this.onMessage) {
           this.onMessage(data);
+        } else if (data.type === 'message_edited' && this.onMessage) {
+          this.onMessage(data);
+        } else if (data.type === 'message_deleted' && this.onMessage) {
+          this.onMessage(data);
+        } else if (data.type === 'read_receipt' && this.onMessage) {
+          this.onMessage(data);
         } else if (data.type === 'typing' && this.onTyping) {
           this.onTyping(data);
         } else if ((data.type === 'presence' || data.type === 'user_status') && this.onPresence) {

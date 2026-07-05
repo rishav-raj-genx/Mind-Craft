@@ -191,20 +191,28 @@ router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
     // Update Firestore
     await db.collection(COLLECTION_USERS).doc(uid).update(updates);
 
-    // Re-sync Neo4j if skills or college changed
-    const graphFields = ['teaches', 'learns', 'college', 'department', 'name'];
+    // Re-sync Neo4j if graph-facing profile fields changed. Keep this off
+    // the response path so profile edits feel instant in the app.
+    const graphFields = ['teaches', 'learns', 'college', 'collegeLocation', 'department', 'name'];
     const needsGraphSync = graphFields.some((f) => updates[f] !== undefined);
 
     if (needsGraphSync) {
-      try {
-        const updatedDoc = await db.collection(COLLECTION_USERS).doc(uid).get();
-        await syncUserToGraph({ uid, ...updatedDoc.data() });
-      } catch (err) {
-        console.warn('⚠️  Neo4j re-sync deferred:', err.message);
-      }
+      setImmediate(async () => {
+        try {
+          const updatedDoc = await db.collection(COLLECTION_USERS).doc(uid).get();
+          await syncUserToGraph({ uid, ...updatedDoc.data() });
+        } catch (err) {
+          console.warn('⚠️  Neo4j re-sync deferred:', err.message);
+        }
+      });
     }
 
-    res.json({ success: true, message: 'Profile updated', updatedFields: Object.keys(updates) });
+    res.json({
+      success: true,
+      message: 'Profile updated',
+      updatedFields: Object.keys(updates),
+      data: { uid, ...updates },
+    });
   } catch (err) {
     next(err);
   }

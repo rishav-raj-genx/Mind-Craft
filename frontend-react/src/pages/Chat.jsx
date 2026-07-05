@@ -6,8 +6,35 @@ import { sessionService } from '../services/sessionService';
 import { ArrowLeft, Send, Phone, Video, Info, Check, CheckCheck, Clock, CalendarPlus, Star, X, Loader2, MessageSquare } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import { readCache, writeCache } from '../utils/cache';
 
 import RatingModal from '../components/RatingModal';
+
+const getMessageTime = (timestamp) => Number(timestamp || Date.now());
+
+const formatMessageTime = (timestamp) =>
+  new Date(getMessageTime(timestamp)).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+const formatDateDivider = (timestamp) => {
+  const date = new Date(getMessageTime(timestamp));
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const sameMessageDay = (a, b) =>
+  new Date(getMessageTime(a)).toDateString() === new Date(getMessageTime(b)).toDateString();
+
+const isMessageSeen = (msg) => msg.read || msg.status === 'read';
 
 // ── Session Booking Modal ───────────────────────────────────────────────
 const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId }) => {
@@ -172,24 +199,37 @@ const Chat = () => {
   useEffect(() => {
     if (!matchId) {
       if (currentUser) {
+        const cacheKey = `chat-threads:${currentUser.uid}`;
+        setThreads(readCache(cacheKey, []));
         chatService.getThreads(currentUser.uid).then(res => {
-          setThreads(res.data || []);
+          const data = res.data || [];
+          setThreads(data);
+          writeCache(cacheKey, data);
         }).catch(err => console.error(err));
       }
       return;
     }
 
     if (!currentUser) return;
+    const historyCacheKey = `chat-history:${matchId}`;
+    const detailCacheKey = `chat-detail:${matchId}`;
+    const cachedMessages = readCache(historyCacheKey, []);
+    const cachedDetail = readCache(detailCacheKey, null);
+    if (cachedMessages.length > 0) setMessages(cachedMessages);
+    if (cachedDetail?.partner && !partner) setPartner(cachedDetail.partner);
 
     const initChat = async () => {
       try {
         // Fetch history
         const history = await chatService.getHistory(matchId);
-        setMessages(history.data || history.messages || []);
+        const historyMessages = history.data || history.messages || [];
+        setMessages(historyMessages);
+        writeCache(historyCacheKey, historyMessages);
 
         const detail = await chatService.getThreadDetail(matchId).catch(() => null);
         if (detail?.data?.partner) {
           setPartner(detail.data.partner);
+          writeCache(detailCacheKey, detail.data);
         }
         
         // Setup WebSocket
@@ -203,6 +243,7 @@ const Chat = () => {
 
         // Fetch sessions for this match
         loadSessions();
+        setTimeout(() => wsRef.current?.markRead(matchId), 250);
       } catch (err) {
         console.error("Failed to init chat", err);
       }
@@ -219,6 +260,9 @@ const Chat = () => {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (matchId && messages.length > 0) {
+      writeCache(`chat-history:${matchId}`, messages);
+    }
   }, [messages, isTyping]);
 
   const loadSessions = async () => {
@@ -233,6 +277,14 @@ const Chat = () => {
   };
 
   const handleReceiveMessage = (data) => {
+    if (data.type === 'read_receipt') {
+      setMessages(prev => prev.map(m => {
+        const isMine = m.senderUid === currentUser.uid || m.senderId === currentUser.uid;
+        return isMine ? { ...m, read: true, status: 'read' } : m;
+      }));
+      return;
+    }
+
     if (data.type === 'message_edited') {
       setMessages(prev => prev.map(m => (m.id === data.messageId || m.messageId === data.messageId) ? { ...m, text: data.text, isEdited: true } : m));
       return;
@@ -270,11 +322,15 @@ const Chat = () => {
         return [...prev, incoming];
       });
       setIsTyping(false);
+      if (incoming.senderUid !== currentUser.uid && incoming.senderId !== currentUser.uid) {
+        setTimeout(() => wsRef.current?.markRead(matchId), 150);
+      }
     }
   };
 
   const handleStartPress = (msg) => {
     if (msg.senderUid !== currentUser.uid && msg.senderId !== currentUser.uid) return;
+    if (isMessageSeen(msg)) return;
     pressTimer.current = setTimeout(() => {
       setLongPressMsgId(msg.id || msg.messageId);
     }, 500); // 500ms long press
@@ -285,6 +341,7 @@ const Chat = () => {
   };
 
   const handleEditClick = (msg) => {
+    if (isMessageSeen(msg)) return;
     setEditingMsg(msg);
     setInputText(msg.text);
     setLongPressMsgId(null);
@@ -564,55 +621,62 @@ const Chat = () => {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-3 hide-scrollbar">
-        <div className="text-center font-label-md text-gray-400 my-4 text-xs">Today</div>
-        
         {messages.map((msg, idx) => {
           const isMine = msg.senderId === currentUser.uid || msg.senderUid === currentUser.uid;
+          const previous = messages[idx - 1];
+          const showDivider = !previous || !sameMessageDay(previous.timestamp, msg.timestamp);
           return (
-            <div key={msg.id || msg.messageId || idx} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-              <div 
-                className={`max-w-[75%] rounded-2xl px-4 py-2 relative group cursor-pointer ${
-                  isMine 
-                    ? 'bg-focus-purple text-white rounded-br-sm' 
-                    : 'bg-gray-100 dark:bg-surface-container text-gray-900 dark:text-on-surface rounded-bl-sm border border-gray-200 dark:border-surface-raised'
-                } ${longPressMsgId === (msg.id || msg.messageId) ? 'ring-2 ring-offset-2 ring-focus-purple dark:ring-offset-background-deep' : ''}`}
-                onPointerDown={() => handleStartPress(msg)}
-                onPointerUp={handleEndPress}
-                onPointerLeave={handleEndPress}
-                onContextMenu={(e) => {
-                  if (isMine) {
-                    e.preventDefault();
-                    setLongPressMsgId(msg.id || msg.messageId);
-                  }
-                }}
-              >
-                <p className="font-body-md text-[15px] break-words">{msg.text}</p>
-                <div className={`text-[10px] flex items-center justify-end gap-1 mt-1 opacity-70 ${isMine ? 'text-purple-100' : 'text-gray-500'}`}>
-                  {msg.isEdited && <span className="mr-1 italic">Edited</span>}
-                  {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                  {isMine && (
-                    msg.status === 'sending' ? <Clock size={10} /> :
-                    msg.status === 'read' ? <CheckCheck size={12} className="text-blue-300" /> : <Check size={12} />
+            <div key={msg.id || msg.messageId || idx} className="contents">
+              {showDivider && (
+                <div className="text-center font-label-md text-gray-400 my-4 text-xs">
+                  {formatDateDivider(msg.timestamp)}
+                </div>
+              )}
+              <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                <div 
+                  className={`max-w-[75%] rounded-2xl px-4 py-2 relative group cursor-pointer ${
+                    isMine 
+                      ? 'bg-focus-purple text-white rounded-br-sm' 
+                      : 'bg-gray-100 dark:bg-surface-container text-gray-900 dark:text-on-surface rounded-bl-sm border border-gray-200 dark:border-surface-raised'
+                  } ${longPressMsgId === (msg.id || msg.messageId) ? 'ring-2 ring-offset-2 ring-focus-purple dark:ring-offset-background-deep' : ''}`}
+                  onPointerDown={() => handleStartPress(msg)}
+                  onPointerUp={handleEndPress}
+                  onPointerLeave={handleEndPress}
+                  onContextMenu={(e) => {
+                    if (isMine && !isMessageSeen(msg)) {
+                      e.preventDefault();
+                      setLongPressMsgId(msg.id || msg.messageId);
+                    }
+                  }}
+                >
+                  <p className="font-body-md text-[15px] break-words">{msg.text}</p>
+                  <div className={`text-[10px] flex items-center justify-end gap-1 mt-1 opacity-70 ${isMine ? 'text-purple-100' : 'text-gray-500'}`}>
+                    {msg.isEdited && <span className="mr-1 italic">Edited</span>}
+                    {formatMessageTime(msg.timestamp)}
+                    {isMine && (
+                      msg.status === 'sending' ? <Clock size={10} /> :
+                      isMessageSeen(msg) ? <CheckCheck size={12} className="text-blue-300" /> : <Check size={12} />
+                    )}
+                  </div>
+
+                  {/* Edit/Delete Action Menu */}
+                  {longPressMsgId === (msg.id || msg.messageId) && !isMessageSeen(msg) && (
+                    <div className="absolute top-full right-0 mt-1 bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-xl shadow-lg z-50 overflow-hidden flex flex-col min-w-[120px]">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleEditClick(msg); }} 
+                        className="px-4 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-surface-container-high text-left w-full border-b border-gray-100 dark:border-surface-raised"
+                      >
+                        Edit Message
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDeleteClick(msg); }} 
+                        className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 text-left w-full"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   )}
                 </div>
-
-                {/* Edit/Delete Action Menu */}
-                {longPressMsgId === (msg.id || msg.messageId) && (
-                  <div className="absolute top-full right-0 mt-1 bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-xl shadow-lg z-50 overflow-hidden flex flex-col min-w-[120px]">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleEditClick(msg); }} 
-                      className="px-4 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-surface-container-high text-left w-full border-b border-gray-100 dark:border-surface-raised"
-                    >
-                      Edit Message
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleDeleteClick(msg); }} 
-                      className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 text-left w-full"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           );

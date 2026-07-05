@@ -1,16 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { updateProfile } from 'firebase/auth';
-import { auth } from '../config/firebase';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/userService';
 import { gamificationService } from '../services/gamificationService';
-import { matchService } from '../services/matchService';
 import {
   Edit2, UserPlus, MessageSquare, BookOpen, GraduationCap,
-  Flame, Users, Star, Clock, BarChart2, Medal, Moon,
-  X, Save, Loader2, Image as ImageIcon, ChevronRight,
-  Code
+  Flame, Users, Star, Clock, BarChart2, Medal,
+  X, Save, Loader2, ChevronRight,
+  Code, MapPin, Link2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -48,22 +46,26 @@ const TopicsModal = ({ title, topics, color, onClose }) => {
   );
 };
 
-const useEffect_import = useEffect; // ensure useEffect is in scope for TopicsModal
-
 // ─── Image Compression via Canvas ──────────────────────────────────────
-const compressImage = (file, maxWidth = 400, quality = 0.7) => {
+const compressImage = (file, maxDimension = 480, maxBytes = 180 * 1024) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new window.Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const ratio = maxWidth / img.width;
-        canvas.width = maxWidth;
-        canvas.height = img.height * ratio;
+        const ratio = Math.min(1, maxDimension / Math.max(img.width, img.height));
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/webp', quality));
+        let quality = 0.78;
+        let dataUrl = canvas.toDataURL('image/webp', quality);
+        while (dataUrl.length * 0.75 > maxBytes && quality > 0.42) {
+          quality -= 0.08;
+          dataUrl = canvas.toDataURL('image/webp', quality);
+        }
+        resolve(dataUrl);
       };
       img.src = e.target.result;
     };
@@ -76,6 +78,7 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
   const [name, setName] = useState(user.name || '');
   const [department, setDepartment] = useState(user.department || '');
   const [college, setCollege] = useState(user.college || '');
+  const [collegeLocation, setCollegeLocation] = useState(user.collegeLocation || '');
   const [year, setYear] = useState(user.year || '');
   const [teaches, setTeaches] = useState(user?.teaches || skillGraph?.teaches || []);
   const [learns, setLearns] = useState(user?.learns || skillGraph?.learns || []);
@@ -105,7 +108,7 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
     }
     try {
       await onSave({ 
-        name, department, college, year, 
+        name, department, college, collegeLocation, year, 
         teaches: finalTeaches, learns: finalLearns,
         linkedinUsername, githubUsername, leetcodeUsername, codeforcesUsername, codechefUsername
       });
@@ -161,6 +164,11 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">College</label>
             <input value={college} onChange={e => setCollege(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+          </div>
+          {/* College Location */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">College Location</label>
+            <input value={collegeLocation} onChange={e => setCollegeLocation(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
           </div>
           {/* Year */}
           <div>
@@ -249,11 +257,11 @@ const GridCell = ({ level, title }) => {
 const StatCard = ({ icon: Icon, iconColor, value, label, onClick }) => (
   <button
     onClick={onClick}
-    className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-3xl p-6 flex flex-col items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer w-full"
+    className="aspect-square bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-2xl p-2 flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer w-full shadow-sm dark:shadow-lg"
   >
-    <Icon className={iconColor} size={30} />
-    <span className="text-[32px] leading-none font-bold text-gray-900 dark:text-white tabular-nums">{value}</span>
-    <span className="text-xs font-bold text-gray-500 dark:text-gray-400 tracking-wider uppercase">{label}</span>
+    <Icon className={iconColor} size={18} />
+    <span className="text-base sm:text-xl leading-none font-bold text-gray-900 dark:text-white tabular-nums">{value}</span>
+    <span className="text-[8px] sm:text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-wider uppercase text-center leading-tight">{label}</span>
   </button>
 );
 
@@ -274,7 +282,6 @@ const Profile = () => {
   const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
   const [profileData, setProfileData] = useState(null);
-  const [tokenBalance, setTokenBalance] = useState(0);
   const [streakData, setStreakData] = useState(null);
   const [badgeData, setBadgeData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -293,7 +300,6 @@ const Profile = () => {
       const profileRes = await userService.getFullProfile(uid);
       setProfileData(profileRes.data);
       if (profileRes.data?.streak) setStreakData(profileRes.data.streak);
-      if (profileRes.data?.tokenBalance !== undefined) setTokenBalance(profileRes.data.tokenBalance);
 
       if (currentUser && currentUser.uid !== uid) {
         try {
@@ -301,18 +307,16 @@ const Profile = () => {
           if (myProfile.data?.following?.includes(uid)) {
             setIsConnected(true);
           }
-        } catch (_) { /* ignore */ }
+        } catch { /* ignore */ }
       }
     } catch (err) {
       console.error('Profile fetch error', err);
     }
     try {
-      const [tokensRes, streakRes, badgeRes] = await Promise.all([
-        gamificationService.getTokens(uid),
+      const [streakRes, badgeRes] = await Promise.all([
         gamificationService.getStreak(uid),
         gamificationService.getBadges(uid),
       ]);
-      if (tokensRes?.data?.balance !== undefined) setTokenBalance(tokensRes.data.balance);
       if (streakRes?.data) setStreakData(streakRes.data);
       if (badgeRes?.data) setBadgeData(badgeRes.data);
     } catch (err) {
@@ -342,21 +346,17 @@ const Profile = () => {
     if (!file) return;
     setUploadingPhoto(true);
     try {
-      const compressed = await compressImage(file, 300, 0.7);
+      const compressed = await compressImage(file);
+      setProfileData(prev => prev ? { ...prev, user: { ...prev.user, photoUrl: compressed } } : prev);
+      window.dispatchEvent(new CustomEvent('profile-updated', { detail: { photoUrl: compressed } }));
       await userService.updateProfile(uid, { photoUrl: compressed });
       if (currentUser) {
         try {
           await updateProfile(currentUser, { photoURL: compressed });
-        } catch (authErr) {
+        } catch {
           console.warn('Firebase Auth photoURL limit exceeded, falling back to Firestore only.');
         }
-        window.dispatchEvent(new CustomEvent('profile-updated', { detail: { photoUrl: compressed } }));
       }
-      
-      // Optimistic update for the UI
-      setProfileData(prev => prev ? { ...prev, user: { ...prev.user, photoUrl: compressed } } : prev);
-      
-      await fetchAll();
     } catch (err) {
       console.error('Photo upload error:', err);
     } finally {
@@ -366,15 +366,23 @@ const Profile = () => {
 
   // Edit profile save handler
   const handleEditSave = async (updates) => {
+    setProfileData(prev => prev ? {
+      ...prev,
+      user: { ...prev.user, ...updates },
+      skillGraph: {
+        ...prev.skillGraph,
+        teaches: updates.teaches || prev.skillGraph?.teaches || [],
+        learns: updates.learns || prev.skillGraph?.learns || [],
+      },
+    } : prev);
     await userService.updateProfile(uid, updates);
     // Sync name to Firebase Auth displayName so all pages show the updated name
     if (updates.name && currentUser) {
       try {
         await updateProfile(currentUser, { displayName: updates.name });
-      } catch (_) { /* silent */ }
+      } catch { /* silent */ }
     }
-    window.dispatchEvent(new CustomEvent('profile-updated', { detail: { name: updates.name } }));
-    await fetchAll();
+    window.dispatchEvent(new CustomEvent('profile-updated', { detail: updates }));
   };
 
   const handleFollow = async () => {
@@ -539,35 +547,50 @@ const Profile = () => {
                 {user.linkedinUsername && (
                   <a href={`https://linkedin.com/in/${user.linkedinUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-[#0077B5]/10 text-[#0077B5] flex items-center justify-center group-hover:scale-110 transition-transform"><LinkedinIcon size={18} /></div>
-                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.linkedinUsername}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="block font-bold text-gray-900 dark:text-white">LinkedIn</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.linkedinUsername}</span>
+                    </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.githubUsername && (
                   <a href={`https://github.com/${user.githubUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white flex items-center justify-center group-hover:scale-110 transition-transform"><GithubIcon size={18} /></div>
-                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.githubUsername}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="block font-bold text-gray-900 dark:text-white">GitHub</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.githubUsername}</span>
+                    </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.leetcodeUsername && (
                   <a href={`https://leetcode.com/${user.leetcodeUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
-                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.leetcodeUsername}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="block font-bold text-gray-900 dark:text-white">LeetCode</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.leetcodeUsername}</span>
+                    </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.codeforcesUsername && (
                   <a href={`https://codeforces.com/profile/${user.codeforcesUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
-                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.codeforcesUsername}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="block font-bold text-gray-900 dark:text-white">Codeforces</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.codeforcesUsername}</span>
+                    </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.codechefUsername && (
                   <a href={`https://www.codechef.com/users/${user.codechefUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-red-500/10 text-red-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
-                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.codechefUsername}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="block font-bold text-gray-900 dark:text-white">CodeChef</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.codechefUsername}</span>
+                    </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
@@ -580,7 +603,7 @@ const Profile = () => {
       {/* ── Profile Header Card (Insta-style) ────────────────────── */}
       <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 relative shadow-sm dark:shadow-lg transition-colors">
         {/* Top row: Avatar + Info */}
-        <div className="flex items-center gap-5">
+        <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-4">
           {/* Avatar */}
           <div className="relative shrink-0">
             <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)]">
@@ -602,9 +625,9 @@ const Profile = () => {
           </div>
 
           {/* User Info (Right of avatar) */}
-          <div className="flex-1 text-left">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">{user.name}</h1>
+          <div className="min-w-0 text-left">
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">{user.name}</h1>
               {isOwner && (
                 <button
                   onClick={() => setShowEditModal(true)}
@@ -615,31 +638,18 @@ const Profile = () => {
                 </button>
               )}
             </div>
-            <p className="text-[#7C3AED] font-semibold text-sm leading-snug">{user.department}</p>
-            <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mt-0.5 leading-snug">
-              🎓 Year {user.year} • {user.college}{user.collegeLocation ? `, ${user.collegeLocation}` : ''}
+            <p className="mt-1 flex items-center gap-1.5 text-[#7C3AED] font-semibold text-sm leading-snug min-w-0">
+              <GraduationCap size={14} className="shrink-0" />
+              <span className="truncate">{user.college || 'College not added'}</span>
+            </p>
+            <p className="mt-1 flex items-center gap-1.5 text-gray-500 dark:text-gray-400 text-xs font-medium leading-snug min-w-0">
+              <MapPin size={13} className="shrink-0" />
+              <span className="truncate">{user.collegeLocation || 'Location not added'}</span>
+            </p>
+            <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mt-1 leading-snug truncate">
+              {[user.department, user.year ? `Year ${user.year}` : ''].filter(Boolean).join(' • ')}
             </p>
           </div>
-        </div>
-
-        {/* Stats Grid (Smaller) */}
-        <div className="grid grid-cols-4 gap-2 mt-5 bg-gray-50 dark:bg-[#121212] p-3 rounded-2xl border border-gray-100 dark:border-[#2A2A3A]">
-          <button onClick={() => navigate('/streak')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity">
-            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums flex items-center gap-0.5"><Flame size={12} className="text-orange-500" />{streak?.currentStreak || 0}</span>
-            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Streak</span>
-          </button>
-          <button onClick={() => navigate('/sessions')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity border-l border-gray-200 dark:border-gray-800">
-            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">{completedSessions}</span>
-            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Sessions</span>
-          </button>
-          <button onClick={() => navigate('/sessions?tab=completed')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity border-l border-gray-200 dark:border-gray-800">
-            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">{studyHours > 0 ? `${studyHours}h` : '0h'}</span>
-            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Study Hrs</span>
-          </button>
-          <button onClick={() => navigate('/ratings')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity border-l border-gray-200 dark:border-gray-800">
-            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">{avgRating.toFixed(1)}</span>
-            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Rating</span>
-          </button>
         </div>
 
         {/* Action Buttons */}
@@ -651,7 +661,7 @@ const Profile = () => {
                   onClick={() => setShowLinksModal(true)}
                   className="w-full py-2 rounded-xl bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm flex items-center justify-center gap-1.5 hover:bg-gray-200 dark:hover:bg-[#333345] transition-colors"
                 >
-                  🔗 Profile Links
+                  <Link2 size={14} /> Profile Links
                 </button>
               )}
             </>
@@ -672,14 +682,15 @@ const Profile = () => {
                 onClick={handleChat}
                 className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm flex items-center justify-center gap-1.5 hover:bg-gray-200 dark:hover:bg-[#333345] transition-colors"
               >
-                Message
+                <MessageSquare size={14} /> Message
               </button>
               {hasSocialLinks && (
                 <button
                   onClick={() => setShowLinksModal(true)}
                   className="py-2.5 px-3 rounded-xl bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm hover:bg-gray-200 dark:hover:bg-[#333345] transition-colors"
+                  title="Profile Links"
                 >
-                  🔗
+                  <Link2 size={16} />
                 </button>
               )}
             </>
@@ -729,6 +740,38 @@ const Profile = () => {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ── Profile Stats ─────────────────────────────────────────── */}
+      <section className="grid grid-cols-4 gap-2">
+        <StatCard
+          icon={Star}
+          iconColor="text-amber-500 fill-amber-500"
+          value={avgRating.toFixed(1)}
+          label="Rating"
+          onClick={() => navigate('/ratings')}
+        />
+        <StatCard
+          icon={Users}
+          iconColor="text-[#7C3AED]"
+          value={completedSessions}
+          label="Sessions"
+          onClick={() => navigate('/sessions')}
+        />
+        <StatCard
+          icon={Flame}
+          iconColor="text-orange-500"
+          value={streak?.currentStreak || 0}
+          label="Streak"
+          onClick={() => navigate('/streak')}
+        />
+        <StatCard
+          icon={Clock}
+          iconColor="text-emerald-600 dark:text-[#DCFD8B]"
+          value={studyHours > 0 ? `${studyHours}h` : '0h'}
+          label="Study Hours"
+          onClick={() => navigate('/sessions?tab=completed')}
+        />
       </section>
 
       {/* ── Consistency Graph ─────────────────────────────────────── */}
