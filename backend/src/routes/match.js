@@ -20,7 +20,7 @@ const router  = express.Router();
 const { db }                    = require('../config/firebase');
 const { verifyFirebaseToken }   = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
-const { findMatches, findBroadMatches } = require('../services/matchingEngine');
+const { findMatches, findBroadMatches, findAnyMatches } = require('../services/matchingEngine');
 const {
   COLLECTION_USERS,
   COLLECTION_MATCH_REQUESTS,
@@ -57,7 +57,10 @@ router.get('/:uid/broad', verifyFirebaseToken, async (req, res, next) => {
     const uid   = req.params.uid;
     const limit = parseInt(req.query.limit, 10) || 20;
 
-    const matches = await findBroadMatches(uid, limit);
+    let matches = await findBroadMatches(uid, limit);
+    if (matches.length === 0) {
+      matches = await findAnyMatches(uid, limit);
+    }
 
     res.json({
       success: true,

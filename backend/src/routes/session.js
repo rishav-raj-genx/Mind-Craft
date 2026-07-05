@@ -31,6 +31,9 @@ const {
 } = require('../services/calendarExport');
 const {
   COLLECTION_SESSIONS,
+  COLLECTION_MATCHES,
+  COLLECTION_MESSAGES,
+  COLLECTION_CHATS,
   COLLECTION_USERS,
   SESSION_PENDING,
   SESSION_UPCOMING,
@@ -48,6 +51,7 @@ router.post(
     body('learnerUid').trim().notEmpty().withMessage('Learner UID is required'),
     body('skill').trim().notEmpty().withMessage('Skill is required'),
     body('scheduledAt').isNumeric().withMessage('Scheduled time (epoch ms) is required'),
+    body('duration').isNumeric().optional(),
     body('mode').isIn(['Online', 'In-Person']).withMessage('Mode must be Online or In-Person'),
   ],
   async (req, res, next) => {
@@ -63,6 +67,8 @@ router.post(
         learnerUid:  req.body.learnerUid,
         skill:       req.body.skill,
         scheduledAt: req.body.scheduledAt,
+        duration:    req.body.duration || 60,
+        endTime:     req.body.scheduledAt + (req.body.duration || 60) * 60000,
         mode:        req.body.mode,
         meetLink:    req.body.meetLink || '',
         location:    req.body.location || '',
@@ -102,10 +108,46 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
       buildQuery('learnerUid'),
     ]);
 
-    const sessions = [
+    let sessions = [
       ...asTeacher.docs.map((d) => d.data()),
       ...asLearner.docs.map((d) => d.data()),
     ].sort((a, b) => a.scheduledAt - b.scheduledAt);
+
+    // Auto-complete past UPCOMING sessions and fetch peer info
+    const now = Date.now();
+    let updated = false;
+    
+    // We fetch user names to attach to the session response
+    sessions = await Promise.all(sessions.map(async (s) => {
+      // 1. Auto-completion logic
+      const sEndTime = s.endTime || (s.scheduledAt + (s.duration || 60) * 60000);
+      if (s.status === SESSION_UPCOMING && sEndTime < now) {
+        s.status = SESSION_COMPLETED;
+        await db.collection(COLLECTION_SESSIONS).doc(s.sessionId).update({ status: SESSION_COMPLETED });
+        await awardSessionComplete(s.learnerUid, s.teacherUid);
+        updated = true;
+      }
+      
+      // 2. Fetch peer info
+      try {
+        const isTeacher = s.teacherUid === uid;
+        const peerUid = isTeacher ? s.learnerUid : s.teacherUid;
+        const peerDoc = await db.collection(COLLECTION_USERS).doc(peerUid).get();
+        if (peerDoc.exists) {
+          s.peerName = peerDoc.data().name || 'Peer';
+        } else {
+          s.peerName = 'Unknown User';
+        }
+      } catch (err) {
+        s.peerName = 'Peer';
+      }
+      
+      return s;
+    }));
+    
+    if (status && updated) {
+      sessions = sessions.filter(s => s.status === status);
+    }
 
     res.json({
       success: true,
@@ -147,10 +189,38 @@ router.patch('/:sessionId/accept', verifyFirebaseToken, async (req, res, next) =
       }
     }
 
+    // Fallback to Jitsi if no meet link was generated (e.g. no google calendar connected or it failed)
+    if (sessionData.mode === 'Online' && !sessionData.meetLink) {
+      sessionData.meetLink = `https://meet.jit.si/MindCraft-${sessionId}`;
+    }
+
     await sessionRef.update({
       status: SESSION_UPCOMING,
       meetLink: sessionData.meetLink || '',
     });
+
+    // Automatically send a chat message with the meet link
+    if (sessionData.meetLink && sessionData.matchId) {
+      const chatRef = db.collection(COLLECTION_MESSAGES).doc(sessionData.matchId).collection(COLLECTION_CHATS);
+      const messageId = chatRef.doc().id;
+      const timestamp = Date.now();
+      const text = `I've accepted the session! Here is the meeting link: ${sessionData.meetLink}`;
+      
+      await chatRef.doc(messageId).set({
+        messageId,
+        senderUid: req.user.uid,
+        text,
+        timestamp,
+        read: false,
+      });
+
+      await db.collection(COLLECTION_MATCHES).doc(sessionData.matchId).update({
+        lastMessage: text,
+        lastMessageTime: timestamp,
+        lastMessageSender: req.user.uid,
+        unread: true,
+      });
+    }
 
     res.json({ success: true, message: 'Session accepted', meetLink: sessionData.meetLink });
   } catch (err) {
@@ -276,8 +346,15 @@ router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res,
 
     const session = sessionDoc.data();
 
+    const peerUid = session.learnerUid === req.user.uid ? session.teacherUid : session.learnerUid;
+    const peerDoc = await db.collection('users').doc(peerUid).get();
+    const peerData = peerDoc.exists ? peerDoc.data() : {};
+    const peerName = peerData.name || 'Peer';
+    const peerEmail = peerData.email || '';
+
     const start = new Date(session.scheduledAt);
-    const end = new Date(start.getTime() + 60 * 60 * 1000); // 1-hour default
+    const durationMins = session.duration || 60;
+    const end = new Date(start.getTime() + durationMins * 60 * 1000);
 
     const pad = (n) => String(n).padStart(2, '0');
     const fmt = (d) =>
@@ -287,9 +364,13 @@ router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res,
       action: 'TEMPLATE',
       text: `MindCraft Session: ${session.skill || 'Tutoring'}`,
       dates: `${fmt(start)}/${fmt(end)}`,
-      details: `MindCraft P2P Tutoring Session\nSkill: ${session.skill || 'General'}\nMode: ${session.mode || 'Online'}${session.meetLink ? `\nJoin: ${session.meetLink}` : ''}`,
+      details: `MindCraft P2P Tutoring Session with ${peerName}\nSkill: ${session.skill || 'General'}\nMode: ${session.mode || 'Online'}${session.meetLink ? `\nJoin: ${session.meetLink}` : ''}`,
       location: session.meetLink || session.location || 'MindCraft App',
     });
+
+    if (peerEmail) {
+      params.append('add', peerEmail);
+    }
 
     const url = `https://calendar.google.com/calendar/render?${params.toString()}`;
 
@@ -312,26 +393,6 @@ router.get('/auth/google', (_req, res) => {
   }
 });
 
-// ── GET /api/session/auth/google/callback ─────────────────────────────
-router.get('/auth/google/callback', async (req, res, next) => {
-  try {
-    const { code } = req.query;
-    if (!code) {
-      return res.status(400).json({ success: false, error: 'Authorization code is required' });
-    }
-
-    const tokens = await exchangeCodeForTokens(code);
-
-    res.json({
-      success: true,
-      data: {
-        message: 'Google Calendar authorized. Use these tokens for calendar export.',
-        tokens,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+// Moved callback to auth.js
 
 module.exports = router;

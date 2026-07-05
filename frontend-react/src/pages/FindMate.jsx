@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { matchService } from '../services/matchService';
 import { voiceService } from '../services/voiceService';
-import { Search, Mic, MapPin, Star, Filter, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Mic, MapPin, Star, Filter, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import ForceGraph2D from 'react-force-graph-2d';
@@ -17,6 +17,12 @@ const LANGUAGE_OPTIONS = [
   { code: 'bn-IN', label: 'Bengali' },
   { code: 'gu-IN', label: 'Gujarati' },
   { code: 'pa-IN', label: 'Punjabi' },
+];
+
+const SORT_OPTIONS = [
+  { value: 'relevance', label: 'Relevance' },
+  { value: 'rating', label: 'Highest Rating' },
+  { value: 'name', label: 'Name (A–Z)' },
 ];
 
 const normalizeMate = (record) => {
@@ -50,7 +56,6 @@ const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
     ? mate.sharedSkills.slice(0, 3)
     : mate.teaches?.slice(0, 3) || ['Peer'];
 
-  // Construct graph data
   const nodes = [
     { id: 'user', name: currentUserName, color: '#DCFD8B', val: 20 },
     { id: 'peer', name: (mate.name || 'PEER').split(' ')[0], color: '#A78BFA', val: 20 },
@@ -217,10 +222,141 @@ const MatchCard = ({ mate, index, onFollow, onChat, isFollowed }) => {
   );
 };
 
+// ─── Filter Panel ─────────────────────────────────────────────────────────────
+const FilterPanel = ({ filters, onChange, onClear, onApply, allDepartments, allColleges }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+      className="overflow-hidden"
+    >
+      <div className="bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-2xl p-5 flex flex-col gap-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h3 className="font-label-lg text-gray-900 dark:text-on-surface flex items-center gap-2">
+            <SlidersHorizontal size={16} /> Filters
+          </h3>
+          <button
+            onClick={onClear}
+            className="text-xs font-medium text-red-500 hover:text-red-600 transition-colors"
+          >
+            Clear All
+          </button>
+        </div>
+
+        {/* College */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">College</label>
+          <select
+            value={filters.college}
+            onChange={e => onChange({ ...filters, college: e.target.value })}
+            className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl px-3 py-2.5 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-[#7C3AED] transition-colors"
+          >
+            <option value="">All Colleges</option>
+            {allColleges.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Department */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Department</label>
+          <select
+            value={filters.department}
+            onChange={e => onChange({ ...filters, department: e.target.value })}
+            className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl px-3 py-2.5 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-[#7C3AED] transition-colors"
+          >
+            <option value="">All Departments</option>
+            {allDepartments.map(d => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Year */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Year</label>
+          <div className="flex gap-2">
+            {['', '1', '2', '3', '4'].map(y => (
+              <button
+                key={y}
+                type="button"
+                onClick={() => onChange({ ...filters, year: y })}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all ${
+                  filters.year === y
+                    ? 'bg-[#7C3AED] text-white border-[#7C3AED] shadow-[0_0_10px_rgba(124,58,237,0.3)]'
+                    : 'bg-gray-50 dark:bg-surface-raised text-gray-600 dark:text-gray-400 border-gray-200 dark:border-outline-variant hover:border-[#7C3AED]'
+                }`}
+              >
+                {y || 'All'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Min Rating */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+            Min Rating {filters.minRating > 0 ? `(${filters.minRating}+)` : ''}
+          </label>
+          <div className="flex gap-1.5">
+            {[0, 1, 2, 3, 4, 5].map(r => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => onChange({ ...filters, minRating: r })}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all flex items-center justify-center gap-1 ${
+                  filters.minRating === r
+                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700'
+                    : 'bg-gray-50 dark:bg-surface-raised text-gray-500 dark:text-gray-400 border-gray-200 dark:border-outline-variant hover:border-amber-300'
+                }`}
+              >
+                {r === 0 ? 'Any' : <><Star size={12} className={filters.minRating === r ? 'fill-current' : ''} /> {r}</>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Sort */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Sort By</label>
+          <div className="flex gap-2">
+            {SORT_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onChange({ ...filters, sortBy: opt.value })}
+                className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-all ${
+                  filters.sortBy === opt.value
+                    ? 'bg-[#DCFD8B]/20 text-green-700 dark:text-success-lime border-[#DCFD8B]/50'
+                    : 'bg-gray-50 dark:bg-surface-raised text-gray-500 dark:text-gray-400 border-gray-200 dark:border-outline-variant hover:border-[#DCFD8B]/50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Apply */}
+        <button
+          onClick={onApply}
+          className="w-full py-2.5 rounded-xl bg-[#7C3AED] text-white font-bold text-sm hover:bg-[#6D28D9] transition-colors active:scale-[0.98]"
+        >
+          Apply Filters
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 const FindMate = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const [allMatches, setAllMatches] = useState([]);
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -229,16 +365,77 @@ const FindMate = () => {
   const [searchText, setSearchText] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [myFollowingUids, setMyFollowingUids] = useState(new Set());
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({
+    college: '',
+    department: '',
+    year: '',
+    minRating: 0,
+    sortBy: 'relevance',
+  });
+  const [appliedFilters, setAppliedFilters] = useState({
+    college: '',
+    department: '',
+    year: '',
+    minRating: 0,
+    sortBy: 'relevance',
+  });
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  const [globalColleges, setGlobalColleges] = useState([]);
+  const [globalDepartments, setGlobalDepartments] = useState([]);
+
+  const hasActiveFilters = appliedFilters.college || appliedFilters.department || appliedFilters.year || appliedFilters.minRating > 0 || appliedFilters.sortBy !== 'relevance';
 
   useEffect(() => {
     if (currentUser) {
       loadInitialMatches();
       loadMyFollowing();
+      loadMetadataOptions();
     }
   }, [currentUser]);
+
+  const loadMetadataOptions = async () => {
+    try {
+      const { userService } = await import('../services/userService');
+      const res = await userService.getMetadataOptions();
+      if (res.data) {
+        setGlobalColleges(res.data.colleges || []);
+        setGlobalDepartments(res.data.departments || []);
+      }
+    } catch (err) {
+      console.error('Failed to load metadata options', err);
+    }
+  };
+
+  // Whenever allMatches or appliedFilters change, re-compute displayed matches
+  useEffect(() => {
+    let filtered = [...allMatches];
+
+    if (appliedFilters.college) {
+      filtered = filtered.filter(m => m.college && m.college.toLowerCase() === appliedFilters.college.toLowerCase());
+    }
+    if (appliedFilters.department) {
+      filtered = filtered.filter(m => m.department && m.department.toLowerCase() === appliedFilters.department.toLowerCase());
+    }
+    if (appliedFilters.year) {
+      filtered = filtered.filter(m => String(m.year) === appliedFilters.year);
+    }
+    if (appliedFilters.minRating > 0) {
+      filtered = filtered.filter(m => (m.averageRating || 0) >= appliedFilters.minRating);
+    }
+
+    // Sort
+    if (appliedFilters.sortBy === 'rating') {
+      filtered.sort((a, b) => (b.averageRating || 0) - (a.averageRating || 0));
+    } else if (appliedFilters.sortBy === 'name') {
+      filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+
+    setMatches(filtered);
+  }, [allMatches, appliedFilters]);
 
   const loadMyFollowing = async () => {
     try {
@@ -255,7 +452,8 @@ const FindMate = () => {
     try {
       setLoading(true);
       const data = await matchService.getMatches(currentUser.uid);
-      setMatches((data.data || data.matches || []).map(normalizeMate));
+      const normalized = (data.data || data.matches || []).map(normalizeMate);
+      setAllMatches(normalized);
       setActiveSearch('');
     } catch (err) {
       console.error(err);
@@ -312,11 +510,12 @@ const FindMate = () => {
       setSearchText(transcript);
 
       if (transcript || resultData.detectedSkill) {
-        setMatches((resultData.matches || []).map(normalizeMate));
+        const normalized = (resultData.matches || []).map(normalizeMate);
+        setAllMatches(normalized);
         setActiveSearch(resultData.detectedSkill || transcript);
         if (transcript) handleTextSearch(null, transcript);
       } else {
-        setMatches([]);
+        setAllMatches([]);
         setActiveSearch('');
       }
     } catch (err) {
@@ -334,7 +533,7 @@ const FindMate = () => {
       if (query.trim()) {
         const { userService } = await import('../services/userService');
         const data = await userService.searchUsers(query.trim());
-        setMatches((data.data || []).map(normalizeMate));
+        setAllMatches((data.data || []).map(normalizeMate));
         setActiveSearch(query.trim());
       } else {
         await loadInitialMatches();
@@ -369,6 +568,17 @@ const FindMate = () => {
       console.error('Failed to start chat', err);
       alert('Failed to start chat.');
     }
+  };
+
+  const handleApplyFilters = () => {
+    setAppliedFilters({ ...filters });
+    setShowFilters(false);
+  };
+
+  const handleClearFilters = () => {
+    const cleared = { college: '', department: '', year: '', minRating: 0, sortBy: 'relevance' };
+    setFilters(cleared);
+    setAppliedFilters(cleared);
   };
 
   return (
@@ -415,7 +625,7 @@ const FindMate = () => {
         </p>
       </section>
 
-      {/* Manual Search */}
+      {/* Manual Search + Filter Toggle */}
       <form onSubmit={handleTextSearch} className="flex gap-2">
         <div className="relative flex-grow">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
@@ -427,15 +637,77 @@ const FindMate = () => {
             className="w-full bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-full py-3 pl-12 pr-4 focus:outline-none focus:border-success-lime text-gray-900 dark:text-on-surface placeholder:text-gray-500"
           />
         </div>
-        <button type="submit" className="bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-full p-3 hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors">
-          <Filter size={20} className="text-gray-600 dark:text-on-surface" />
+        <button
+          type="button"
+          onClick={() => setShowFilters(prev => !prev)}
+          className={`relative bg-white dark:bg-surface-container border rounded-full p-3 transition-colors ${
+            hasActiveFilters
+              ? 'border-[#7C3AED] bg-purple-50 dark:bg-purple-900/20'
+              : 'border-gray-200 dark:border-surface-raised hover:bg-gray-50 dark:hover:bg-surface-raised'
+          }`}
+        >
+          <SlidersHorizontal size={20} className={hasActiveFilters ? 'text-[#7C3AED]' : 'text-gray-600 dark:text-on-surface'} />
+          {hasActiveFilters && (
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#7C3AED] rounded-full border-2 border-white dark:border-surface-container" />
+          )}
         </button>
       </form>
+
+      {/* Filter Panel */}
+      <AnimatePresence>
+        {showFilters && (
+          <FilterPanel
+            filters={filters}
+            onChange={setFilters}
+            onClear={handleClearFilters}
+            onApply={handleApplyFilters}
+            allDepartments={globalDepartments}
+            allColleges={globalColleges}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Active filter chips */}
+      {hasActiveFilters && (
+        <div className="flex flex-wrap gap-2">
+          {appliedFilters.college && (
+            <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full border border-purple-200 dark:border-purple-700 flex items-center gap-1">
+              {appliedFilters.college}
+              <X size={12} className="cursor-pointer" onClick={() => { setFilters(f => ({ ...f, college: '' })); setAppliedFilters(f => ({ ...f, college: '' })); }} />
+            </span>
+          )}
+          {appliedFilters.department && (
+            <span className="bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs px-3 py-1 rounded-full border border-cyan-200 dark:border-cyan-700 flex items-center gap-1">
+              {appliedFilters.department}
+              <X size={12} className="cursor-pointer" onClick={() => { setFilters(f => ({ ...f, department: '' })); setAppliedFilters(f => ({ ...f, department: '' })); }} />
+            </span>
+          )}
+          {appliedFilters.year && (
+            <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs px-3 py-1 rounded-full border border-green-200 dark:border-green-700 flex items-center gap-1">
+              Year {appliedFilters.year}
+              <X size={12} className="cursor-pointer" onClick={() => { setFilters(f => ({ ...f, year: '' })); setAppliedFilters(f => ({ ...f, year: '' })); }} />
+            </span>
+          )}
+          {appliedFilters.minRating > 0 && (
+            <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs px-3 py-1 rounded-full border border-amber-200 dark:border-amber-700 flex items-center gap-1">
+              <Star size={10} className="fill-current" /> {appliedFilters.minRating}+
+              <X size={12} className="cursor-pointer" onClick={() => { setFilters(f => ({ ...f, minRating: 0 })); setAppliedFilters(f => ({ ...f, minRating: 0 })); }} />
+            </span>
+          )}
+          {appliedFilters.sortBy !== 'relevance' && (
+            <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 flex items-center gap-1">
+              Sort: {SORT_OPTIONS.find(s => s.value === appliedFilters.sortBy)?.label}
+              <X size={12} className="cursor-pointer" onClick={() => { setFilters(f => ({ ...f, sortBy: 'relevance' })); setAppliedFilters(f => ({ ...f, sortBy: 'relevance' })); }} />
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Results List */}
       <section className="flex flex-col gap-4 mb-20">
         <h3 className="font-headline-md text-gray-900 dark:text-on-surface">
           {activeSearch ? `Matches for "${activeSearch}"` : 'Recommended for you'}
+          {hasActiveFilters && <span className="text-sm font-normal text-gray-500 ml-2">({matches.length} results)</span>}
         </h3>
 
         {loading ? (
@@ -445,7 +717,7 @@ const FindMate = () => {
           </div>
         ) : matches.length === 0 ? (
           <div className="text-center py-10 text-gray-500 bg-white dark:bg-surface-container rounded-xl border border-gray-200 dark:border-surface-raised">
-            No matches found for this topic.
+            {hasActiveFilters ? 'No matches with these filters. Try adjusting them.' : 'No matches found for this topic.'}
           </div>
         ) : (
           <div className="flex flex-col gap-4">

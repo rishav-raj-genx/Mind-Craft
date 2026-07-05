@@ -54,6 +54,7 @@ router.post(
         email:             req.user.email,
         photoUrl:          req.user.picture || req.body.photoUrl || '',
         college:           req.body.college,
+        collegeLocation:   req.body.collegeLocation || '',
         department:        req.body.department,
         year:              req.body.year,
         teaches:           req.body.teaches,
@@ -65,6 +66,8 @@ router.post(
         averageRating:     0,
         totalSessions:     0,
         tokenBalance:      0,
+        linkedinUsername:   req.body.linkedinUsername   || '',
+        githubUsername:     req.body.githubUsername     || '',
         leetcodeUsername:   req.body.leetcodeUsername   || '',
         codeforcesUsername: req.body.codeforcesUsername || '',
         codechefUsername:   req.body.codechefUsername   || '',
@@ -87,6 +90,30 @@ router.post(
     }
   },
 );
+
+// ── GET /api/user/metadata/options ────────────────────────────────────
+// Returns all unique colleges and departments registered on the platform
+router.get('/metadata/options', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const snapshot = await db.collection(COLLECTION_USERS).get();
+    const colleges = new Set();
+    const departments = new Set();
+    snapshot.docs.forEach(doc => {
+      const d = doc.data();
+      if (d.college) colleges.add(d.college);
+      if (d.department) departments.add(d.department);
+    });
+    res.json({
+      success: true,
+      data: {
+        colleges: [...colleges].sort(),
+        departments: [...departments].sort(),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── GET /api/user/search ──────────────────────────────────────────────
 router.get('/search', verifyFirebaseToken, async (req, res, next) => {
@@ -145,9 +172,9 @@ router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
 
     // Whitelist updateable fields
     const allowedFields = [
-      'name', 'college', 'department', 'year', 'teaches', 'learns',
+      'name', 'college', 'collegeLocation', 'department', 'year', 'teaches', 'learns',
       'fcmToken', 'latitude', 'longitude', 'photoUrl', 'bannerUrl',
-      'leetcodeUsername', 'codeforcesUsername', 'codechefUsername',
+      'linkedinUsername', 'githubUsername', 'leetcodeUsername', 'codeforcesUsername', 'codechefUsername',
     ];
 
     const updates = {};
@@ -195,7 +222,7 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
     }
 
     // Fetch all profile facets in parallel
-    const [tokenBalance, transactions, streak, skillGraph, reviews] = await Promise.all([
+    const [tokenBalance, transactions, streak, skillGraph, sessionData] = await Promise.all([
       getBalance(uid).catch(() => 0),
       getTransactionHistory(uid, 10).catch(() => []),
       calculateStreak(uid).catch(() => ({
@@ -207,6 +234,9 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
       getUserSkillGraph(uid).catch(() => ({ teaches: [], learns: [] })),
       getReviews(uid),
     ]);
+    
+    // sessionData contains both stats and reviews array
+    const { reviews, stats } = sessionData;
 
     res.json({
       success: true,
@@ -217,6 +247,7 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
         streak,
         skillGraph,
         reviews,
+        stats,
       },
     });
   } catch (err) {
@@ -225,29 +256,52 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
 });
 
 /**
- * Fetches completed & rated session reviews for a user (as teacher).
+ * Fetches completed & rated session reviews for a user (as teacher),
+ * plus aggregated stats for all completed sessions (as teacher or learner).
  */
-async function getReviews(teacherUid) {
+async function getReviews(uid) {
   try {
-    const snapshot = await db
+    const teacherSnapshot = await db
       .collection(COLLECTION_SESSIONS)
-      .where('teacherUid', '==', teacherUid)
+      .where('teacherUid', '==', uid)
+      .where('status', '==', SESSION_COMPLETED)
+      .get();
+      
+    const learnerSnapshot = await db
+      .collection(COLLECTION_SESSIONS)
+      .where('learnerUid', '==', uid)
       .where('status', '==', SESSION_COMPLETED)
       .get();
 
-    return snapshot.docs
-      .map((d) => d.data())
-      .filter((s) => s.rating > 0)
-      .map((s) => ({
-        sessionId:     s.sessionId,
-        skill:         s.skill,
-        rating:        s.rating,
-        ratingComment: s.ratingComment || '',
-        learnerUid:    s.learnerUid,
-        scheduledAt:   s.scheduledAt,
-      }));
+    const teacherSessions = teacherSnapshot.docs.map((d) => d.data());
+    const learnerSessions = learnerSnapshot.docs.map((d) => d.data());
+    const allSessions = [...teacherSessions, ...learnerSessions];
+
+    const completedSessionsCount = allSessions.length;
+    let totalStudyMins = 0;
+    allSessions.forEach(s => totalStudyMins += (s.duration || 60));
+    const totalStudyHours = +(totalStudyMins / 60).toFixed(1);
+
+    const ratedTeacherSessions = teacherSessions.filter((s) => s.rating > 0);
+    const avgRating = ratedTeacherSessions.length
+      ? +(ratedTeacherSessions.reduce((sum, s) => sum + s.rating, 0) / ratedTeacherSessions.length).toFixed(1)
+      : 0;
+
+    const reviews = ratedTeacherSessions.map((s) => ({
+      sessionId:     s.sessionId,
+      skill:         s.skill,
+      rating:        s.rating,
+      ratingComment: s.ratingComment || '',
+      learnerUid:    s.learnerUid,
+      scheduledAt:   s.scheduledAt,
+    }));
+
+    return { 
+      reviews, 
+      stats: { completedSessionsCount, totalStudyHours, averageRating: avgRating }
+    };
   } catch (_err) {
-    return [];
+    return { reviews: [], stats: { completedSessionsCount: 0, totalStudyHours: 0, averageRating: 0 } };
   }
 }
 

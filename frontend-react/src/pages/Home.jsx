@@ -43,42 +43,54 @@ const Home = () => {
           }
         } catch (_) { /* silent */ }
 
-        try {
-          // Check-in records today's app open AND returns full streak data
-          const checkInRes = await gamificationService.checkIn();
-          const streakData = checkInRes.data || checkInRes || { currentStreak: 0 };
-          setStreak(streakData);
-          
-          // Fetch badge count
+          // 1. Fetch Streak
+          try {
+            const checkInRes = await gamificationService.checkIn();
+            const streakData = checkInRes.data || checkInRes || { currentStreak: 0 };
+            setStreak(streakData);
+          } catch (err) {
+            console.error("Streak check-in failed:", err);
+            try {
+              const s = await gamificationService.getStreak(currentUser.uid);
+              setStreak(s.data || s || { currentStreak: 0 });
+            } catch (_) { /* silent */ }
+          }
+
+          // 2. Fetch Badge Count
           try {
             const badgeRes = await gamificationService.getBadges(currentUser.uid);
             setBadgeCount(badgeRes.data?.totalEarned || 0);
           } catch (_) { /* silent */ }
-          
-          const m = await matchService.getMatches(currentUser.uid);
-          // Just take top 3 for dashboard
-          const matchList = m.data || m.matches || [];
-          setTopMates(matchList.slice(0, 3));
-        } catch (err) {
-          console.error("Error loading home data:", err);
-          // Fallback: try getting streak without check-in
+
+          // 3. Fetch Matches
           try {
-            const s = await gamificationService.getStreak(currentUser.uid);
-            setStreak(s.data || s || { currentStreak: 0 });
+            let m = await matchService.getMatches(currentUser.uid);
+            let matchList = m.data || m.matches || [];
+            if (matchList.length === 0) {
+              m = await matchService.getBroadMatches(currentUser.uid);
+              matchList = m.data || m.matches || [];
+            }
+            const flattened = matchList.map(item => ({
+              ...item.tutor,
+              sharedSkills: item.sharedSkills,
+              activityScore: item.activityScore
+            }));
+            setTopMates(flattened.slice(0, 3));
+          } catch (err) {
+            console.error("Match fetching failed:", err);
+          }
+
+          // 4. Fetch Trending Topics
+          try {
+            const trendRes = await doubtService.getTrending();
+            setTrendingTopics(trendRes.data || []);
           } catch (_) { /* silent */ }
-        }
 
-        // Fetch trending topics
-        try {
-          const trendRes = await doubtService.getTrending();
-          setTrendingTopics(trendRes.data || []);
-        } catch (_) { /* silent */ }
-
-        // Fetch followed users
-        try {
-          const followingRes = await userService.getFollowing(currentUser.uid);
-          setFollowedUsers(followingRes.data || []);
-        } catch (_) { /* silent */ }
+          // 5. Fetch Followed Users
+          try {
+            const followingRes = await userService.getFollowing(currentUser.uid);
+            setFollowedUsers(followingRes.data || []);
+          } catch (_) { /* silent */ }
       };
       loadData();
     }

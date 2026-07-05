@@ -37,6 +37,7 @@ const gamificationRoutes = require('./src/routes/gamification');
 const chatRoutes         = require('./src/routes/chat');
 const sessionRoutes      = require('./src/routes/session');
 const doubtRoutes        = require('./src/routes/doubt');
+const authRoutes         = require('./src/routes/auth');
 
 // ── Services ─────────────────────────────────────────────────────────
 const { initWebSocketServer } = require('./src/services/chatService');
@@ -82,6 +83,8 @@ app.use('/api',              gamificationRoutes);
 app.use('/api/chat',         chatRoutes);
 app.use('/api/session',      sessionRoutes);
 app.use('/api/doubt',        doubtRoutes);
+app.use('/api/auth',         authRoutes);
+app.use('/api/auth',         authRoutes);
 
 // ── 404 + error handling ─────────────────────────────────────────────
 app.use(notFoundHandler);

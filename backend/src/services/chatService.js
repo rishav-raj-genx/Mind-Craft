@@ -90,6 +90,14 @@ function initWebSocketServer(httpServer) {
           handleTyping(ws, user, data.matchId);
           break;
 
+        case 'edit_message':
+          await handleEditMessage(ws, user, data.matchId, data.messageId, data.text);
+          break;
+
+        case 'delete_message':
+          await handleDeleteMessage(ws, user, data.matchId, data.messageId);
+          break;
+
         case 'read':
           await handleRead(user, data.matchId);
           break;
@@ -217,15 +225,54 @@ async function handleRead(user, matchId) {
 
 // ── Broadcast helper ──────────────────────────────────────────────────
 
-function broadcastToRoom(matchId, data, excludeWs = null) {
+function broadcastToRoom(matchId, payload, excludeWs = null) {
   const members = rooms.get(matchId);
   if (!members) return;
 
-  const payload = JSON.stringify(data);
-  for (const member of members) {
-    if (member !== excludeWs && member.readyState === 1) {
-      member.send(payload);
+  const msgStr = JSON.stringify(payload);
+  for (const client of members) {
+    if (client !== excludeWs && client.readyState === 1) { // 1 = OPEN
+      client.send(msgStr);
     }
+  }
+}
+
+async function handleEditMessage(ws, user, matchId, messageId, text) {
+  if (!matchId || !messageId || !text) return;
+  const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
+  
+  try {
+    const doc = await chatRef.get();
+    if (doc.exists && doc.data().senderUid === user.uid) {
+      await chatRef.update({ text, isEdited: true });
+      broadcastToRoom(matchId, {
+        type: 'message_edited',
+        messageId,
+        text,
+        matchId
+      });
+    }
+  } catch (err) {
+    console.error('Error editing message:', err);
+  }
+}
+
+async function handleDeleteMessage(ws, user, matchId, messageId) {
+  if (!matchId || !messageId) return;
+  const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
+  
+  try {
+    const doc = await chatRef.get();
+    if (doc.exists && doc.data().senderUid === user.uid) {
+      await chatRef.delete();
+      broadcastToRoom(matchId, {
+        type: 'message_deleted',
+        messageId,
+        matchId
+      });
+    }
+  } catch (err) {
+    console.error('Error deleting message:', err);
   }
 }
 

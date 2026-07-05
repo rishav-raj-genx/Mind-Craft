@@ -31,4 +31,10 @@ export const doubtService = {
     const response = await api.get('/doubt/trending');
     return response.data;
   },
+
+  // Resolve (delete) a doubt — author only
+  resolveDoubt: async (doubtId) => {
+    const response = await api.delete(`/doubt/${doubtId}`);
+    return response.data;
+  },
 };

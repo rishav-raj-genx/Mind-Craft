@@ -217,4 +217,27 @@ router.patch('/:id/upvote', verifyFirebaseToken, async (req, res, next) => {
   }
 });
 
+// ── DELETE /api/doubt/:id — Resolve / delete a doubt (author only) ────
+router.delete('/:id', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const uid = req.user.uid;
+    const doubtRef = db.collection(COLLECTION_DOUBTS).doc(req.params.id);
+    const doubtDoc = await doubtRef.get();
+
+    if (!doubtDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Doubt not found' });
+    }
+
+    const data = doubtDoc.data();
+    if (data.authorUid !== uid) {
+      return res.status(403).json({ success: false, error: 'Only the author can resolve this doubt' });
+    }
+
+    await doubtRef.delete();
+    res.json({ success: true, message: 'Doubt resolved and removed' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

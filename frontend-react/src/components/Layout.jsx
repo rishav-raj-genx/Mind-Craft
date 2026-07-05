@@ -14,7 +14,7 @@ const Layout = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [photoUrl, setPhotoUrl] = useState(currentUser?.photoURL || "https://ui-avatars.com/api/?name=User");
-  const [hasUnread, setHasUnread] = useState(true);
+  const [hasUnread, setHasUnread] = useState(false);
 
   // Fetch the real Firestore photoUrl on mount (app-uploaded photo takes priority over Google avatar)
   useEffect(() => {

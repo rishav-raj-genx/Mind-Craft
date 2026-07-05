@@ -25,6 +25,16 @@ export const chatService = {
   getOrCreateThread: async (partnerUid) => {
     const response = await api.post(`/chat/thread`, { partnerUid });
     return response.data;
+  },
+
+  editMessage: async (matchId, messageId, text) => {
+    const response = await api.patch(`/chat/${matchId}/message/${messageId}`, { text });
+    return response.data;
+  },
+
+  deleteMessage: async (matchId, messageId) => {
+    const response = await api.delete(`/chat/${matchId}/message/${messageId}`);
+    return response.data;
   }
 };
 
@@ -79,6 +89,28 @@ export class ChatWebSocket {
       console.error('WebSocket error:', err);
       this.ws.close();
     };
+  }
+
+  markRead(matchId) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'read', matchId }));
+    }
+  }
+
+  editMessage(matchId, messageId, text) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'edit_message', matchId, messageId, text }));
+    } else {
+      chatService.editMessage(matchId, messageId, text);
+    }
+  }
+
+  deleteMessage(matchId, messageId) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'delete_message', matchId, messageId }));
+    } else {
+      chatService.deleteMessage(matchId, messageId);
+    }
   }
 
   joinRoom() {

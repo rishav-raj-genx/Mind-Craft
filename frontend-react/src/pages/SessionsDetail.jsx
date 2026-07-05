@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { sessionService } from '../services/sessionService';
-import { ArrowLeft, Calendar, Clock, MapPin, Video, User, CheckCircle, XCircle, CalendarPlus, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MapPin, Video, User, CheckCircle, XCircle, CalendarPlus, ExternalLink, Star } from 'lucide-react';
 import { motion } from 'framer-motion';
+import RatingModal from '../components/RatingModal';
 
 const timeAgo = (ts) => {
   if (!ts) return '';
@@ -64,7 +65,7 @@ const AddToCalendarBtn = ({ session }) => {
 };
 
 // ─── Session Card ──────────────────────────────────────────────────────────────
-const SessionCard = ({ session: s, index, currentUserId }) => {
+const SessionCard = ({ session: s, index, currentUserId, onRateClick }) => {
   const isTeacher = s.teacherUid === currentUserId;
 
   const statusColors = {
@@ -113,7 +114,7 @@ const SessionCard = ({ session: s, index, currentUserId }) => {
         {s.scheduledAt && (
           <div className="flex items-center gap-1">
             <Clock size={14} />
-            <span>{timeStr(s.scheduledAt)}</span>
+            <span>{timeStr(s.scheduledAt)} - {timeStr(s.scheduledAt + (s.duration || 60) * 60000)}</span>
           </div>
         )}
         {s.mode === 'Online' && s.meetLink && (
@@ -131,16 +132,27 @@ const SessionCard = ({ session: s, index, currentUserId }) => {
       </div>
 
       {/* Rating */}
-      {s.rating > 0 && (
+      {s.rating > 0 ? (
         <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-1 text-amber-500 text-sm font-semibold">
             {'★'.repeat(Math.round(s.rating))}{'☆'.repeat(5 - Math.round(s.rating))}
             <span className="text-gray-500 dark:text-gray-400 ml-1">{s.rating.toFixed(1)}</span>
           </div>
           {s.ratingComment && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 italic">"{s.ratingComment}"</p>
+            <p className="mt-1 text-sm text-gray-700 dark:text-gray-300 italic">"{s.ratingComment}"</p>
           )}
         </div>
+      ) : (
+        s.status === 'completed' && !isTeacher && (
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <button
+              onClick={() => onRateClick(s.sessionId)}
+              className="flex items-center gap-2 text-sm font-semibold text-[#7C3AED] dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+            >
+              <Star size={16} /> Rate Tutor
+            </button>
+          </div>
+        )
       )}
 
       {/* Add to Calendar — only for upcoming sessions */}
@@ -162,7 +174,12 @@ const SessionsDetail = () => {
   const { currentUser } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const initialFilter = searchParams.get('tab') || 'all';
+
+  const [filter, setFilter] = useState(initialFilter);
+  const [ratingSessionId, setRatingSessionId] = useState(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -174,6 +191,18 @@ const SessionsDetail = () => {
         .finally(() => setLoading(false));
     }
   }, [currentUser, filter]);
+
+  const handleRateSession = async (sessionId, rating, comment) => {
+    try {
+      await sessionService.rate(sessionId, rating, comment);
+      setSessions((prev) =>
+        prev.map((s) => (s.sessionId === sessionId ? { ...s, rating, ratingComment: comment } : s))
+      );
+    } catch (err) {
+      console.error('Failed to rate session', err);
+      alert('Failed to rate session. ' + (err.response?.data?.error || err.message));
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out]">
@@ -202,6 +231,25 @@ const SessionsDetail = () => {
         ))}
       </div>
 
+      {filter === 'completed' && !loading && sessions.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }} 
+          animate={{ opacity: 1, scale: 1 }} 
+          className="bg-gradient-to-r from-[#DCFD8B] to-[#b3d266] rounded-2xl p-5 shadow-[0_4px_20px_rgba(220,253,139,0.3)] flex flex-col sm:flex-row items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-4 w-full">
+            <div className="w-12 h-12 bg-black/10 rounded-full flex items-center justify-center shrink-0">
+              <Clock size={24} className="text-[#151f00]" />
+            </div>
+            <div className="flex-1 text-left">
+              <h3 className="font-bold text-[#151f00] text-lg leading-tight">Great Work!</h3>
+              <p className="text-[#151f00]/80 text-sm font-semibold">You've spent a total of <span className="font-black text-[#151f00] text-base">{+(sessions.reduce((acc, s) => acc + (s.duration || 60), 0) / 60).toFixed(1)} hours</span> learning and teaching.</p>
+            </div>
+          </div>
+          <Star size={40} className="text-[#151f00]/20 absolute right-4 bottom-4" />
+        </motion.div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-20">
           <div className="w-10 h-10 border-4 border-[#DCFD8B] border-t-transparent rounded-full animate-spin" />
@@ -220,10 +268,18 @@ const SessionsDetail = () => {
               session={s}
               index={idx}
               currentUserId={currentUser?.uid}
+              onRateClick={setRatingSessionId}
             />
           ))}
         </div>
       )}
+      
+      <RatingModal
+        isOpen={!!ratingSessionId}
+        onClose={() => setRatingSessionId(null)}
+        onSubmit={handleRateSession}
+        sessionId={ratingSessionId}
+      />
     </div>
   );
 };

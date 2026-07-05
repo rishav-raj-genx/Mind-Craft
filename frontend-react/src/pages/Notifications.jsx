@@ -30,13 +30,14 @@ const Notifications = () => {
       const upcomingSessions = sessRes.data || [];
       upcomingSessions.forEach(s => {
         const isTeacher = s.teacherUid === currentUser.uid;
+        const dateStr = new Date(s.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         notifs.push({
           id: `session-${s.sessionId}`,
           type: 'SESSION_REQUEST',
           title: 'Upcoming Session',
           message: isTeacher
-            ? `You have an upcoming tutoring session for "${s.skill}".`
-            : `You're scheduled to learn "${s.skill}" soon.`,
+            ? `You have an upcoming tutoring session for "${s.skill}" with ${s.peerName} on ${dateStr}.`
+            : `You're scheduled to learn "${s.skill}" with ${s.peerName} on ${dateStr}.`,
           timeAgo: formatTime(s.scheduledAt),
           read: false,
           sessionId: s.sessionId,
@@ -49,13 +50,14 @@ const Notifications = () => {
       const pendingSessions = pendingRes.data || [];
       pendingSessions.forEach(s => {
         const isTeacher = s.teacherUid === currentUser.uid;
+        const dateStr = new Date(s.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         if (isTeacher) {
           // Teacher sees accept/reject
           notifs.push({
             id: `session-req-${s.sessionId}`,
             type: 'SESSION_PENDING',
             title: 'Session Request',
-            message: `You received a session request for "${s.skill}" on ${new Date(s.scheduledAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}.`,
+            message: `${s.peerName} requested a session for "${s.skill}" on ${dateStr}.`,
             timeAgo: formatTime(s.createdAt || s.scheduledAt),
             read: false,
             sessionId: s.sessionId,
@@ -67,7 +69,7 @@ const Notifications = () => {
             id: `session-wait-${s.sessionId}`,
             type: 'SESSION_WAITING',
             title: 'Session Pending',
-            message: `Your session request for "${s.skill}" is waiting for approval.`,
+            message: `Your session request for "${s.skill}" with ${s.peerName} is waiting for approval.`,
             timeAgo: formatTime(s.createdAt || s.scheduledAt),
             read: false,
             sessionId: s.sessionId,

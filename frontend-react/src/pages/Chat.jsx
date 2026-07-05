@@ -7,89 +7,13 @@ import { ArrowLeft, Send, Phone, Video, Info, Check, CheckCheck, Clock, Calendar
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
-// ── Rating Modal Component ──────────────────────────────────────────────
-const RatingModal = ({ isOpen, onClose, onSubmit, sessionId }) => {
-  const [rating, setRating] = useState(0);
-  const [hoveredStar, setHoveredStar] = useState(0);
-  const [comment, setComment] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  if (!isOpen) return null;
-
-  const handleSubmit = async () => {
-    if (rating === 0) return;
-    setSubmitting(true);
-    try {
-      await onSubmit(sessionId, rating, comment);
-      onClose();
-    } catch (err) {
-      console.error('Rating submission failed', err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-surface-container rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-200 dark:border-surface-raised relative animate-[fadeIn_0.2s_ease-out]">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-on-surface transition-colors">
-          <X size={20} />
-        </button>
-
-        <div className="text-center mb-6">
-          <h3 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">Rate this Session</h3>
-          <p className="font-body-sm text-body-sm text-gray-500 dark:text-on-surface-variant mt-2">How was your learning experience?</p>
-        </div>
-
-        {/* 5-Star Rating */}
-        <div className="flex justify-center gap-2 mb-6">
-          {[1, 2, 3, 4, 5].map((star) => (
-            <button
-              key={star}
-              onMouseEnter={() => setHoveredStar(star)}
-              onMouseLeave={() => setHoveredStar(0)}
-              onClick={() => setRating(star)}
-              className="transition-transform hover:scale-110 active:scale-95"
-            >
-              <Star
-                size={36}
-                className={`transition-colors ${
-                  star <= (hoveredStar || rating)
-                    ? 'text-yellow-400 fill-yellow-400'
-                    : 'text-gray-300 dark:text-surface-raised'
-                }`}
-              />
-            </button>
-          ))}
-        </div>
-
-        <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Share your feedback (optional)..."
-          className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl p-4 text-sm text-gray-900 dark:text-on-surface placeholder:text-gray-400 focus:outline-none focus:border-success-lime resize-none h-24 mb-6"
-        />
-
-        <button
-          onClick={handleSubmit}
-          disabled={rating === 0 || submitting}
-          className={`w-full py-3 rounded-full font-label-lg text-label-lg transition-all ${
-            rating > 0
-              ? 'bg-success-lime text-green-900 shadow-[0_4px_0_#b3d266] active:translate-y-[2px] active:shadow-[0_2px_0_#b3d266]'
-              : 'bg-gray-200 dark:bg-surface-raised text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          {submitting ? 'Submitting...' : `Submit Rating (${rating}/5)`}
-        </button>
-      </div>
-    </div>
-  );
-};
+import RatingModal from '../components/RatingModal';
 
 // ── Session Booking Modal ───────────────────────────────────────────────
 const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId }) => {
   const [skill, setSkill] = useState('');
   const [scheduledAt, setScheduledAt] = useState(new Date());
+  const [duration, setDuration] = useState(60);
   const [mode, setMode] = useState('Online');
   const [notes, setNotes] = useState('');
   const [booking, setBooking] = useState(false);
@@ -109,9 +33,12 @@ const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId
         teacherUid: partnerId,
         learnerUid: currentUser.uid,
         skill,
-        scheduledAt: new Date(scheduledAt).getTime(),
+        scheduledAt: scheduledAt.getTime(),
+        duration,
         mode,
-        notes,
+        meetLink: '',
+        location: '',
+        notes
       });
       onClose();
     } catch (err) {
@@ -143,17 +70,29 @@ const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId
 
           <div className="flex flex-col relative z-[200]">
             <label className="block font-label-md text-label-md text-gray-700 dark:text-on-surface-variant mb-1.5">When?</label>
-            <DatePicker
-              selected={scheduledAt}
-              onChange={(date) => setScheduledAt(date)}
-              showTimeSelect
-              timeFormat="HH:mm"
-              timeIntervals={15}
-              timeCaption="Time"
-              dateFormat="MMMM d, yyyy h:mm aa"
-              className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime"
-              minDate={new Date()}
-            />
+            <div className="flex gap-2">
+              <DatePicker
+                selected={scheduledAt}
+                onChange={(date) => setScheduledAt(date)}
+                showTimeSelect
+                timeFormat="HH:mm"
+                timeIntervals={15}
+                timeCaption="Time"
+                dateFormat="MMMM d, yyyy h:mm aa"
+                className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime"
+                minDate={new Date()}
+              />
+              <select
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                className="w-1/3 bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime"
+              >
+                <option value={30}>30 min</option>
+                <option value={45}>45 min</option>
+                <option value={60}>1 hr</option>
+                <option value={90}>1.5 hr</option>
+              </select>
+            </div>
           </div>
 
           <div>
@@ -220,6 +159,11 @@ const Chat = () => {
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [ratingSessionId, setRatingSessionId] = useState(null);
   const [calendarLoading, setCalendarLoading] = useState({});
+  
+  // Edit/Delete state
+  const [longPressMsgId, setLongPressMsgId] = useState(null);
+  const [editingMsg, setEditingMsg] = useState(null);
+  const pressTimer = useRef(null);
 
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -289,6 +233,15 @@ const Chat = () => {
   };
 
   const handleReceiveMessage = (data) => {
+    if (data.type === 'message_edited') {
+      setMessages(prev => prev.map(m => (m.id === data.messageId || m.messageId === data.messageId) ? { ...m, text: data.text, isEdited: true } : m));
+      return;
+    }
+    if (data.type === 'message_deleted') {
+      setMessages(prev => prev.filter(m => m.id !== data.messageId && m.messageId !== data.messageId));
+      return;
+    }
+
     const incoming = data.message || (
       data.type === 'message'
         ? {
@@ -299,6 +252,7 @@ const Chat = () => {
             text: data.text,
             timestamp: data.timestamp,
             read: data.read || false,
+            isEdited: data.isEdited || false,
           }
         : null
     );
@@ -319,6 +273,35 @@ const Chat = () => {
     }
   };
 
+  const handleStartPress = (msg) => {
+    if (msg.senderUid !== currentUser.uid && msg.senderId !== currentUser.uid) return;
+    pressTimer.current = setTimeout(() => {
+      setLongPressMsgId(msg.id || msg.messageId);
+    }, 500); // 500ms long press
+  };
+
+  const handleEndPress = () => {
+    clearTimeout(pressTimer.current);
+  };
+
+  const handleEditClick = (msg) => {
+    setEditingMsg(msg);
+    setInputText(msg.text);
+    setLongPressMsgId(null);
+  };
+
+  const handleDeleteClick = (msg) => {
+    if (window.confirm("Delete this message?")) {
+      if (wsRef.current) {
+        wsRef.current.deleteMessage(matchId, msg.id || msg.messageId);
+      } else {
+        chatService.deleteMessage(matchId, msg.id || msg.messageId);
+      }
+      setMessages(prev => prev.filter(m => m.id !== (msg.id || msg.messageId) && m.messageId !== (msg.id || msg.messageId)));
+    }
+    setLongPressMsgId(null);
+  };
+
   const handleTypingIndicator = (data) => {
     if (data.uid !== currentUser.uid) {
       setIsTyping(true);
@@ -333,6 +316,24 @@ const Chat = () => {
 
     const text = inputText;
     setInputText('');
+
+    if (editingMsg) {
+      // Handle Edit
+      const msgId = editingMsg.id || editingMsg.messageId;
+      setMessages(prev => prev.map(m => (m.id === msgId || m.messageId === msgId) ? { ...m, text: text, isEdited: true } : m));
+      
+      try {
+        if (wsRef.current) {
+          wsRef.current.editMessage(matchId, msgId, text);
+        } else {
+          await chatService.editMessage(matchId, msgId, text);
+        }
+      } catch (err) {
+        console.error("Failed to edit message", err);
+      }
+      setEditingMsg(null);
+      return;
+    }
 
     const optimisticMsg = {
       id: Date.now().toString(),
@@ -569,19 +570,49 @@ const Chat = () => {
           const isMine = msg.senderId === currentUser.uid || msg.senderUid === currentUser.uid;
           return (
             <div key={msg.id || msg.messageId || idx} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] rounded-2xl px-4 py-2 relative group ${
-                isMine 
-                  ? 'bg-focus-purple text-white rounded-br-sm' 
-                  : 'bg-gray-100 dark:bg-surface-container text-gray-900 dark:text-on-surface rounded-bl-sm border border-gray-200 dark:border-surface-raised'
-              }`}>
+              <div 
+                className={`max-w-[75%] rounded-2xl px-4 py-2 relative group cursor-pointer ${
+                  isMine 
+                    ? 'bg-focus-purple text-white rounded-br-sm' 
+                    : 'bg-gray-100 dark:bg-surface-container text-gray-900 dark:text-on-surface rounded-bl-sm border border-gray-200 dark:border-surface-raised'
+                } ${longPressMsgId === (msg.id || msg.messageId) ? 'ring-2 ring-offset-2 ring-focus-purple dark:ring-offset-background-deep' : ''}`}
+                onPointerDown={() => handleStartPress(msg)}
+                onPointerUp={handleEndPress}
+                onPointerLeave={handleEndPress}
+                onContextMenu={(e) => {
+                  if (isMine) {
+                    e.preventDefault();
+                    setLongPressMsgId(msg.id || msg.messageId);
+                  }
+                }}
+              >
                 <p className="font-body-md text-[15px] break-words">{msg.text}</p>
                 <div className={`text-[10px] flex items-center justify-end gap-1 mt-1 opacity-70 ${isMine ? 'text-purple-100' : 'text-gray-500'}`}>
+                  {msg.isEdited && <span className="mr-1 italic">Edited</span>}
                   {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                   {isMine && (
                     msg.status === 'sending' ? <Clock size={10} /> :
                     msg.status === 'read' ? <CheckCheck size={12} className="text-blue-300" /> : <Check size={12} />
                   )}
                 </div>
+
+                {/* Edit/Delete Action Menu */}
+                {longPressMsgId === (msg.id || msg.messageId) && (
+                  <div className="absolute top-full right-0 mt-1 bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-xl shadow-lg z-50 overflow-hidden flex flex-col min-w-[120px]">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleEditClick(msg); }} 
+                      className="px-4 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-surface-container-high text-left w-full border-b border-gray-100 dark:border-surface-raised"
+                    >
+                      Edit Message
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteClick(msg); }} 
+                      className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 text-left w-full"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -601,14 +632,23 @@ const Chat = () => {
 
       {/* Input Area */}
       <div className="pt-3 pb-safe bg-white dark:bg-background-deep border-t border-gray-200 dark:border-surface-raised sticky bottom-0">
-        <form onSubmit={handleSend} className="flex items-end gap-2 bg-gray-100 dark:bg-surface-container rounded-[24px] p-1 border border-gray-200 dark:border-surface-raised transition-colors focus-within:border-focus-purple dark:focus-within:border-focus-purple">
-          <input 
-            type="text" 
-            value={inputText}
-            onChange={handleTyping}
-            placeholder="Type a message..." 
-            className="flex-1 bg-transparent px-4 py-3 max-h-32 font-body-md text-gray-900 dark:text-on-surface focus:outline-none placeholder:text-gray-500"
-          />
+        <form onSubmit={handleSend} className="flex flex-col gap-2 bg-gray-100 dark:bg-surface-container rounded-[24px] p-1 border border-gray-200 dark:border-surface-raised transition-colors focus-within:border-focus-purple dark:focus-within:border-focus-purple">
+          {editingMsg && (
+            <div className="flex items-center justify-between px-4 pt-2 pb-1 text-xs text-purple-600 dark:text-purple-400 font-semibold border-b border-gray-200 dark:border-surface-raised">
+              <span>Editing message</span>
+              <button type="button" onClick={() => { setEditingMsg(null); setInputText(''); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                Cancel
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2 w-full">
+            <input 
+              type="text" 
+              value={inputText}
+              onChange={handleTyping}
+              placeholder="Type a message..." 
+              className="flex-1 bg-transparent px-4 py-3 max-h-32 font-body-md text-gray-900 dark:text-on-surface focus:outline-none placeholder:text-gray-500 w-full"
+            />
           <button 
             type="submit" 
             disabled={!inputText.trim()}
@@ -620,6 +660,7 @@ const Chat = () => {
           >
             <Send size={20} className={inputText.trim() ? "translate-x-0.5 -translate-y-0.5" : ""} />
           </button>
+          </div>
         </form>
       </div>
 

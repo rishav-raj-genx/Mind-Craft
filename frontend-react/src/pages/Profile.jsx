@@ -9,8 +9,18 @@ import { matchService } from '../services/matchService';
 import {
   Edit2, UserPlus, MessageSquare, BookOpen, GraduationCap,
   Flame, Users, Star, Clock, BarChart2, Medal, Moon,
-  X, Save, Loader2, Image as ImageIcon, ChevronRight
+  X, Save, Loader2, Image as ImageIcon, ChevronRight,
+  Code
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const GithubIcon = ({ size = 24, className = "" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3-.3 6-1.5 6-6.5a5.5 5.5 0 0 0-1.5-3.8 5.5 5.5 0 0 0-.2-3.8s-1.2-.4-3.9 1.4a13.3 13.3 0 0 0-7 0C6.2 1.6 5 2 5 2a5.5 5.5 0 0 0-.2 3.8A5.5 5.5 0 0 0 3 9.5c0 5 3 6.2 6 6.5a4.8 4.8 0 0 0-1 3.2v4"></path><path d="M9 18c-4.5 1.5-5-2.5-7-3"></path></svg>
+);
+
+const LinkedinIcon = ({ size = 24, className = "" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
+);
 
 // ─── Topics Modal ("Show All" popup) ──────────────────────────────────
 const TopicsModal = ({ title, topics, color, onClose }) => {
@@ -69,6 +79,11 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
   const [year, setYear] = useState(user.year || '');
   const [teaches, setTeaches] = useState(user?.teaches || skillGraph?.teaches || []);
   const [learns, setLearns] = useState(user?.learns || skillGraph?.learns || []);
+  const [linkedinUsername, setLinkedinUsername] = useState(user.linkedinUsername || '');
+  const [githubUsername, setGithubUsername] = useState(user.githubUsername || '');
+  const [leetcodeUsername, setLeetcodeUsername] = useState(user.leetcodeUsername || '');
+  const [codeforcesUsername, setCodeforcesUsername] = useState(user.codeforcesUsername || '');
+  const [codechefUsername, setCodechefUsername] = useState(user.codechefUsername || '');
   const [teachInput, setTeachInput] = useState('');
   const [learnInput, setLearnInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -89,7 +104,11 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
       finalLearns.push(learnInput.trim());
     }
     try {
-      await onSave({ name, department, college, year, teaches: finalTeaches, learns: finalLearns });
+      await onSave({ 
+        name, department, college, year, 
+        teaches: finalTeaches, learns: finalLearns,
+        linkedinUsername, githubUsername, leetcodeUsername, codeforcesUsername, codechefUsername
+      });
       onClose();
     } catch (err) {
       console.error('Save failed:', err);
@@ -172,6 +191,32 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
               <input value={learnInput} onChange={e => setLearnInput(e.target.value)} onKeyDown={addLearn} className="bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1 min-w-[80px] py-1 text-sm" placeholder="+ Add topic" />
             </div>
           </div>
+          {/* Social Handles */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Social Handles (Optional)</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="relative">
+                <LinkedinIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input value={linkedinUsername} onChange={e => setLinkedinUsername(e.target.value)} placeholder="LinkedIn Username" className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+              </div>
+              <div className="relative">
+                <GithubIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input value={githubUsername} onChange={e => setGithubUsername(e.target.value)} placeholder="GitHub Username" className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+              </div>
+              <div className="relative">
+                <Code className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input value={leetcodeUsername} onChange={e => setLeetcodeUsername(e.target.value)} placeholder="LeetCode Username" className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+              </div>
+              <div className="relative">
+                <Code className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input value={codeforcesUsername} onChange={e => setCodeforcesUsername(e.target.value)} placeholder="Codeforces Username" className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+              </div>
+              <div className="relative">
+                <Code className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input value={codechefUsername} onChange={e => setCodechefUsername(e.target.value)} placeholder="CodeChef Username" className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+              </div>
+            </div>
+          </div>
           {/* Save */}
           <button onClick={handleSave} disabled={saving} className="w-full py-3.5 rounded-2xl bg-[#DCFD8B] text-[#151f00] font-bold text-base flex items-center justify-center gap-2 shadow-[0_4px_0_#b3d266] active:translate-y-[2px] active:shadow-[0_2px_0_#b3d266] transition-all disabled:opacity-60 mt-2">
             {saving ? <><Loader2 size={18} className="animate-spin" /> Saving...</> : <><Save size={18} /> Save Changes</>}
@@ -237,6 +282,7 @@ const Profile = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [topicsModal, setTopicsModal] = useState(null); // { title, topics, color }
+  const [showLinksModal, setShowLinksModal] = useState(false);
   const photoInputRef = useRef(null);
   const graphScrollRef = useRef(null);
   const isOwner = currentUser?.uid === uid;
@@ -299,9 +345,17 @@ const Profile = () => {
       const compressed = await compressImage(file, 300, 0.7);
       await userService.updateProfile(uid, { photoUrl: compressed });
       if (currentUser) {
-        await updateProfile(currentUser, { photoURL: compressed });
+        try {
+          await updateProfile(currentUser, { photoURL: compressed });
+        } catch (authErr) {
+          console.warn('Firebase Auth photoURL limit exceeded, falling back to Firestore only.');
+        }
         window.dispatchEvent(new CustomEvent('profile-updated', { detail: { photoUrl: compressed } }));
       }
+      
+      // Optimistic update for the UI
+      setProfileData(prev => prev ? { ...prev, user: { ...prev.user, photoUrl: compressed } } : prev);
+      
       await fetchAll();
     } catch (err) {
       console.error('Photo upload error:', err);
@@ -408,6 +462,13 @@ const Profile = () => {
     return { columns, monthLabels };
   };
 
+  useEffect(() => {
+    if (graphScrollRef.current && profileData) {
+      // Scroll to the end of the consistency graph (right side = today)
+      graphScrollRef.current.scrollLeft = graphScrollRef.current.scrollWidth;
+    }
+  }, [profileData]);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4 bg-gray-50 dark:bg-[#121212] min-h-screen">
@@ -432,12 +493,15 @@ const Profile = () => {
     );
   }
 
-  const { user, skillGraph } = profileData;
+  const { user, skillGraph, stats } = profileData;
   const streak = streakData || profileData.streak || { currentStreak: 0, longestStreak: 0, activeDates: [] };
   const gridData = buildGrid();
   const teaches = user.teaches || skillGraph?.teaches || [];
   const learns = user.learns || skillGraph?.learns || [];
-  const matedHours = Math.round((user.totalSessions || 0) * 1.2);
+  
+  const completedSessions = stats?.completedSessionsCount || 0;
+  const avgRating = stats?.averageRating || 0;
+  const studyHours = stats?.totalStudyHours || 0;
 
   const badgesList = badgeData?.badges || [];
   const earnedBadges = badgesList.filter(b => b.level > 0).map(b => ({
@@ -447,80 +511,197 @@ const Profile = () => {
     description: b.description,
   }));
 
+  const hasSocialLinks = !!(user?.linkedinUsername || user?.githubUsername || user?.leetcodeUsername || user?.codeforcesUsername || user?.codechefUsername);
+
   return (
     <div className="flex flex-col gap-5 pb-32 bg-gray-50 dark:bg-[#121212] min-h-screen px-4 pt-4 sm:px-0 transition-colors">
       <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
 
-      {/* ── Profile Header Card ─────────────────────────────────────── */}
-      <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-8 flex flex-col items-center text-center relative shadow-sm dark:shadow-lg transition-colors">
-        {/* Avatar */}
-        <div className="relative mb-5">
-          <div className="w-28 h-28 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)]">
-            <img
-              className="w-full h-full object-cover"
-              src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=7C3AED&color=fff&size=200`}
-              alt={user.name}
-            />
-          </div>
-          {isOwner && (
-            <button
-              onClick={() => photoInputRef.current?.click()}
-              disabled={uploadingPhoto}
-              className="absolute bottom-0 right-0 w-8 h-8 bg-[#7C3AED] rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors"
+      {/* ── Profile Links Modal ─────────────────────────────────────── */}
+      <AnimatePresence>
+        {showLinksModal && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4">
+            <motion.div
+              initial={{ opacity: 0, y: "100%" }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="bg-white dark:bg-surface-container w-full sm:max-w-sm rounded-t-[32px] sm:rounded-3xl p-6 shadow-2xl relative border-t border-gray-100 dark:border-surface-raised"
             >
-              {uploadingPhoto ? <Loader2 size={14} className="text-white animate-spin" /> : <Edit2 size={14} className="text-white" />}
-            </button>
+              <div className="w-12 h-1.5 bg-gray-200 dark:bg-surface-raised rounded-full mx-auto mb-6 sm:hidden" />
+              <button onClick={() => setShowLinksModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 dark:hover:text-on-surface">
+                <X size={20} />
+              </button>
+              
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 text-center">Social Profiles</h3>
+              
+              <div className="flex flex-col gap-3">
+                {user.linkedinUsername && (
+                  <a href={`https://linkedin.com/in/${user.linkedinUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                    <div className="w-10 h-10 rounded-full bg-[#0077B5]/10 text-[#0077B5] flex items-center justify-center group-hover:scale-110 transition-transform"><LinkedinIcon size={18} /></div>
+                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.linkedinUsername}</span>
+                    <ChevronRight size={16} className="text-gray-400" />
+                  </a>
+                )}
+                {user.githubUsername && (
+                  <a href={`https://github.com/${user.githubUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                    <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white flex items-center justify-center group-hover:scale-110 transition-transform"><GithubIcon size={18} /></div>
+                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.githubUsername}</span>
+                    <ChevronRight size={16} className="text-gray-400" />
+                  </a>
+                )}
+                {user.leetcodeUsername && (
+                  <a href={`https://leetcode.com/${user.leetcodeUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                    <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
+                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.leetcodeUsername}</span>
+                    <ChevronRight size={16} className="text-gray-400" />
+                  </a>
+                )}
+                {user.codeforcesUsername && (
+                  <a href={`https://codeforces.com/profile/${user.codeforcesUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                    <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
+                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.codeforcesUsername}</span>
+                    <ChevronRight size={16} className="text-gray-400" />
+                  </a>
+                )}
+                {user.codechefUsername && (
+                  <a href={`https://www.codechef.com/users/${user.codechefUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                    <div className="w-10 h-10 rounded-full bg-red-500/10 text-red-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
+                    <span className="font-semibold text-gray-900 dark:text-white flex-1">{user.codechefUsername}</span>
+                    <ChevronRight size={16} className="text-gray-400" />
+                  </a>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Profile Header Card (Insta-style) ────────────────────── */}
+      <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 relative shadow-sm dark:shadow-lg transition-colors">
+        {/* Top row: Avatar + Info */}
+        <div className="flex items-center gap-5">
+          {/* Avatar */}
+          <div className="relative shrink-0">
+            <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)]">
+              <img
+                className="w-full h-full object-cover"
+                src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=7C3AED&color=fff&size=200`}
+                alt={user.name}
+              />
+            </div>
+            {isOwner && (
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="absolute -bottom-1 -right-1 w-7 h-7 bg-[#7C3AED] rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors"
+              >
+                {uploadingPhoto ? <Loader2 size={12} className="text-white animate-spin" /> : <Edit2 size={12} className="text-white" />}
+              </button>
+            )}
+          </div>
+
+          {/* User Info (Right of avatar) */}
+          <div className="flex-1 text-left">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">{user.name}</h1>
+              {isOwner && (
+                <button
+                  onClick={() => setShowEditModal(true)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
+                  title="Edit Profile"
+                >
+                  <Edit2 size={14} />
+                </button>
+              )}
+            </div>
+            <p className="text-[#7C3AED] font-semibold text-sm leading-snug">{user.department}</p>
+            <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mt-0.5 leading-snug">
+              🎓 Year {user.year} • {user.college}{user.collegeLocation ? `, ${user.collegeLocation}` : ''}
+            </p>
+          </div>
+        </div>
+
+        {/* Stats Grid (Smaller) */}
+        <div className="grid grid-cols-4 gap-2 mt-5 bg-gray-50 dark:bg-[#121212] p-3 rounded-2xl border border-gray-100 dark:border-[#2A2A3A]">
+          <button onClick={() => navigate('/streak')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity">
+            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums flex items-center gap-0.5"><Flame size={12} className="text-orange-500" />{streak?.currentStreak || 0}</span>
+            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Streak</span>
+          </button>
+          <button onClick={() => navigate('/sessions')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity border-l border-gray-200 dark:border-gray-800">
+            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">{completedSessions}</span>
+            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Sessions</span>
+          </button>
+          <button onClick={() => navigate('/sessions?tab=completed')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity border-l border-gray-200 dark:border-gray-800">
+            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">{studyHours > 0 ? `${studyHours}h` : '0h'}</span>
+            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Study Hrs</span>
+          </button>
+          <button onClick={() => navigate('/ratings')} className="flex flex-col items-center justify-center hover:opacity-80 transition-opacity border-l border-gray-200 dark:border-gray-800">
+            <span className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">{avgRating.toFixed(1)}</span>
+            <span className="text-[8px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">Rating</span>
+          </button>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2 mt-4">
+          {isOwner ? (
+            <>
+              {hasSocialLinks && (
+                <button
+                  onClick={() => setShowLinksModal(true)}
+                  className="w-full py-2 rounded-xl bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm flex items-center justify-center gap-1.5 hover:bg-gray-200 dark:hover:bg-[#333345] transition-colors"
+                >
+                  🔗 Profile Links
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleFollow}
+                disabled={isConnected}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 transition-all ${
+                  isConnected
+                    ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                    : 'bg-[#DCFD8B] text-[#151f00] hover:scale-[1.02] active:scale-95'
+                }`}
+              >
+                {isConnected ? 'Following' : <><UserPlus size={14} /> Follow</>}
+              </button>
+              <button
+                onClick={handleChat}
+                className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm flex items-center justify-center gap-1.5 hover:bg-gray-200 dark:hover:bg-[#333345] transition-colors"
+              >
+                Message
+              </button>
+              {hasSocialLinks && (
+                <button
+                  onClick={() => setShowLinksModal(true)}
+                  className="py-2.5 px-3 rounded-xl bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm hover:bg-gray-200 dark:hover:bg-[#333345] transition-colors"
+                >
+                  🔗
+                </button>
+              )}
+            </>
           )}
         </div>
 
-        {/* Name + info */}
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">{user.name}</h1>
-        <p className="text-[#7C3AED] font-semibold text-base mb-2">
-          {user.department} Major
-        </p>
-        <p className="text-gray-500 dark:text-gray-400 text-sm font-medium mb-6">
-          🎓 {user.year} • {user.college}
-        </p>
-
-        {/* Connect + Message buttons */}
-        {!isOwner && (
-          <div className="flex gap-3 mb-8 w-full max-w-[280px]">
-            <button
-              onClick={handleFollow}
-              disabled={isConnected}
-              className={`flex-1 py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-                isConnected
-                  ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                  : 'bg-[#DCFD8B] text-[#151f00] hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(220,253,139,0.2)]'
-              }`}
-            >
-              {isConnected ? 'Following' : <><UserPlus size={18} /> Follow</>}
-            </button>
-            <button
-              onClick={handleChat}
-              className="flex-1 py-3 rounded-full bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-gray-200 dark:hover:bg-[#333345] hover:scale-105 active:scale-95 transition-all"
-            >
-              Message
-            </button>
-          </div>
-        )}
-
         {/* Topics */}
-        <div className="flex flex-col gap-4 w-full max-w-[280px] text-left mt-2">
+        <div className="flex flex-col gap-3 mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
           <div>
-            <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><GraduationCap size={14}/> I Teach</h3>
+            <h3 className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1"><GraduationCap size={12}/> I Teach</h3>
             <div className="flex flex-wrap gap-1.5">
               {teaches.length > 0 ? (
                 <>
-                  {teaches.slice(0, 3).map(t => (
-                    <span key={t} className="px-3 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-full shadow-sm">{t}</span>
+                  {teaches.slice(0, 4).map(t => (
+                    <span key={t} className="px-2.5 py-1 bg-[#7C3AED] text-white text-[11px] font-semibold rounded-full">{t}</span>
                   ))}
-                  {teaches.length > 3 && (
+                  {teaches.length > 4 && (
                     <button
                       onClick={() => setTopicsModal({ title: 'Topics I Teach', topics: teaches, color: 'bg-[#7C3AED] text-white' })}
-                      className="px-3 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-semibold rounded-full flex items-center gap-1 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                      className="px-2.5 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-semibold rounded-full flex items-center gap-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                     >
-                      +{teaches.length - 3} more <ChevronRight size={12} />
+                      +{teaches.length - 4} <ChevronRight size={10} />
                     </button>
                   )}
                 </>
@@ -528,19 +709,19 @@ const Profile = () => {
             </div>
           </div>
           <div>
-            <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><BookOpen size={14}/> I Learn</h3>
+            <h3 className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1"><BookOpen size={12}/> I Learn</h3>
             <div className="flex flex-wrap gap-1.5">
               {learns.length > 0 ? (
                 <>
-                  {learns.slice(0, 3).map(t => (
-                    <span key={t} className="px-3 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700 text-xs font-semibold rounded-full">{t}</span>
+                  {learns.slice(0, 4).map(t => (
+                    <span key={t} className="px-2.5 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700 text-[11px] font-semibold rounded-full">{t}</span>
                   ))}
-                  {learns.length > 3 && (
+                  {learns.length > 4 && (
                     <button
                       onClick={() => setTopicsModal({ title: 'Topics I Learn', topics: learns, color: 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700' })}
-                      className="px-3 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-semibold rounded-full flex items-center gap-1 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                      className="px-2.5 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-semibold rounded-full flex items-center gap-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                     >
-                      +{learns.length - 3} more <ChevronRight size={12} />
+                      +{learns.length - 4} <ChevronRight size={10} />
                     </button>
                   )}
                 </>
@@ -549,38 +730,6 @@ const Profile = () => {
           </div>
         </div>
       </section>
-
-      {/* ── Stats Grid 2×2 ────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
-        <StatCard
-          icon={Flame}
-          iconColor="text-[#DCFD8B]"
-          value={streak.currentStreak || 0}
-          label="Day Streak"
-          onClick={() => navigate('/streak')}
-        />
-        <StatCard
-          icon={Users}
-          iconColor="text-[#7C3AED]"
-          value={user.totalSessions || 0}
-          label="Sessions"
-          onClick={() => navigate('/sessions')}
-        />
-        <StatCard
-          icon={Star}
-          iconColor="text-amber-400"
-          value={(user.averageRating || 0).toFixed(1)}
-          label="Rating"
-          onClick={() => navigate('/ratings')}
-        />
-        <StatCard
-          icon={Clock}
-          iconColor="text-[#7C3AED]"
-          value={matedHours > 0 ? `${matedHours}h` : '0h'}
-          label="Study Hrs"
-          onClick={() => navigate('/mates')}
-        />
-      </div>
 
       {/* ── Consistency Graph ─────────────────────────────────────── */}
       <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 shadow-sm dark:shadow-lg transition-colors overflow-hidden">

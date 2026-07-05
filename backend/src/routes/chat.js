@@ -6,9 +6,11 @@
  * both the Android ChatRepository and the WebSocket chatService.
  *
  * Endpoints:
- *   GET  /api/chat/:matchId/history — Paginated message history
- *   POST /api/chat/:matchId/send    — REST fallback for sending
- *   GET  /api/chat/threads/:uid     — List all chat threads
+ *   GET    /api/chat/:matchId/history — Paginated message history
+ *   POST   /api/chat/:matchId/send    — REST fallback for sending
+ *   PATCH  /api/chat/:matchId/message/:messageId — REST fallback for editing
+ *   DELETE /api/chat/:matchId/message/:messageId — REST fallback for deleting
+ *   GET    /api/chat/threads/:uid     — List all chat threads
  */
 
 const express = require('express');
@@ -101,6 +103,79 @@ router.post(
     }
   },
 );
+
+// ── PATCH /api/chat/:matchId/message/:messageId ──────────────────────────────
+router.patch(
+  '/:matchId/message/:messageId',
+  verifyFirebaseToken,
+  [body('text').trim().notEmpty().withMessage('Message text is required')],
+  async (req, res, next) => {
+    try {
+      const errors = formatValidationErrors(req);
+      if (errors) return res.status(400).json(errors);
+
+      const { matchId, messageId } = req.params;
+      const { text } = req.body;
+      const senderUid = req.user.uid;
+
+      const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
+      const doc = await chatRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ success: false, error: 'Message not found' });
+      }
+
+      const msg = doc.data();
+      if (msg.senderUid !== senderUid) {
+        return res.status(403).json({ success: false, error: 'Unauthorized to edit this message' });
+      }
+
+      await chatRef.update({
+        text,
+        isEdited: true,
+      });
+
+      // Update match preview if this is the last message
+      const matchRef = db.collection(COLLECTION_MATCHES).doc(matchId);
+      const matchDoc = await matchRef.get();
+      if (matchDoc.exists) {
+        const matchData = matchDoc.data();
+        if (matchData.lastMessageSender === senderUid && Math.abs(matchData.lastMessageTime - msg.timestamp) < 5000) {
+          await matchRef.update({ lastMessage: text });
+        }
+      }
+
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── DELETE /api/chat/:matchId/message/:messageId ─────────────────────────────
+router.delete('/:matchId/message/:messageId', verifyFirebaseToken, async (req, res, next) => {
+  try {
+    const { matchId, messageId } = req.params;
+    const senderUid = req.user.uid;
+
+    const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
+    const doc = await chatRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, error: 'Message not found' });
+    }
+
+    if (doc.data().senderUid !== senderUid) {
+      return res.status(403).json({ success: false, error: 'Unauthorized to delete this message' });
+    }
+
+    // Hard delete
+    await chatRef.delete();
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── GET /api/chat/threads/:uid ────────────────────────────────────────
 router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {

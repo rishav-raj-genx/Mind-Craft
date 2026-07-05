@@ -126,6 +126,41 @@ async function findBroadMatches(uid, limit = 20) {
 }
 
 /**
+ * Final fallback: any active users (highest rated)
+ * Used when broad matches are also empty.
+ */
+async function findAnyMatches(uid, limit = 20) {
+  const driver  = getDriver();
+  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
+
+  try {
+    const result = await session.run(
+      `MATCH (tutor:User)
+       WHERE tutor.uid <> $uid
+       RETURN tutor {
+         .uid, .name, .email, .photoUrl, .college, .department,
+         .year, .averageRating, .totalSessions, .latitude, .longitude
+       } AS tutorData
+       ORDER BY tutor.averageRating DESC, tutor.totalSessions DESC
+       LIMIT $limit`,
+      { uid, limit: neo4jInt(limit) },
+    );
+
+    return result.records.map((record) => ({
+      tutor:         record.get('tutorData'),
+      sharedSkills:  [],
+      activityScore: 0,
+      sameCollege:   false,
+    }));
+  } catch (err) {
+    console.error('❌ Any match query failed:', err.message);
+    throw err;
+  } finally {
+    await session.close();
+  }
+}
+
+/**
  * Retrieves the skill graph for a single user (what they teach + learn).
  * Useful for the profile page.
  *
@@ -171,5 +206,6 @@ function toNumber(value) {
 module.exports = {
   findMatches,
   findBroadMatches,
+  findAnyMatches,
   getUserSkillGraph,
 };

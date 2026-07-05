@@ -35,5 +35,10 @@ export const userService = {
   getFollowing: async (uid) => {
     const response = await api.get(`/user/${uid}/following`);
     return response.data;
+  },
+
+  getMetadataOptions: async () => {
+    const response = await api.get('/user/metadata/options');
+    return response.data;
   }
 };

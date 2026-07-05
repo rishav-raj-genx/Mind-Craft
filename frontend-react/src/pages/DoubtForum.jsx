@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { doubtService } from '../services/doubtService';
-import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock } from 'lucide-react';
+import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2 } from 'lucide-react';
 
 const TAGS = ['#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
-const FILTERS = ['All Doubts', '#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
+const FILTERS = ['All Doubts', 'My Doubts', '#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
 
 // Format timestamp
 const timeAgo = (ts) => {
@@ -189,8 +189,8 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
   );
 };
 
-// ── Answer Doubt Modal ────────────────────────────────────────────────
-const AnswerDoubtModal = ({ post, onClose, onSubmit, loading }) => {
+// ── Answer Doubt Modal (supports read-only mode for own doubts) ───────
+const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner }) => {
   const [content, setContent] = useState('');
   const [error, setError] = useState('');
 
@@ -216,8 +216,12 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading }) => {
         </div>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
           <div>
-            <h2 className="font-bold text-xl text-gray-900 dark:text-white">Answers</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Help {post.authorName.split(' ')[0]} out</p>
+            <h2 className="font-bold text-xl text-gray-900 dark:text-white">
+              {isOwner ? 'Answers to Your Doubt' : 'Answers'}
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              {isOwner ? 'See what peers have to say' : `Help ${post.authorName.split(' ')[0]} out`}
+            </p>
           </div>
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-400">
             <X size={18} />
@@ -230,6 +234,9 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading }) => {
              <div className="flex items-center gap-3 mb-2">
                 <img src={post.authorAvatar} alt={post.authorName} className="w-8 h-8 rounded-full" />
                 <span className="font-semibold text-sm text-gray-900 dark:text-white">{post.authorName}</span>
+                {isOwner && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C3AED] bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 rounded-full">You</span>
+                )}
                 <span className="text-xs text-gray-400 ml-auto">{timeAgo(post.createdAt)}</span>
              </div>
              <h3 className="font-bold text-gray-900 dark:text-white mb-1">{post.title}</h3>
@@ -239,6 +246,11 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading }) => {
           <h4 className="font-bold text-sm text-gray-700 dark:text-gray-300 mb-4">{post.answers?.length || 0} Answers</h4>
           
           <div className="flex flex-col gap-4">
+            {(post.answers || []).length === 0 && (
+              <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">
+                {isOwner ? 'No answers yet. Hang tight!' : 'Be the first to answer this doubt!'}
+              </div>
+            )}
             {(post.answers || []).map((ans, i) => (
               <div key={i} className="bg-white dark:bg-[#1C1C2E] rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
                 <div className="flex items-center gap-3 mb-2">
@@ -252,25 +264,71 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading }) => {
           </div>
         </div>
 
-        <div className="p-4 bg-white dark:bg-[#1A1A2E] border-t border-gray-100 dark:border-gray-800 shrink-0">
-          <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-            <textarea
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              placeholder="Write your answer..."
-              rows={2}
-              className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] resize-none text-sm"
-            />
-            {error && <div className="text-red-500 text-xs px-1">{error}</div>}
+        {/* Only show the answer input form for non-owner */}
+        {!isOwner && (
+          <div className="p-4 bg-white dark:bg-[#1A1A2E] border-t border-gray-100 dark:border-gray-800 shrink-0">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+              <textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                placeholder="Write your answer..."
+                rows={2}
+                className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] resize-none text-sm"
+              />
+              {error && <div className="text-red-500 text-xs px-1">{error}</div>}
+              <button
+                type="submit"
+                disabled={loading}
+                className="self-end px-5 py-2 rounded-xl bg-[#DCFD8B] text-[#151f00] font-bold text-sm flex items-center gap-2 hover:opacity-90 disabled:opacity-60"
+              >
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                Post Answer
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Resolve Confirmation Modal ────────────────────────────────────────
+const ResolveConfirmModal = ({ post, onClose, onConfirm, loading }) => {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm bg-white dark:bg-[#1A1A2E] rounded-3xl shadow-2xl z-10 overflow-hidden" style={{ animation: 'slideUp 0.3s ease-out' }}>
+        <div className="p-6 flex flex-col items-center text-center gap-4">
+          <div className="w-14 h-14 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+            <CheckCircle2 size={28} className="text-green-600 dark:text-green-400" />
+          </div>
+          <div>
+            <h2 className="font-bold text-lg text-gray-900 dark:text-white mb-1">Mark as Resolved?</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+              This will permanently remove <span className="font-semibold text-gray-700 dark:text-gray-300">"{post.title}"</span> from the forum. This action cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-3 w-full mt-2">
             <button
-              type="submit"
-              disabled={loading}
-              className="self-end px-5 py-2 rounded-xl bg-[#DCFD8B] text-[#151f00] font-bold text-sm flex items-center gap-2 hover:opacity-90 disabled:opacity-60"
+              onClick={onClose}
+              className="flex-1 py-3 rounded-2xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold text-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
             >
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              Post Answer
+              Cancel
             </button>
-          </form>
+            <button
+              onClick={() => onConfirm(post.id)}
+              disabled={loading}
+              className="flex-1 py-3 rounded-2xl bg-green-600 text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-green-700 transition-colors disabled:opacity-60"
+            >
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+              Resolve
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -285,8 +343,10 @@ const DoubtForum = () => {
   const [activeFilter, setActiveFilter] = useState('All Doubts');
   const [showModal, setShowModal] = useState(false);
   const [answeringDoubt, setAnsweringDoubt] = useState(null);
+  const [resolvingDoubt, setResolvingDoubt] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [answering, setAnswering] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
   const [upvotedIds, setUpvotedIds] = useState(new Set());
@@ -296,7 +356,9 @@ const DoubtForum = () => {
     setLoading(true);
     setFetchError('');
     try {
-      const res = await doubtService.getAllDoubts(filter);
+      // For "My Doubts" we fetch all and filter client-side
+      const fetchFilter = (filter === 'My Doubts') ? 'All Doubts' : filter;
+      const res = await doubtService.getAllDoubts(fetchFilter);
       const data = res.data || [];
       setPosts(data);
       
@@ -357,6 +419,22 @@ const DoubtForum = () => {
     }
   };
 
+  const handleResolveDoubt = async (postId) => {
+    setResolving(true);
+    try {
+      await doubtService.resolveDoubt(postId);
+      setPosts(prev => prev.filter(p => p.id !== postId));
+      setResolvingDoubt(null);
+      setSuccessMsg('Doubt resolved and removed! ✅');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      console.error('Failed to resolve doubt:', err);
+      alert(err.response?.data?.error || 'Failed to resolve doubt.');
+    } finally {
+      setResolving(false);
+    }
+  };
+
   const handleUpvote = async (postId) => {
     try {
       const res = await doubtService.toggleUpvote(postId);
@@ -376,7 +454,16 @@ const DoubtForum = () => {
     }
   };
 
-  const filteredPosts = activeFilter === 'All Doubts' ? posts : posts.filter(p => p.tag === activeFilter);
+  // Apply filter logic
+  let filteredPosts = posts;
+  if (activeFilter === 'My Doubts') {
+    filteredPosts = posts.filter(p => p.authorUid === currentUser?.uid);
+  } else if (activeFilter !== 'All Doubts') {
+    filteredPosts = posts.filter(p => p.tag === activeFilter);
+  }
+
+  // For "All Doubts" and tag filters, separate own doubts out of the main list
+  const isMyDoubtsTab = activeFilter === 'My Doubts';
 
   return (
     <div className="flex flex-col gap-5 min-h-[calc(100vh-140px)]">
@@ -402,7 +489,9 @@ const DoubtForum = () => {
             onClick={() => setActiveFilter(filter)}
             className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap snap-start transition-all border ${
               activeFilter === filter
-                ? 'bg-[#7C3AED] text-white border-[#7C3AED] shadow-[0_0_12px_rgba(124,58,237,0.3)]'
+                ? filter === 'My Doubts'
+                  ? 'bg-[#DCFD8B] text-[#151f00] border-[#DCFD8B] shadow-[0_0_12px_rgba(220,253,139,0.3)]'
+                  : 'bg-[#7C3AED] text-white border-[#7C3AED] shadow-[0_0_12px_rgba(124,58,237,0.3)]'
                 : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-[#7C3AED] dark:hover:border-purple-500'
             }`}
           >
@@ -433,68 +522,112 @@ const DoubtForum = () => {
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
             <MessageCircle className="text-gray-300 dark:text-gray-600" size={48} />
             <div>
-              <p className="font-semibold text-gray-600 dark:text-gray-400">No doubts yet</p>
-              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Be the first to ask!</p>
+              <p className="font-semibold text-gray-600 dark:text-gray-400">
+                {isMyDoubtsTab ? 'You have no doubts yet' : 'No doubts yet'}
+              </p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+                {isMyDoubtsTab ? 'Post one and get help from peers!' : 'Be the first to ask!'}
+              </p>
             </div>
           </div>
         ) : (
-          filteredPosts.map(post => (
-            <article
-              key={post.id}
-              className="bg-white dark:bg-gray-900/80 rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-all group"
-            >
-              {/* Author row */}
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={post.authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.authorName)}`}
-                    alt={post.authorName}
-                    className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100 dark:ring-gray-700"
-                  />
-                  <div>
-                    <p className="font-semibold text-sm text-gray-900 dark:text-white">{post.authorName}</p>
-                    <div className="flex items-center gap-1 text-xs text-gray-400">
-                      <Clock size={11} />
-                      {timeAgo(post.createdAt)}
+          filteredPosts.map(post => {
+            const isOwn = post.authorUid === currentUser?.uid;
+
+            return (
+              <article
+                key={post.id}
+                className={`rounded-2xl p-5 border shadow-sm hover:shadow-md transition-all group ${
+                  isOwn
+                    ? 'bg-[#DCFD8B]/5 dark:bg-[#DCFD8B]/[0.03] border-[#DCFD8B]/30 dark:border-[#DCFD8B]/20'
+                    : 'bg-white dark:bg-gray-900/80 border-gray-100 dark:border-gray-800'
+                }`}
+              >
+                {/* Author row */}
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={post.authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.authorName)}`}
+                      alt={post.authorName}
+                      className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100 dark:ring-gray-700"
+                    />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm text-gray-900 dark:text-white">{post.authorName}</p>
+                        {isOwn && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C3AED] bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded-full">You</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 text-xs text-gray-400">
+                        <Clock size={11} />
+                        {timeAgo(post.createdAt)}
+                      </div>
                     </div>
                   </div>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${tagColor(post.tag)}`}>
+                    {post.tag}
+                  </span>
                 </div>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${tagColor(post.tag)}`}>
-                  {post.tag}
-                </span>
-              </div>
 
-              {/* Content */}
-              <div className="mb-4">
-                <h2 className="font-bold text-base text-gray-900 dark:text-white mb-1">{post.title}</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed">{post.content}</p>
-              </div>
+                {/* Content */}
+                <div className="mb-4">
+                  <h2 className="font-bold text-base text-gray-900 dark:text-white mb-1">{post.title}</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed">{post.content}</p>
+                </div>
 
-              {/* Actions */}
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-800">
-                <button
-                  id={`upvote-${post.id}`}
-                  onClick={() => handleUpvote(post.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-all ${
-                    (post.upvotedBy || []).includes(currentUser?.uid)
-                      ? 'bg-[#DCFD8B]/20 dark:bg-[#DCFD8B]/10 text-[#3a4d00] dark:text-[#DCFD8B] border-[#DCFD8B]/50'
-                      : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-[#DCFD8B]/50'
-                  }`}
-                >
-                  <ChevronUp size={15} />
-                  {post.upvotes || 0}
-                </button>
-                <button
-                  id={`answer-${post.id}`}
-                  onClick={() => setAnsweringDoubt(post)}
-                  className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700 font-semibold px-4 py-1.5 rounded-full text-sm flex items-center gap-2 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors"
-                >
-                  <MessageCircle size={14} />
-                  {post.answerCount > 0 ? `${post.answerCount} Answers` : 'Answer'}
-                </button>
-              </div>
-            </article>
-          ))
+                {/* Actions */}
+                <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-800">
+                  <button
+                    id={`upvote-${post.id}`}
+                    onClick={() => handleUpvote(post.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-all ${
+                      (post.upvotedBy || []).includes(currentUser?.uid)
+                        ? 'bg-[#DCFD8B]/20 dark:bg-[#DCFD8B]/10 text-[#3a4d00] dark:text-[#DCFD8B] border-[#DCFD8B]/50'
+                        : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-[#DCFD8B]/50'
+                    }`}
+                  >
+                    <ChevronUp size={15} />
+                    {post.upvotes || 0}
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    {isOwn ? (
+                      <>
+                        {/* View Answers button for own doubts */}
+                        <button
+                          id={`view-answers-${post.id}`}
+                          onClick={() => setAnsweringDoubt(post)}
+                          className="bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 font-semibold px-4 py-1.5 rounded-full text-sm flex items-center gap-2 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                        >
+                          <Eye size={14} />
+                          {post.answerCount > 0 ? `${post.answerCount} Answers` : 'View Answers'}
+                        </button>
+                        {/* Mark Resolved button */}
+                        <button
+                          id={`resolve-${post.id}`}
+                          onClick={() => setResolvingDoubt(post)}
+                          className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-700 font-semibold px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
+                        >
+                          <CheckCircle2 size={14} />
+                          Resolved
+                        </button>
+                      </>
+                    ) : (
+                      /* Answer button for others' doubts */
+                      <button
+                        id={`answer-${post.id}`}
+                        onClick={() => setAnsweringDoubt(post)}
+                        className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700 font-semibold px-4 py-1.5 rounded-full text-sm flex items-center gap-2 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors"
+                      >
+                        <MessageCircle size={14} />
+                        {post.answerCount > 0 ? `${post.answerCount} Answers` : 'Answer'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })
         )}
       </div>
 
@@ -522,6 +655,15 @@ const DoubtForum = () => {
           onClose={() => setAnsweringDoubt(null)}
           onSubmit={handleAnswerDoubt}
           loading={answering}
+          isOwner={answeringDoubt.authorUid === currentUser?.uid}
+        />
+      )}
+      {resolvingDoubt && (
+        <ResolveConfirmModal
+          post={resolvingDoubt}
+          onClose={() => setResolvingDoubt(null)}
+          onConfirm={handleResolveDoubt}
+          loading={resolving}
         />
       )}
     </div>
