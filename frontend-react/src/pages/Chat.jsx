@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { chatService, ChatWebSocket } from '../services/chatService';
+import { useNotifications } from '../context/NotificationContext';
+import { chatService } from '../services/chatService';
 import { sessionService } from '../services/sessionService';
 import { ArrowLeft, Send, Phone, Video, Info, Check, CheckCheck, Clock, CalendarPlus, Star, X, Loader2, MessageSquare, Plus } from 'lucide-react';
 import DatePicker from 'react-datepicker';
@@ -98,52 +99,44 @@ const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId
 
           <div className="flex flex-col relative z-[200]">
             <label className="block font-label-md text-label-md text-gray-700 dark:text-on-surface-variant mb-1.5">When?</label>
-            <div className="flex gap-2">
-              <DatePicker
-                selected={scheduledAt}
-                onChange={(date) => setScheduledAt(date)}
-                showTimeSelect
-                timeFormat="HH:mm"
-                timeIntervals={15}
-                timeCaption="Time"
-                dateFormat="MMMM d, yyyy h:mm aa"
-                className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime"
-                minDate={new Date()}
-              />
-              <select
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className="w-1/3 bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime"
-              >
-                <option value={30}>30 min</option>
-                <option value={45}>45 min</option>
-                <option value={60}>1 hr</option>
-                <option value={90}>1.5 hr</option>
-              </select>
-            </div>
+            <DatePicker
+              selected={scheduledAt}
+              onChange={(date) => setScheduledAt(date)}
+              showTimeSelect
+              dateFormat="MMMM d, yyyy h:mm aa"
+              className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime"
+              minDate={new Date()}
+            />
+          </div>
+
+          <div>
+            <label className="block font-label-md text-label-md text-gray-700 dark:text-on-surface-variant mb-1.5">Duration (mins)</label>
+            <select
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime appearance-none"
+            >
+              <option value={30}>30 mins</option>
+              <option value={60}>1 hour</option>
+              <option value={90}>1.5 hours</option>
+              <option value={120}>2 hours</option>
+            </select>
           </div>
 
           <div>
             <label className="block font-label-md text-label-md text-gray-700 dark:text-on-surface-variant mb-1.5">Mode</label>
-            <div className="flex gap-3">
-              {['Online', 'In-Person'].map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`flex-1 py-2 px-4 rounded-full text-sm font-label-md transition-colors border ${
-                    mode === m
-                      ? 'bg-success-lime/20 border-success-lime text-green-700 dark:text-success-lime'
-                      : 'bg-gray-50 dark:bg-surface-raised border-gray-200 dark:border-outline-variant text-gray-600 dark:text-on-surface-variant'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+              className="w-full bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant rounded-xl py-3 px-4 text-sm text-gray-900 dark:text-on-surface focus:outline-none focus:border-success-lime appearance-none"
+            >
+              <option value="Online">Online (Meet)</option>
+              <option value="In-Person">In-Person</option>
+            </select>
           </div>
 
           <div>
-            <label className="block font-label-md text-label-md text-gray-700 dark:text-on-surface-variant mb-1.5">Notes (optional)</label>
+            <label className="block font-label-md text-label-md text-gray-700 dark:text-on-surface-variant mb-1.5">Additional Notes (Optional)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -177,7 +170,17 @@ const Chat = () => {
   const { currentUser } = useAuth();
   const { globalData } = useAppContext();
   
-  const [threads, setThreads] = useState([]);
+  // Use Master unified websocket state from NotificationContext
+  const { 
+    threads, 
+    subscribeToChat, 
+    sendMessage: globalSendMessage, 
+    sendTyping: globalSendTyping, 
+    markRead: globalMarkRead,
+    editMessage: globalEditMessage,
+    deleteMessage: globalDeleteMessage
+  } = useNotifications();
+  
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [partner, setPartner] = useState(location.state?.partner || null);
@@ -215,25 +218,13 @@ const Chat = () => {
   const [editingMsg, setEditingMsg] = useState(null);
   const pressTimer = useRef(null);
 
-  const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
-    if (!matchId) {
-      if (currentUser) {
-        const cacheKey = `chat-threads:${currentUser.uid}`;
-        setThreads(readCache(cacheKey, []));
-        chatService.getThreads(currentUser.uid).then(res => {
-          const data = res.data || [];
-          setThreads(data);
-          writeCache(cacheKey, data);
-        }).catch(err => console.error(err));
-      }
-      return;
-    }
-
+    if (!matchId) return;
     if (!currentUser) return;
+    
     const historyCacheKey = `chat-history:${matchId}`;
     const detailCacheKey = `chat-detail:${matchId}`;
     const cachedMessages = readCache(historyCacheKey, []);
@@ -245,7 +236,9 @@ const Chat = () => {
       try {
         // Fetch history
         const history = await chatService.getHistory(matchId);
-        const historyMessages = history.data || history.messages || [];
+        console.log("HISTORY FETCHED:", history);
+        const historyMessages = Array.isArray(history) ? history : (history.data || history.messages || []);
+        console.log("HISTORY MESSAGES SETTING:", historyMessages);
         setMessages(historyMessages);
         writeCache(historyCacheKey, historyMessages);
 
@@ -255,18 +248,9 @@ const Chat = () => {
           writeCache(detailCacheKey, detail.data);
         }
         
-        // Setup WebSocket
-        const token = await currentUser.getIdToken();
-        wsRef.current = new ChatWebSocket(
-          matchId, 
-          token, 
-          handleReceiveMessage, 
-          handleTypingIndicator
-        );
-
         // Fetch sessions for this match
         loadSessions();
-        setTimeout(() => wsRef.current?.markRead(matchId), 250);
+        setTimeout(() => globalMarkRead(matchId), 250);
       } catch (err) {
         console.error("Failed to init chat", err);
       }
@@ -274,11 +258,74 @@ const Chat = () => {
 
     initChat();
 
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.disconnect();
+    // Subscribe to unified WebSocket
+    const unsubscribe = subscribeToChat(matchId, (data) => {
+      if (data.type === 'read_receipt') {
+        setMessages(prev => prev.map(m => {
+          const isMine = m.senderUid === currentUser.uid || m.senderId === currentUser.uid;
+          return isMine ? { ...m, read: true, status: 'read' } : m;
+        }));
+        return;
       }
-    };
+
+      if (data.type === 'typing') {
+        if (data.uid !== currentUser.uid) {
+          setIsTyping(true);
+          clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 3000);
+        }
+        return;
+      }
+
+      if (data.type === 'message_edited') {
+        setMessages(prev => prev.map(m => (m.id === data.messageId || m.messageId === data.messageId) ? { ...m, text: data.text, isEdited: true } : m));
+        return;
+      }
+      
+      if (data.type === 'message_deleted') {
+        setMessages(prev => prev.filter(m => m.id !== data.messageId && m.messageId !== data.messageId));
+        return;
+      }
+
+      if (data.type === 'message') {
+        const incoming = {
+          id: data.messageId,
+          messageId: data.messageId,
+          localId: data.localId,
+          senderUid: data.senderUid,
+          senderName: data.senderName,
+          text: data.text,
+          timestamp: data.timestamp,
+          read: data.read || false,
+          isEdited: data.isEdited || false,
+        };
+
+        setMessages(prev => {
+          // If we sent this message optimistically, match by localId
+          if (incoming.localId) {
+            const optimisticIdx = prev.findIndex(m => m.localId === incoming.localId);
+            if (optimisticIdx !== -1) {
+              const updated = [...prev];
+              updated[optimisticIdx] = { ...updated[optimisticIdx], ...incoming, status: 'sent' };
+              return updated;
+            }
+          }
+          
+          // Duplicate fallback
+          const isDuplicate = prev.find(m => m.id === incoming.id || m.messageId === incoming.messageId);
+          if (isDuplicate) return prev;
+          
+          return [...prev, incoming];
+        });
+        
+        setIsTyping(false);
+        if (incoming.senderUid !== currentUser.uid && incoming.senderId !== currentUser.uid) {
+          setTimeout(() => globalMarkRead(matchId), 150);
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, [matchId, currentUser]);
 
   useEffect(() => {
@@ -288,68 +335,15 @@ const Chat = () => {
     }
   }, [messages, isTyping]);
 
-  const loadSessions = async () => {
+  async function loadSessions() {
     try {
       const res = await sessionService.getSessions(currentUser.uid);
-      // Filter sessions for this match
       const matchSessions = (res.data || []).filter(s => s.matchId === matchId);
       setSessions(matchSessions);
     } catch (err) {
       console.error("Failed to load sessions", err);
     }
-  };
-
-  const handleReceiveMessage = (data) => {
-    if (data.type === 'read_receipt') {
-      setMessages(prev => prev.map(m => {
-        const isMine = m.senderUid === currentUser.uid || m.senderId === currentUser.uid;
-        return isMine ? { ...m, read: true, status: 'read' } : m;
-      }));
-      return;
-    }
-
-    if (data.type === 'message_edited') {
-      setMessages(prev => prev.map(m => (m.id === data.messageId || m.messageId === data.messageId) ? { ...m, text: data.text, isEdited: true } : m));
-      return;
-    }
-    if (data.type === 'message_deleted') {
-      setMessages(prev => prev.filter(m => m.id !== data.messageId && m.messageId !== data.messageId));
-      return;
-    }
-
-    const incoming = data.message || (
-      data.type === 'message'
-        ? {
-            id: data.messageId,
-            messageId: data.messageId,
-            senderUid: data.senderUid,
-            senderName: data.senderName,
-            text: data.text,
-            timestamp: data.timestamp,
-            read: data.read || false,
-            isEdited: data.isEdited || false,
-          }
-        : null
-    );
-
-    if (incoming) {
-      setMessages(prev => {
-        const isDuplicate = prev.find(m => 
-          m.id === incoming.id || 
-          m.messageId === incoming.messageId ||
-          (m.senderUid === incoming.senderUid && m.text === incoming.text && Math.abs(m.timestamp - incoming.timestamp) < 5000)
-        );
-        if (isDuplicate) {
-          return prev.map(m => (m === isDuplicate && m.status) ? { ...m, ...incoming, status: 'sent' } : m);
-        }
-        return [...prev, incoming];
-      });
-      setIsTyping(false);
-      if (incoming.senderUid !== currentUser.uid && incoming.senderId !== currentUser.uid) {
-        setTimeout(() => wsRef.current?.markRead(matchId), 150);
-      }
-    }
-  };
+  }
 
   const handleStartPress = (msg) => {
     if (msg.senderUid !== currentUser.uid && msg.senderId !== currentUser.uid) return;
@@ -372,22 +366,10 @@ const Chat = () => {
 
   const handleDeleteClick = (msg) => {
     if (window.confirm("Delete this message?")) {
-      if (wsRef.current) {
-        wsRef.current.deleteMessage(matchId, msg.id || msg.messageId);
-      } else {
-        chatService.deleteMessage(matchId, msg.id || msg.messageId);
-      }
+      globalDeleteMessage(matchId, msg.id || msg.messageId);
       setMessages(prev => prev.filter(m => m.id !== (msg.id || msg.messageId) && m.messageId !== (msg.id || msg.messageId)));
     }
     setLongPressMsgId(null);
-  };
-
-  const handleTypingIndicator = (data) => {
-    if (data.uid !== currentUser.uid) {
-      setIsTyping(true);
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 3000);
-    }
   };
 
   const handleSend = async (e) => {
@@ -401,23 +383,16 @@ const Chat = () => {
       // Handle Edit
       const msgId = editingMsg.id || editingMsg.messageId;
       setMessages(prev => prev.map(m => (m.id === msgId || m.messageId === msgId) ? { ...m, text: text, isEdited: true } : m));
-      
-      try {
-        if (wsRef.current) {
-          wsRef.current.editMessage(matchId, msgId, text);
-        } else {
-          await chatService.editMessage(matchId, msgId, text);
-        }
-      } catch (err) {
-        console.error("Failed to edit message", err);
-      }
+      globalEditMessage(matchId, msgId, text);
       setEditingMsg(null);
       return;
     }
 
+    const localId = Date.now().toString() + Math.random().toString(36).substring(7);
     const optimisticMsg = {
-      id: Date.now().toString(),
-      messageId: Date.now().toString(),
+      id: localId,
+      messageId: localId,
+      localId: localId,
       senderId: currentUser.uid,
       senderUid: currentUser.uid,
       text: text,
@@ -427,29 +402,20 @@ const Chat = () => {
     
     setMessages(prev => [...prev, optimisticMsg]);
 
-    try {
-      if (wsRef.current) {
-        const sentOverSocket = wsRef.current.sendMessage(text);
-        if (!sentOverSocket) {
-          await chatService.sendMessage(matchId, text);
-        }
-        setTimeout(() => {
-          setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? {...m, status: 'sent'} : m));
-        }, 500);
-      } else {
+    const sent = globalSendMessage(matchId, text, localId);
+    if (!sent) {
+      // Fallback if WS fails
+      try {
         await chatService.sendMessage(matchId, text);
+      } catch(err) {
+        setMessages(prev => prev.map(m => m.localId === localId ? {...m, status: 'error'} : m));
       }
-    } catch (err) {
-      console.error("Failed to send message", err);
-      setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? {...m, status: 'error'} : m));
     }
   };
 
   const handleTyping = (e) => {
     setInputText(e.target.value);
-    if (wsRef.current) {
-      wsRef.current.sendTyping();
-    }
+    globalSendTyping(matchId);
   };
 
   // ── Session Actions ─────────────────────────────────────────────────
@@ -498,7 +464,7 @@ const Chat = () => {
     const chatableUsers = [...(globalData?.topMates || []), ...(globalData?.followedUsers || [])].filter((v, i, a) => a.findIndex(t => (t.uid === v.uid)) === i); // Unique users
 
     return (
-      <div className="flex flex-col h-[calc(100vh-140px)] -mt-6 -mx-margin-mobile px-margin-mobile bg-gray-50 dark:bg-background-deep relative z-50">
+      <div className="flex flex-col -mt-6 -mx-margin-mobile px-margin-mobile bg-gray-50 dark:bg-background-deep relative z-10 pb-6">
         <header className="py-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-on-surface">Your Messages</h2>
           <button 
@@ -508,9 +474,9 @@ const Chat = () => {
             <Plus size={20} />
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col gap-3 pb-safe">
+        <div className="flex flex-col gap-3">
           {threads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center opacity-70">
+            <div className="flex flex-col items-center justify-center py-20 text-center opacity-70">
               <MessageSquare size={64} className="text-gray-300 dark:text-surface-raised mb-4" />
               <h2 className="font-headline-md text-gray-900 dark:text-on-surface">No Messages Yet</h2>
               <p className="text-gray-500 mt-2">Start a conversation with your mates.</p>
@@ -524,28 +490,34 @@ const Chat = () => {
                   onClick={() => navigate(`/chat/${thread.matchId}`, { state: { partner } })}
                   className="bg-white dark:bg-surface-container rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-container-high transition-all active:scale-[0.98] border border-transparent hover:border-gray-100 dark:hover:border-surface-raised shadow-sm"
                 >
-                  <div className="relative">
+                  <div className="relative shrink-0">
                     <img 
                       src={partner?.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.name || 'User')}&background=DCFD8B&color=151f00`} 
                       alt="Avatar" 
                       className="w-14 h-14 rounded-full object-cover" 
                     />
-                    {thread.unread && thread.lastMessageSender !== currentUser?.uid && (
-                      <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-success-lime border-2 border-white dark:border-background-deep rounded-full"></div>
-                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center mb-1">
                       <h3 className="font-bold text-gray-900 dark:text-on-surface text-base truncate">{partner?.name || 'Study Partner'}</h3>
-                      {!!thread.lastMessageTime && (
-                        <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
-                          {new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                      <div className="flex flex-col items-end gap-1">
+                        {!!thread.lastMessageTime && (
+                          <span className={`text-[11px] whitespace-nowrap ml-2 ${thread.unread && thread.lastMessageSender !== currentUser?.uid ? 'text-success-lime font-bold' : 'text-gray-400'}`}>
+                            {new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <p className={`text-sm truncate ${thread.unread && thread.lastMessageSender !== currentUser?.uid ? 'text-gray-900 dark:text-white font-semibold' : 'text-gray-500 dark:text-on-surface-variant'}`}>
+                        {thread.lastMessage || 'Say hi!'}
+                      </p>
+                      {thread.unread && thread.lastMessageSender !== currentUser?.uid && (
+                        <div className="w-[18px] h-[18px] bg-success-lime text-gray-900 text-[10px] font-bold rounded-full flex items-center justify-center shrink-0 ml-2 shadow-sm">
+                          1
+                        </div>
                       )}
                     </div>
-                    <p className={`text-sm truncate ${thread.unread && thread.lastMessageSender !== currentUser?.uid ? 'text-gray-900 dark:text-white font-semibold' : 'text-gray-500 dark:text-on-surface-variant'}`}>
-                      {thread.lastMessage || 'Say hi!'}
-                    </p>
                   </div>
                 </div>
               );

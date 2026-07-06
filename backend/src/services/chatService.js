@@ -27,6 +27,9 @@ const {
 // Map<matchId, Set<WebSocket>>
 const rooms = new Map();
 
+// Map<uid, Set<WebSocket>> for global notifications (WhatsApp style)
+const globalRooms = new Map();
+
 // Map<WebSocket, { uid, email, name }>
 const clients = new Map();
 
@@ -65,6 +68,11 @@ function initWebSocketServer(httpServer) {
     }
 
     clients.set(ws, user);
+    
+    // Add to global room
+    if (!globalRooms.has(user.uid)) globalRooms.set(user.uid, new Set());
+    globalRooms.get(user.uid).add(ws);
+
     console.log(`🔌 WS connected: ${user.name} (${user.uid})`);
 
     // ── Handle incoming messages ────────────────────────────────────
@@ -83,7 +91,7 @@ function initWebSocketServer(httpServer) {
           break;
 
         case 'message':
-          await handleMessage(ws, user, data.matchId, data.text);
+          await handleMessage(ws, user, data.matchId, data.text, data.localId);
           break;
 
         case 'typing':
@@ -110,6 +118,14 @@ function initWebSocketServer(httpServer) {
     // ── Cleanup on disconnect ───────────────────────────────────────
     ws.on('close', () => {
       clients.delete(ws);
+      // Remove from global rooms
+      if (globalRooms.has(user.uid)) {
+        globalRooms.get(user.uid).delete(ws);
+        if (globalRooms.get(user.uid).size === 0) {
+          globalRooms.delete(user.uid);
+        }
+      }
+      
       // Remove from all rooms
       for (const [matchId, members] of rooms) {
         members.delete(ws);
@@ -144,7 +160,7 @@ function handleJoin(ws, user, matchId) {
   ws.send(JSON.stringify({ type: 'joined', matchId }));
 }
 
-async function handleMessage(ws, user, matchId, text) {
+async function handleMessage(ws, user, matchId, text, localId = null) {
   if (!matchId || !text) {
     ws.send(JSON.stringify({ type: 'error', error: 'matchId and text are required' }));
     return;
@@ -164,6 +180,14 @@ async function handleMessage(ws, user, matchId, text) {
   };
 
   try {
+    // Fetch match to get recipient
+    const matchDoc = await db.collection(COLLECTION_MATCHES).doc(matchId).get();
+    let recipientUid = null;
+    if (matchDoc.exists) {
+      const matchData = matchDoc.data();
+      recipientUid = matchData.teacherUid === user.uid ? matchData.learnerUid : matchData.teacherUid;
+    }
+
     // Write message and update match's last message in parallel
     await Promise.all([
       chatRef.doc(messageId).set(message),
@@ -180,6 +204,7 @@ async function handleMessage(ws, user, matchId, text) {
       type: 'message',
       matchId,
       messageId,
+      localId, // Used by sender for flawless optimistic UI mapping
       senderUid: user.uid,
       senderName: user.name,
       text,
@@ -187,6 +212,20 @@ async function handleMessage(ws, user, matchId, text) {
     };
 
     broadcastToRoom(matchId, outgoing, ws);
+
+    // ── Broadcast to recipient's global room ──────────────────────
+    if (recipientUid) {
+      broadcastToGlobal(recipientUid, {
+        type: 'global_new_message',
+        matchId,
+        messageId,
+        senderUid: user.uid,
+        senderName: user.name,
+        text,
+        timestamp,
+      });
+    }
+
   } catch (err) {
     console.error('❌ Chat message persist error:', err.message);
     ws.send(JSON.stringify({ type: 'error', error: 'Failed to send message' }));
@@ -237,6 +276,18 @@ function broadcastToRoom(matchId, payload, excludeWs = null) {
   }
 }
 
+function broadcastToGlobal(uid, payload) {
+  const members = globalRooms.get(uid);
+  if (!members) return;
+
+  const msgStr = JSON.stringify(payload);
+  for (const client of members) {
+    if (client.readyState === 1) {
+      client.send(msgStr);
+    }
+  }
+}
+
 async function handleEditMessage(ws, user, matchId, messageId, text) {
   if (!matchId || !messageId || !text) return;
   const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
@@ -276,4 +327,4 @@ async function handleDeleteMessage(ws, user, matchId, messageId) {
   }
 }
 
-module.exports = { initWebSocketServer };
+module.exports = { initWebSocketServer, broadcastToGlobal };

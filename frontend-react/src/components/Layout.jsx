@@ -1,14 +1,15 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Bell, Grid, Map, MessageSquare, User, MessageCircle } from 'lucide-react';
-import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 import MindcraftLogo from './MindcraftLogo';
+import ThemeToggle from './ThemeToggle';
 
 const Layout = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const [hasUnread, setHasUnread] = useState(false);
+  const { hasUnreadNotifications, clearUnreadNotifications, unreadChatCount } = useNotifications();
 
   const navItems = [
     { path: '/', icon: Grid, label: 'Home', match: (p) => p === '/' },
@@ -18,27 +19,35 @@ const Layout = () => {
     { path: `/profile/${currentUser?.uid}`, icon: User, label: 'Profile', match: (p) => p.startsWith('/profile') },
   ];
 
+  const isProfilePage = pathname.startsWith('/profile');
+
   return (
     <div className="bg-gray-50 dark:bg-background-deep text-gray-900 dark:text-on-surface font-body-md min-h-screen pb-[100px] transition-colors duration-200">
 
       {/* TopAppBar */}
-      <header className="w-full top-0 sticky bg-gray-50 dark:bg-background-deep z-40 transition-colors duration-200 border-b border-gray-200 dark:border-transparent">
-        <div className="flex items-center justify-between px-margin-mobile py-4 w-full">
-          <div className="flex items-center gap-3">
-            <MindcraftLogo size="md" showIcon={true} />
+      <header className={`w-full top-0 sticky z-50 transition-colors duration-200 bg-gray-50/95 dark:bg-background-deep/95 backdrop-blur-md ${isProfilePage ? 'border-transparent' : 'border-b border-gray-200 dark:border-transparent'}`}>
+        {isProfilePage && <ThemeToggle />}
+        <div className="flex items-center justify-between px-margin-mobile py-4 w-full min-h-[76px] relative z-10 pointer-events-none">
+          <div className="flex items-center gap-3 pointer-events-auto">
+            <MindcraftLogo
+              size={isProfilePage ? 'sm' : 'md'}
+              showIcon={true}
+              variant={isProfilePage ? 'profile' : 'default'}
+              className={isProfilePage ? 'max-w-[calc(100vw-132px)] overflow-hidden' : ''}
+            />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 pointer-events-auto">
             <button
               onClick={() => {
-                setHasUnread(false);
+                clearUnreadNotifications();
                 navigate('/notifications');
               }}
               className="relative w-10 h-10 rounded-full bg-white dark:bg-surface-container flex items-center justify-center text-gray-700 dark:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-200 shadow-sm dark:shadow-none"
               aria-label="Notifications"
             >
               <Bell size={20} />
-              {hasUnread && (
-                <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></div>
+              {hasUnreadNotifications && (
+                <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.8)]"></div>
               )}
             </button>
           </div>
@@ -59,12 +68,19 @@ const Layout = () => {
             <Link
               key={item.path}
               to={item.path}
-              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-150 ${isActive
+              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-150 relative ${isActive
                   ? 'bg-purple-100 dark:bg-secondary-container text-purple-900 dark:text-on-secondary-container border-b-4 border-purple-500 dark:border-focus-purple'
                   : 'text-gray-500 dark:text-on-surface-variant hover:bg-gray-100 dark:hover:bg-surface-variant'
                 }`}
             >
-              <Icon size={24} />
+              <div className="relative">
+                <Icon size={24} />
+                {item.label === 'Chat' && unreadChatCount > 0 && (
+                  <div className="absolute -top-1 -right-2 bg-success-lime text-gray-900 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white dark:border-[#1C1C2E]">
+                    {unreadChatCount}
+                  </div>
+                )}
+              </div>
               <span className="font-label-md text-label-md mt-1">{item.label}</span>
             </Link>
           );

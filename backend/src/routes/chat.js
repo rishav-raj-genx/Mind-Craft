@@ -293,11 +293,21 @@ router.post('/thread', verifyFirebaseToken, async (req, res, next) => {
     const matchCheck2 = await db.collection(COLLECTION_MATCHES)
       .where('user1Uid', '==', partnerUid).where('user2Uid', '==', fromUid).get();
       
-    if (!matchCheck1.empty) {
-      return res.json({ success: true, matchId: matchCheck1.docs[0].id });
-    }
-    if (!matchCheck2.empty) {
-      return res.json({ success: true, matchId: matchCheck2.docs[0].id });
+    const existingDoc = !matchCheck1.empty ? matchCheck1.docs[0] : (!matchCheck2.empty ? matchCheck2.docs[0] : null);
+    if (existingDoc) {
+      const partnerDoc = await db.collection('users').doc(partnerUid).get();
+      const partner = partnerDoc.exists
+        ? { uid: partnerUid, ...partnerDoc.data() }
+        : { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
+
+      return res.json({
+        success: true,
+        matchId: existingDoc.id,
+        data: {
+          match: { matchId: existingDoc.id, ...existingDoc.data() },
+          partner,
+        },
+      });
     }
     
     // Create new match if none exists
@@ -312,7 +322,19 @@ router.post('/thread', verifyFirebaseToken, async (req, res, next) => {
       lastMessageTime: 0,
     };
     await matchRef.set(match);
-    res.json({ success: true, matchId: matchRef.id });
+    const partnerDoc = await db.collection('users').doc(partnerUid).get();
+    const partner = partnerDoc.exists
+      ? { uid: partnerUid, ...partnerDoc.data() }
+      : { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
+
+    res.json({
+      success: true,
+      matchId: matchRef.id,
+      data: {
+        match,
+        partner,
+      },
+    });
   } catch (err) {
     next(err);
   }

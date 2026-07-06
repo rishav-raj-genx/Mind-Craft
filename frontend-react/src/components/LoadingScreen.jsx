@@ -30,7 +30,7 @@ const LoadingScreen = () => {
              transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
              className="relative z-10"
           >
-             <MindcraftLogo />
+             <MindcraftLogo showIcon={false} />
           </motion.div>
           {/* Pulsing ring behind logo */}
           <motion.div

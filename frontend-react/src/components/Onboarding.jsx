@@ -85,7 +85,7 @@ const Onboarding = ({ onComplete }) => {
               className={`w-32 h-32 rounded-full mb-8 flex items-center justify-center bg-gradient-to-br ${slides[currentIndex].color} shadow-lg ${slides[currentIndex].shadow}`}
             >
               {currentIndex === 0 ? (
-                <MindcraftLogo className="w-16 h-16 text-white" />
+                <MindcraftLogo showIcon={false} className="text-white" />
               ) : (
                 <div className="text-white">
                   {(() => {

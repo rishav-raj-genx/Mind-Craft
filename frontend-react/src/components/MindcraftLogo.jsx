@@ -1,56 +1,109 @@
-import { BrainCircuit } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Brain } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
 
-/**
- * Theme-aware Mindcraft logo with funky animations.
- * - Dark mode: lime green glowing text
- * - Light mode: rich purple-green gradient text
- * 
- * @param {string} size - 'sm' | 'md' | 'lg' | 'xl'
- * @param {boolean} showIcon - whether to show the brain icon
- */
-const MindcraftLogo = ({ size = 'md', showIcon = false, className = '' }) => {
+const MindcraftLogo = ({ size = 'md', showIcon = true, variant = 'default', className = '' }) => {
+  const [isSplit, setIsSplit] = useState(false);
+
+  // Auto split after 30 minutes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsSplit(true);
+    }, 1800000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const sizeMap = {
-    sm: 'text-lg',
-    md: 'text-headline-md font-headline-md',
-    lg: 'text-headline-lg font-headline-lg',
-    xl: 'text-headline-xl font-headline-xl',
+    sm: 'text-xl',
+    md: 'text-3xl font-headline-md',
+    lg: 'text-4xl font-headline-lg',
+    xl: 'text-5xl font-headline-xl',
   };
 
   const iconSizeMap = {
-    sm: 16,
-    md: 22,
-    lg: 28,
-    xl: 36,
+    sm: 24,
+    md: 36,
+    lg: 48,
+    xl: 60,
   };
 
+  const currentSize = iconSizeMap[size];
+
   return (
-    <motion.div 
-      className={`flex items-center gap-2 cursor-pointer select-none ${className}`}
-      whileHover={{ scale: 1.05, rotate: [-1, 2, -2, 0] }}
-      whileTap={{ scale: 0.9 }}
-      transition={{ type: "spring", stiffness: 300 }}
+    <div 
+      className={`flex items-center cursor-pointer select-none ${className}`}
+      onClick={() => setIsSplit(!isSplit)}
+      title="Click to split!"
     >
-      {showIcon && (
-        <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-          className="w-8 h-8 rounded-full bg-success-lime/20 dark:bg-success-lime/10 flex items-center justify-center"
-        >
-          <BrainCircuit size={iconSizeMap[size]} className="text-green-700 dark:text-success-lime" />
-        </motion.div>
-      )}
-      <motion.h1 
-        animate={{ y: [0, -2, 0] }}
-        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-        className={`font-bold tracking-tighter ${sizeMap[size]}`}
+      <motion.div 
+        className="flex items-center relative" 
+        style={{ height: currentSize }}
+        animate={{ rotateY: (!isSplit && showIcon) ? 360 : 0 }}
+        transition={{ 
+          rotateY: { 
+            repeat: (!isSplit && showIcon) ? Infinity : 0, 
+            duration: (!isSplit && showIcon) ? 4 : 0.5, 
+            ease: (!isSplit && showIcon) ? "linear" : "easeOut",
+            delay: (!isSplit && showIcon) ? 0.4 : 0
+          } 
+        }}
       >
-        {/* Light mode: gradient text */}
-        <span className="dark:hidden logo-gradient-light">Mindcraft</span>
-        {/* Dark mode: lime glow text */}
-        <span className="hidden dark:inline logo-glow-dark">Mindcraft</span>
-      </motion.h1>
-    </motion.div>
+        
+        {/* Left Half of Brain */}
+        {showIcon && (
+          <div
+            className="relative z-20 flex items-center h-full"
+            style={{ clipPath: 'inset(0 50% 0 0)' }}
+          >
+            <Brain 
+              size={currentSize} 
+              className="text-[#7C3AED] dark:text-[#DCFD8B] transition-colors" 
+              fill="currentColor" 
+              stroke="currentColor"
+              strokeWidth={1.5} 
+            />
+          </div>
+        )}
+
+        {/* Text that appears in the middle */}
+        <motion.div
+          initial={false}
+          animate={{ maxWidth: (!showIcon || isSplit) ? 300 : 0, opacity: (!showIcon || isSplit) ? 1 : 0 }}
+          transition={{ type: "spring", stiffness: 300, damping: 25 }}
+          className="flex items-center justify-center overflow-hidden z-10"
+          style={{ whiteSpace: 'nowrap' }}
+        >
+          <div className={showIcon ? "px-1" : ""}>
+            <h1 className={`font-bold tracking-tighter whitespace-nowrap ${sizeMap[size]}`}>
+              <span className="logo-game-text">Mindcraft</span>
+            </h1>
+          </div>
+        </motion.div>
+
+        {/* Right Half of Brain */}
+        {showIcon && (
+          <motion.div
+            initial={false}
+            animate={{ 
+              marginLeft: isSplit ? 0 : -currentSize 
+            }}
+            transition={{ 
+              marginLeft: { type: "spring", stiffness: 300, damping: 25 }
+            }}
+            className="relative z-20 flex items-center h-full"
+            style={{ clipPath: 'inset(0 0 0 50%)' }}
+          >
+            <Brain 
+              size={currentSize} 
+              className="text-[#7C3AED] dark:text-[#DCFD8B] transition-colors" 
+              fill="currentColor" 
+              stroke="currentColor"
+              strokeWidth={1.5} 
+            />
+          </motion.div>
+        )}
+      </motion.div>
+    </div>
   );
 };
 

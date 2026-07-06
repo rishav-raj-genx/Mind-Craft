@@ -27,9 +27,12 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+import ThemeToggle, { StarsBackground } from './components/ThemeToggle';
+import { NotificationProvider } from './context/NotificationContext';
+
 const AppContent = () => {
   const { currentUser } = useAuth();
-  const { isAppLoading } = useAppContext();
+  const { isAppLoading, isDark } = useAppContext();
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(
     localStorage.getItem('hasSeenOnboarding') === 'true'
   );
@@ -46,30 +49,34 @@ const AppContent = () => {
   }
 
   return (
-    <div className="relative">
+    <div className={`relative min-h-screen transition-colors ${isDark ? 'bg-[#1C1C2E] text-white' : 'bg-[#FAFAFA] text-gray-900'}`}>
+      {isDark && <StarsBackground />}
+      
       {currentUser && isAppLoading && hasSeenOnboarding && <LoadingScreen />}
       
-      <Routes>
-        <Route path="/login" element={currentUser ? <Navigate to="/" replace /> : <Login />} />
-        <Route path="/signup" element={currentUser ? <Navigate to="/" replace /> : <SignUp />} />
-        
-        <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route path="/" element={<Home />} />
-          <Route path="/profile/:uid" element={<Profile />} />
-          <Route path="/find" element={<FindMate />} />
-          <Route path="/chat/:matchId" element={<Chat />} />
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/forum" element={<DoubtForum />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/wallet" element={<Wallet />} />
-          <Route path="/badges" element={<BadgeProgress />} />
-          <Route path="/streak" element={<StreakDetail />} />
-          <Route path="/sessions" element={<SessionsDetail />} />
-          <Route path="/ratings" element={<RatingDetail />} />
-          <Route path="/mates" element={<MatesDetail />} />
-        </Route>
-      </Routes>
+      <NotificationProvider>
+        <Routes>
+          <Route path="/login" element={currentUser ? <Navigate to="/" replace /> : <Login />} />
+          <Route path="/signup" element={currentUser ? <Navigate to="/" replace /> : <SignUp />} />
+          
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route path="/" element={<Home />} />
+            <Route path="/profile/:uid" element={<Profile />} />
+            <Route path="/find" element={<FindMate />} />
+            <Route path="/chat/:matchId" element={<Chat />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/forum" element={<DoubtForum />} />
+            <Route path="/notifications" element={<Notifications />} />
+            <Route path="/wallet" element={<Wallet />} />
+            <Route path="/badges" element={<BadgeProgress />} />
+            <Route path="/streak" element={<StreakDetail />} />
+            <Route path="/sessions" element={<SessionsDetail />} />
+            <Route path="/ratings" element={<RatingDetail />} />
+            <Route path="/mates" element={<MatesDetail />} />
+          </Route>
+        </Routes>
+      </NotificationProvider>
     </div>
   );
 };

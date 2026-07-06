@@ -81,6 +81,15 @@ router.post(
 
       await sessionRef.set(session);
 
+      // Instantly notify the teacher via Global WebSocket
+      const { broadcastToGlobal } = require('../services/chatService');
+      broadcastToGlobal(req.body.teacherUid, {
+        type: 'global_notification',
+        message: `New session request for ${req.body.skill}`,
+        sessionId: sessionRef.id,
+        timestamp: Date.now()
+      });
+
       res.status(201).json({ success: true, data: session });
     } catch (err) {
       next(err);

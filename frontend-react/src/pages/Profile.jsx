@@ -8,7 +8,7 @@ import {
   Edit2, UserPlus, MessageSquare, BookOpen, GraduationCap,
   Flame, Users, Star, Clock, BarChart2, Medal,
   X, Save, Loader2, ChevronRight,
-  Code, MapPin, Link2, Sun, Moon
+  Code, MapPin, Link2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppContext } from '../context/AppContext';
@@ -31,12 +31,12 @@ const TopicsModal = ({ title, topics, color, onClose }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-sm bg-white dark:bg-[#1C1C2E] rounded-3xl shadow-2xl z-10 overflow-hidden" style={{ animation: 'slideUp 0.3s ease-out' }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+        <header className="px-6 py-4 flex items-center justify-between sticky top-0 z-40">
           <h2 className="font-bold text-lg text-gray-900 dark:text-white">{title}</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400">
             <X size={16} />
           </button>
-        </div>
+        </header>
         <div className="p-6 flex flex-wrap gap-2 max-h-[60vh] overflow-y-auto">
           {topics.map(t => (
             <span key={t} className={`px-3 py-1.5 text-xs font-semibold rounded-full ${color}`}>{t}</span>
@@ -75,7 +75,7 @@ const compressImage = (file, maxDimension = 480, maxBytes = 180 * 1024) => {
 };
 
 // ─── Edit Profile Modal ───────────────────────────────────────────────
-const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
+const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, onPhotoUpload }) => {
   const [name, setName] = useState(user.name || '');
   const [gender, setGender] = useState(user.gender || '');
   const [department, setDepartment] = useState(user.department || '');
@@ -92,6 +92,7 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
   const [teachInput, setTeachInput] = useState('');
   const [learnInput, setLearnInput] = useState('');
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -139,22 +140,49 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full sm:max-w-lg bg-white dark:bg-[#1C1C2E] rounded-t-3xl sm:rounded-3xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh]" style={{ animation: 'slideUp 0.3s ease-out' }}>
-        <div className="sm:hidden flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+    <div className="fixed inset-0 z-[1000] flex flex-col justify-end sm:items-center sm:justify-center bg-black/80 backdrop-blur-sm p-0 pb-[92px] sm:p-4 animate-in fade-in duration-200">
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative w-full sm:max-w-lg bg-white dark:bg-[#1C1C2E] rounded-t-[32px] sm:rounded-3xl shadow-2xl z-10 flex flex-col max-h-[calc(100dvh-112px)] sm:max-h-[80vh] overflow-hidden animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-8 duration-300">
+        
+        {/* Header */}
+        <div className="shrink-0 flex flex-col items-center pt-3 pb-4 px-6 border-b border-gray-100 dark:border-gray-800">
+          <div className="w-12 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 sm:hidden mb-4" />
+          <div className="w-full flex items-center justify-between">
+            <h2 className="font-bold text-xl text-gray-900 dark:text-white">Edit Profile</h2>
+            <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+              <X size={18} />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="font-bold text-xl text-gray-900 dark:text-white">Edit Profile</h2>
-          <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="p-6 flex flex-col gap-4 overflow-y-auto">
+
+        {/* Scrollable Content */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 space-y-6">
+          
+          {/* Avatar Upload */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative">
+              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#DCFD8B] shadow-lg relative z-10">
+                <img
+                  className="w-full h-full object-cover"
+                  src={user.photoUrl || (user.gender === 'Male' ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(user.name)}` : user.gender === 'Female' ? `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(user.name)}` : `https://avatar.iran.liara.run/public?username=${encodeURIComponent(user.name)}`)}
+                  alt={user.name}
+                />
+              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="absolute -bottom-2 -right-2 w-9 h-9 bg-[#7C3AED] rounded-full flex items-center justify-center border-[3px] border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors z-20 text-white"
+              >
+                {uploadingPhoto ? <Loader2 size={16} className="animate-spin" /> : <Edit2 size={16} />}
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPhotoUpload} />
+            </div>
+            <span className="text-sm text-gray-500 font-medium">Change Avatar</span>
+          </div>
+
           {/* Name */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Name</label>
+          <div className="space-y-1.5">
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Name</label>
             <input value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
           </div>
           {/* Gender */}
@@ -247,8 +275,11 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
               </div>
             </div>
           </div>
-          {/* Save */}
-          <button onClick={handleSave} disabled={saving} className="w-full py-3.5 rounded-2xl bg-[#DCFD8B] text-[#151f00] font-bold text-base flex items-center justify-center gap-2 shadow-[0_4px_0_#b3d266] active:translate-y-[2px] active:shadow-[0_2px_0_#b3d266] transition-all disabled:opacity-60 mt-2">
+        </div>
+
+        {/* Sticky Footer */}
+        <div className="shrink-0 p-6 pt-4 pb-7 sm:pb-6 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1C1C2E]">
+          <button onClick={handleSave} disabled={saving} className="w-full py-3.5 rounded-2xl bg-[#DCFD8B] text-[#151f00] font-bold text-base flex items-center justify-center gap-2 shadow-[0_4px_0_#b3d266] active:translate-y-[2px] active:shadow-[0_2px_0_#b3d266] transition-all disabled:opacity-60">
             {saving ? <><Loader2 size={18} className="animate-spin" /> Saving...</> : <><Save size={18} /> Save Changes</>}
           </button>
         </div>
@@ -298,61 +329,12 @@ const BadgeCard = ({ icon, name, description }) => (
   </div>
 );
 
-// ─── Moonknight Theme Toggle ──────────────────────────────────────────
-const MoonknightToggle = () => {
-  const { isDark, setIsDark } = useAppContext();
-  
-  return (
-    <motion.button
-      onClick={() => setIsDark(!isDark)}
-      className="absolute top-4 left-4 sm:top-6 sm:left-6 z-50 w-12 h-12 rounded-full overflow-hidden shadow-2xl border-2 border-white/20 hover:scale-105 active:scale-95 transition-transform"
-      title="Toggle Theme"
-    >
-      <AnimatePresence mode="wait">
-        {!isDark ? (
-          <motion.div
-            key="sun"
-            initial={{ rotate: -90, scale: 0.5, opacity: 0 }}
-            animate={{ rotate: 0, scale: 1, opacity: 1 }}
-            exit={{ rotate: 90, scale: 0.5, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 200, damping: 20 }}
-            className="w-full h-full bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center relative"
-          >
-            <motion.div 
-              animate={{ rotate: 360 }}
-              transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-0 border-dashed border-4 border-yellow-200/50 rounded-full"
-            />
-            <Sun className="text-white drop-shadow-md z-10" size={24} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="moon"
-            initial={{ rotate: -90, scale: 0.5, opacity: 0 }}
-            animate={{ rotate: 0, scale: 1, opacity: 1 }}
-            exit={{ rotate: 90, scale: 0.5, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 200, damping: 20 }}
-            className="w-full h-full bg-gradient-to-br from-gray-900 via-slate-800 to-gray-700 flex items-center justify-center relative"
-          >
-            <motion.div 
-               initial={{ opacity: 0.4, scale: 0.8 }}
-               animate={{ opacity: [0.4, 1, 0.4], scale: [0.8, 1.2, 0.8] }}
-               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-               className="absolute inset-0 bg-white/30 blur-md rounded-full"
-            />
-            <Moon className="text-gray-100 drop-shadow-[0_0_8px_rgba(255,255,255,0.9)] z-10" size={24} fill="currentColor" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.button>
-  );
-};
-
 // ─── Main Profile Component ───────────────────────────────────────────
 const Profile = () => {
   const { uid } = useParams();
   const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
+  const { isDark } = useAppContext();
   const [profileData, setProfileData] = useState(null);
   const [streakData, setStreakData] = useState(null);
   const [badgeData, setBadgeData] = useState(null);
@@ -594,20 +576,20 @@ const Profile = () => {
   const hasSocialLinks = !!(user?.linkedinUsername || user?.githubUsername || user?.leetcodeUsername || user?.codeforcesUsername || user?.codechefUsername);
 
   return (
-    <div className="flex flex-col gap-5 pb-32 bg-gray-50 dark:bg-[#121212] min-h-screen px-4 pt-4 sm:px-0 transition-colors relative">
-      <MoonknightToggle />
+    <div className={`min-h-screen pb-[100px] sm:pb-8 flex flex-col font-body-md transition-colors ${isDark ? 'bg-[#1C1C2E] text-white' : 'bg-[#FAFAFA] text-gray-900'}`}>
+      <main className="flex-1 w-full max-w-[600px] mx-auto p-4 sm:p-6 sm:mt-16 relative z-10">
       <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
 
       {/* ── Profile Links Modal ─────────────────────────────────────── */}
       <AnimatePresence>
         {showLinksModal && (
-          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4">
+          <div className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 pb-[92px] sm:p-4">
             <motion.div
               initial={{ opacity: 0, y: "100%" }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="bg-white dark:bg-surface-container w-full sm:max-w-sm rounded-t-[32px] sm:rounded-3xl p-6 shadow-2xl relative border-t border-gray-100 dark:border-surface-raised"
+              className="bg-white dark:bg-surface-container w-full sm:max-w-sm rounded-t-[32px] sm:rounded-3xl p-6 shadow-2xl relative border-t border-gray-100 dark:border-surface-raised max-h-[calc(100dvh-112px)] overflow-y-auto"
             >
               <div className="w-12 h-1.5 bg-gray-200 dark:bg-surface-raised rounded-full mx-auto mb-6 sm:hidden" />
               <button onClick={() => setShowLinksModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 dark:hover:text-on-surface">
@@ -679,10 +661,10 @@ const Profile = () => {
         <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-4">
           {/* Avatar */}
           <div className="relative shrink-0">
-            <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)]">
+            <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)] relative z-10">
               <img
                 className="w-full h-full object-cover"
-                src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=7C3AED&color=fff&size=200`}
+                src={user.photoUrl || (user.gender === 'Male' ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(user.name)}` : user.gender === 'Female' ? `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(user.name)}` : `https://avatar.iran.liara.run/public?username=${encodeURIComponent(user.name)}`)}
                 alt={user.name}
               />
             </div>
@@ -917,31 +899,15 @@ const Profile = () => {
         </section>
       )}
 
-      {/* Edit Profile Button / Logout */}
-      {isOwner && (
-        <div className="flex flex-col gap-3">
-          <button
-            onClick={() => setShowEditModal(true)}
-            className="w-full py-4 rounded-[32px] bg-[#7C3AED] text-white font-bold text-base flex items-center justify-center gap-2 hover:bg-[#6D28D9] transition-all shadow-[0_0_15px_rgba(124,58,237,0.3)]"
-          >
-            <Edit2 size={18} /> Edit Full Profile
-          </button>
-          <button
-            onClick={logout}
-            className="w-full py-4 rounded-[32px] bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 font-bold text-base flex items-center justify-center gap-2 hover:bg-red-200 dark:hover:bg-red-900/40 transition-all"
-          >
-            Log Out
-          </button>
-        </div>
-      )}
-
       {/* Edit Modal */}
       {showEditModal && (
-        <EditProfileModal
-          user={user}
-          skillGraph={skillGraph}
-          onClose={() => setShowEditModal(false)}
+        <EditProfileModal 
+          user={user} 
+          skillGraph={skillGraph} 
+          onClose={() => setShowEditModal(false)} 
           onSave={handleEditSave}
+          uploadingPhoto={uploadingPhoto}
+          onPhotoUpload={handlePhotoUpload}
         />
       )}
 
@@ -954,6 +920,7 @@ const Profile = () => {
           onClose={() => setTopicsModal(null)}
         />
       )}
+      </main>
     </div>
   );
 };
