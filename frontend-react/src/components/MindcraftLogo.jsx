@@ -1,7 +1,8 @@
 import { BrainCircuit } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 /**
- * Theme-aware Mindcraft logo.
+ * Theme-aware Mindcraft logo with funky animations.
  * - Dark mode: lime green glowing text
  * - Light mode: rich purple-green gradient text
  * 
@@ -24,19 +25,32 @@ const MindcraftLogo = ({ size = 'md', showIcon = false, className = '' }) => {
   };
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <motion.div 
+      className={`flex items-center gap-2 cursor-pointer select-none ${className}`}
+      whileHover={{ scale: 1.05, rotate: [-1, 2, -2, 0] }}
+      whileTap={{ scale: 0.9 }}
+      transition={{ type: "spring", stiffness: 300 }}
+    >
       {showIcon && (
-        <div className="w-8 h-8 rounded-full bg-success-lime/20 dark:bg-success-lime/10 flex items-center justify-center">
+        <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+          className="w-8 h-8 rounded-full bg-success-lime/20 dark:bg-success-lime/10 flex items-center justify-center"
+        >
           <BrainCircuit size={iconSizeMap[size]} className="text-green-700 dark:text-success-lime" />
-        </div>
+        </motion.div>
       )}
-      <h1 className={`font-bold tracking-tighter ${sizeMap[size]}`}>
+      <motion.h1 
+        animate={{ y: [0, -2, 0] }}
+        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+        className={`font-bold tracking-tighter ${sizeMap[size]}`}
+      >
         {/* Light mode: gradient text */}
         <span className="dark:hidden logo-gradient-light">Mindcraft</span>
         {/* Dark mode: lime glow text */}
         <span className="hidden dark:inline logo-glow-dark">Mindcraft</span>
-      </h1>
-    </div>
+      </motion.h1>
+    </motion.div>
   );
 };
 

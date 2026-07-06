@@ -1,55 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { gamificationService } from '../services/gamificationService';
-import { matchService } from '../services/matchService';
-import { doubtService } from '../services/doubtService';
-import { userService } from '../services/userService';
 import { Link, useNavigate } from 'react-router-dom';
 import { Flame, Trophy, Star, Hash, ChevronRight, Plus, TrendingUp } from 'lucide-react';
 import { motion, animate, useMotionValue, useTransform } from 'framer-motion';
-
-const normalizeTopic = (topic) => String(topic || '').trim().toLowerCase();
-
-const findTopicOverlap = (left = [], right = []) => {
-  const rightMap = new Map(right.map(topic => [normalizeTopic(topic), topic]).filter(([key]) => key));
-  return left
-    .map(topic => rightMap.get(normalizeTopic(topic)))
-    .filter(Boolean);
-};
-
-const scoreRecommendedMates = (currentProfile, candidates = []) => {
-  const currentLearns = currentProfile?.learns || [];
-  const currentTeaches = currentProfile?.teaches || [];
-  const currentCollege = normalizeTopic(currentProfile?.college);
-
-  return candidates
-    .filter(mate => mate?.uid && mate.uid !== currentProfile?.uid)
-    .map((mate) => {
-      const teachesMe = findTopicOverlap(currentLearns, mate.teaches || []);
-      const learnsFromMe = findTopicOverlap(currentTeaches, mate.learns || []);
-      const sharedSkills = [...new Set([...teachesMe, ...learnsFromMe])];
-      const sameCollege = currentCollege && normalizeTopic(mate.college) === currentCollege;
-      const rating = Number(mate.averageRating || 0);
-      const sessions = Number(mate.totalSessions || 0);
-      const score =
-        teachesMe.length * 5 +
-        learnsFromMe.length * 3 +
-        (sameCollege ? 1.5 : 0) +
-        Math.min(rating, 5) * 0.35 +
-        Math.min(sessions, 20) * 0.05;
-
-      return {
-        ...mate,
-        sharedSkills,
-        teachesMe,
-        learnsFromMe,
-        matchScore: score,
-      };
-    })
-    .filter(mate => mate.sharedSkills.length > 0)
-    .sort((a, b) => b.matchScore - a.matchScore)
-    .slice(0, 3);
-};
+import { useEffect } from 'react';
 
 // ─── CountUp Component ────────────────────────────────────────────────────────
 const CountUp = ({ to, duration = 1.5 }) => {
@@ -67,105 +21,16 @@ const CountUp = ({ to, duration = 1.5 }) => {
 const Home = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
-  const [badgeCount, setBadgeCount] = useState(0);
-  const [streak, setStreak] = useState({ currentStreak: 0 });
-  const [topMates, setTopMates] = useState([]);
-  const [trendingTopics, setTrendingTopics] = useState([]);
-  const [followedUsers, setFollowedUsers] = useState([]);
-  const [profileName, setProfileName] = useState('');
+  const { globalData } = useAppContext();
   
-  useEffect(() => {
-    if (currentUser) {
-      const loadData = async () => {
-        let currentProfile = null;
-
-        try {
-          const profileRes = await userService.getProfile(currentUser.uid);
-          currentProfile = profileRes?.data || null;
-          if (currentProfile?.name) setProfileName(currentProfile.name);
-        } catch { /* silent */ }
-
-        const loadStreak = async () => {
-          try { 
-            const checkInRes = await gamificationService.checkIn();
-            const streakData = checkInRes.data || checkInRes || { currentStreak: 0 };
-            setStreak(streakData);
-          } catch (err) {
-            console.error("Streak check-in failed:", err);
-            try {
-              const s = await gamificationService.getStreak(currentUser.uid);
-              setStreak(s.data || s || { currentStreak: 0 });
-            } catch { /* silent */ }
-          }
-        };
-
-        const loadBadges = async () => {
-          try {
-            const badgeRes = await gamificationService.getBadges(currentUser.uid);
-            setBadgeCount(badgeRes.data?.totalEarned || 0);
-          } catch { /* silent */ }
-        };
-
-        const loadMatches = async () => {
-          if (currentProfile) {
-            try {
-              const usersRes = await userService.searchUsers('');
-              const recommended = scoreRecommendedMates(currentProfile, usersRes.data || []);
-              if (recommended.length > 0) {
-                setTopMates(recommended);
-                return;
-              }
-            } catch (err) {
-              console.error("Recommended mates scoring failed:", err);
-            }
-          }
-
-          try {
-            let m = await matchService.getMatches(currentUser.uid);
-            let matchList = m.data || m.matches || [];
-            if (matchList.length === 0) {
-              m = await matchService.getBroadMatches(currentUser.uid);
-              matchList = m.data || m.matches || [];
-            }
-            const flattened = matchList.map(item => ({
-              ...item.tutor,
-              sharedSkills: item.sharedSkills,
-              activityScore: item.activityScore
-            }));
-            if (flattened.length > 0) {
-              setTopMates(flattened.slice(0, 3));
-              return;
-            }
-          } catch (err) {
-            console.error("Match fetching failed:", err);
-          }
-        };
-
-        const loadTrending = async () => {
-          try {
-            const trendRes = await doubtService.getTrending();
-            setTrendingTopics(trendRes.data || []);
-          } catch { /* silent */ }
-        };
-
-        const loadFollowing = async () => {
-          try {
-            const followingRes = await userService.getFollowing(currentUser.uid);
-            setFollowedUsers(followingRes.data || []);
-          } catch { /* silent */ }
-        };
-
-        await Promise.all([
-          loadStreak(),
-          loadBadges(),
-          loadMatches(),
-          loadTrending(),
-          loadFollowing(),
-        ]);
-      };
-      loadData();
-    }
-  }, [currentUser]);
+  const {
+    profileName,
+    streak,
+    badgeCount,
+    topMates,
+    trendingTopics,
+    followedUsers
+  } = globalData;
 
   // Color palette for trending topic pills
   const tagColors = [

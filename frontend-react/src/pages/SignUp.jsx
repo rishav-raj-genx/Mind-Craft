@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, MapPin, X, Rocket, Code, ChevronDown, ChevronUp, GraduationCap, Building2 } from 'lucide-react';
+import { User, MapPin, X, Rocket, Code, ChevronDown, ChevronUp, GraduationCap, Building2, Moon, Sun } from 'lucide-react';
 import { userService } from '../services/userService';
+import { useAppContext } from '../context/AppContext';
 
 const GithubIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3-.3 6-1.5 6-6.5a5.5 5.5 0 0 0-1.5-3.8 5.5 5.5 0 0 0-.2-3.8s-1.2-.4-3.9 1.4a13.3 13.3 0 0 0-7 0C6.2 1.6 5 2 5 2a5.5 5.5 0 0 0-.2 3.8A5.5 5.5 0 0 0 3 9.5c0 5 3 6.2 6 6.5a4.8 4.8 0 0 0-1 3.2v4"></path><path d="M9 18c-4.5 1.5-5-2.5-7-3"></path></svg>
@@ -32,6 +33,7 @@ const CodeChefIcon = ({ size = 18, className = "" }) => (
 
 const SignUp = () => {
   const { loginWithGoogle } = useAuth();
+  const { isDark, setIsDark } = useAppContext();
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [college, setCollege] = useState('');
@@ -314,6 +316,29 @@ const SignUp = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Theme Selection */}
+          <div className="pt-2 border-t border-surface-raised mt-4 relative z-10">
+            <label className="text-sm font-label-md text-on-surface-variant block mb-3">Choose your vibe</label>
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={() => setIsDark(false)}
+                className={`flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all ${!isDark ? 'border-success-lime bg-success-lime/10' : 'border-surface-raised bg-surface-container'}`}
+              >
+                <Sun size={24} className={!isDark ? 'text-success-lime' : 'text-on-surface-variant'} />
+                <span className={`font-label-md ${!isDark ? 'text-success-lime font-bold' : 'text-on-surface-variant'}`}>Light</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDark(true)}
+                className={`flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all ${isDark ? 'border-success-lime bg-success-lime/10' : 'border-surface-raised bg-surface-container'}`}
+              >
+                <Moon size={24} className={isDark ? 'text-success-lime' : 'text-on-surface-variant'} />
+                <span className={`font-label-md ${isDark ? 'text-success-lime font-bold' : 'text-on-surface-variant'}`}>Dark</span>
+              </button>
+            </div>
           </div>
 
           <button 

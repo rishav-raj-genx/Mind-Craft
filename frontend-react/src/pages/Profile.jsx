@@ -8,9 +8,10 @@ import {
   Edit2, UserPlus, MessageSquare, BookOpen, GraduationCap,
   Flame, Users, Star, Clock, BarChart2, Medal,
   X, Save, Loader2, ChevronRight,
-  Code, MapPin, Link2
+  Code, MapPin, Link2, Sun, Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAppContext } from '../context/AppContext';
 
 const GithubIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3-.3 6-1.5 6-6.5a5.5 5.5 0 0 0-1.5-3.8 5.5 5.5 0 0 0-.2-3.8s-1.2-.4-3.9 1.4a13.3 13.3 0 0 0-7 0C6.2 1.6 5 2 5 2a5.5 5.5 0 0 0-.2 3.8A5.5 5.5 0 0 0 3 9.5c0 5 3 6.2 6 6.5a4.8 4.8 0 0 0-1 3.2v4"></path><path d="M9 18c-4.5 1.5-5-2.5-7-3"></path></svg>
@@ -276,6 +277,56 @@ const BadgeCard = ({ icon, name, description }) => (
   </div>
 );
 
+// ─── Moonknight Theme Toggle ──────────────────────────────────────────
+const MoonknightToggle = () => {
+  const { isDark, setIsDark } = useAppContext();
+  
+  return (
+    <motion.button
+      onClick={() => setIsDark(!isDark)}
+      className="absolute top-4 left-4 sm:top-6 sm:left-6 z-50 w-12 h-12 rounded-full overflow-hidden shadow-2xl border-2 border-white/20 hover:scale-105 active:scale-95 transition-transform"
+      title="Toggle Theme"
+    >
+      <AnimatePresence mode="wait">
+        {!isDark ? (
+          <motion.div
+            key="sun"
+            initial={{ rotate: -90, scale: 0.5, opacity: 0 }}
+            animate={{ rotate: 0, scale: 1, opacity: 1 }}
+            exit={{ rotate: 90, scale: 0.5, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 200, damping: 20 }}
+            className="w-full h-full bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center relative"
+          >
+            <motion.div 
+              animate={{ rotate: 360 }}
+              transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+              className="absolute inset-0 border-dashed border-4 border-yellow-200/50 rounded-full"
+            />
+            <Sun className="text-white drop-shadow-md z-10" size={24} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="moon"
+            initial={{ rotate: -90, scale: 0.5, opacity: 0 }}
+            animate={{ rotate: 0, scale: 1, opacity: 1 }}
+            exit={{ rotate: 90, scale: 0.5, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 200, damping: 20 }}
+            className="w-full h-full bg-gradient-to-br from-gray-900 via-slate-800 to-gray-700 flex items-center justify-center relative"
+          >
+            <motion.div 
+               initial={{ opacity: 0.4, scale: 0.8 }}
+               animate={{ opacity: [0.4, 1, 0.4], scale: [0.8, 1.2, 0.8] }}
+               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+               className="absolute inset-0 bg-white/30 blur-md rounded-full"
+            />
+            <Moon className="text-gray-100 drop-shadow-[0_0_8px_rgba(255,255,255,0.9)] z-10" size={24} fill="currentColor" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.button>
+  );
+};
+
 // ─── Main Profile Component ───────────────────────────────────────────
 const Profile = () => {
   const { uid } = useParams();
@@ -522,7 +573,8 @@ const Profile = () => {
   const hasSocialLinks = !!(user?.linkedinUsername || user?.githubUsername || user?.leetcodeUsername || user?.codeforcesUsername || user?.codechefUsername);
 
   return (
-    <div className="flex flex-col gap-5 pb-32 bg-gray-50 dark:bg-[#121212] min-h-screen px-4 pt-4 sm:px-0 transition-colors">
+    <div className="flex flex-col gap-5 pb-32 bg-gray-50 dark:bg-[#121212] min-h-screen px-4 pt-4 sm:px-0 transition-colors relative">
+      <MoonknightToggle />
       <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
 
       {/* ── Profile Links Modal ─────────────────────────────────────── */}

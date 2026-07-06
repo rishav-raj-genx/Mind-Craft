@@ -3,10 +3,11 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { chatService, ChatWebSocket } from '../services/chatService';
 import { sessionService } from '../services/sessionService';
-import { ArrowLeft, Send, Phone, Video, Info, Check, CheckCheck, Clock, CalendarPlus, Star, X, Loader2, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Send, Phone, Video, Info, Check, CheckCheck, Clock, CalendarPlus, Star, X, Loader2, MessageSquare, Plus } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { readCache, writeCache } from '../utils/cache';
+import { useAppContext } from '../context/AppContext';
 
 import RatingModal from '../components/RatingModal';
 
@@ -171,14 +172,35 @@ const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId
 // ── Main Chat Component ─────────────────────────────────────────────────
 const Chat = () => {
   const { matchId } = useParams();
-  const { currentUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [messages, setMessages] = useState([]);
-  const [inputText, setInputText] = useState('');
-  const [partner, setPartner] = useState(location.state?.partner || null);
-  const [isTyping, setIsTyping] = useState(false);
+  const { currentUser } = useAuth();
+  const { globalData } = useAppContext();
+  
   const [threads, setThreads] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [partner, setPartner] = useState(location.state?.partner || null);
+  
+  // -- New Chat feature state --
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [isCreatingThread, setIsCreatingThread] = useState(false);
+
+  const handleStartNewChat = async (user) => {
+    if (!user || !user.uid) return;
+    setIsCreatingThread(true);
+    try {
+      const result = await chatService.getOrCreateThread(user.uid);
+      if (result && result.matchId) {
+        setShowNewChatModal(false);
+        navigate(`/chat/${result.matchId}`, { state: { partner: user } });
+      }
+    } catch (err) {
+      console.error("Failed to start chat", err);
+    } finally {
+      setIsCreatingThread(false);
+    }
+  };
+  const [isTyping, setIsTyping] = useState(false);
   
   // Session state
   const [sessions, setSessions] = useState([]);
@@ -472,17 +494,25 @@ const Chat = () => {
 
   // ── No matchId — show threads list ─────────────────────────────────
   if (!matchId) {
+    const chatableUsers = [...(globalData?.topMates || []), ...(globalData?.followedUsers || [])].filter((v, i, a) => a.findIndex(t => (t.uid === v.uid)) === i); // Unique users
+
     return (
       <div className="flex flex-col h-[calc(100vh-140px)] -mt-6 -mx-margin-mobile px-margin-mobile bg-gray-50 dark:bg-background-deep relative z-50">
         <header className="py-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-on-surface">Your Messages</h2>
+          <button 
+            onClick={() => setShowNewChatModal(true)}
+            className="w-10 h-10 rounded-full bg-purple-100 dark:bg-secondary-container text-purple-700 dark:text-focus-purple flex items-center justify-center hover:bg-purple-200 dark:hover:bg-purple-900/40 transition-colors shadow-sm"
+          >
+            <Plus size={20} />
+          </button>
         </header>
         <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col gap-3 pb-safe">
           {threads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center opacity-70">
               <MessageSquare size={64} className="text-gray-300 dark:text-surface-raised mb-4" />
               <h2 className="font-headline-md text-gray-900 dark:text-on-surface">No Messages Yet</h2>
-              <p className="text-gray-500 mt-2">Go to Find Mate to start a conversation.</p>
+              <p className="text-gray-500 mt-2">Start a conversation with your mates.</p>
             </div>
           ) : (
             threads.map((thread) => {
@@ -506,7 +536,7 @@ const Chat = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center mb-1">
                       <h3 className="font-bold text-gray-900 dark:text-on-surface text-base truncate">{partner?.name || 'Study Partner'}</h3>
-                      {thread.lastMessageTime && (
+                      {!!thread.lastMessageTime && (
                         <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
                           {new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
@@ -521,6 +551,48 @@ const Chat = () => {
             })
           )}
         </div>
+
+        {/* New Chat Modal */}
+        {showNewChatModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white dark:bg-surface-container rounded-3xl p-6 w-full max-w-sm max-h-[70vh] flex flex-col relative animate-[slideUp_0.2s_ease-out]">
+              <button 
+                onClick={() => setShowNewChatModal(false)}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-gray-100 dark:bg-surface-raised flex items-center justify-center text-gray-500 dark:text-on-surface hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                <X size={18} />
+              </button>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Start New Chat</h3>
+              
+              <div className="flex-1 overflow-y-auto hide-scrollbar">
+                {chatableUsers.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">Follow some users or match with mates to start chatting!</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {chatableUsers.map(user => (
+                      <button
+                        key={user.uid}
+                        onClick={() => handleStartNewChat(user)}
+                        disabled={isCreatingThread}
+                        className="flex items-center gap-3 w-full p-3 rounded-2xl hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors text-left"
+                      >
+                        <img 
+                          src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'User')}`}
+                          alt={user.name}
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                        <div className="flex-1 overflow-hidden">
+                          <p className="font-bold text-gray-900 dark:text-white truncate">{user.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{user.college || 'Mindcraft User'}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -643,31 +715,33 @@ const Chat = () => {
                   onPointerUp={handleEndPress}
                   onPointerLeave={handleEndPress}
                   onContextMenu={(e) => {
-                    if (isMine && !isMessageSeen(msg)) {
+                    if (isMine) {
                       e.preventDefault();
                       setLongPressMsgId(msg.id || msg.messageId);
                     }
                   }}
                 >
                   <p className="font-body-md text-[15px] break-words">{msg.text}</p>
-                  <div className={`text-[10px] flex items-center justify-end gap-1 mt-1 opacity-70 ${isMine ? 'text-purple-100' : 'text-gray-500'}`}>
-                    {msg.isEdited && <span className="mr-1 italic">Edited</span>}
+                  <div className={`text-xs flex items-center justify-end gap-1 mt-1.5 opacity-90 ${isMine ? 'text-purple-100' : 'text-gray-500'}`}>
+                    {msg.isEdited && <span className="mr-1 italic text-[10px]">Edited</span>}
                     {formatMessageTime(msg.timestamp)}
                     {isMine && (
-                      msg.status === 'sending' ? <Clock size={10} /> :
-                      isMessageSeen(msg) ? <CheckCheck size={12} className="text-blue-300" /> : <Check size={12} />
+                      msg.status === 'sending' ? <Clock size={12} /> :
+                      isMessageSeen(msg) ? <CheckCheck size={14} className="text-blue-300" /> : <Check size={14} />
                     )}
                   </div>
 
                   {/* Edit/Delete Action Menu */}
-                  {longPressMsgId === (msg.id || msg.messageId) && !isMessageSeen(msg) && (
+                  {longPressMsgId === (msg.id || msg.messageId) && (
                     <div className="absolute top-full right-0 mt-1 bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-xl shadow-lg z-50 overflow-hidden flex flex-col min-w-[120px]">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); handleEditClick(msg); }} 
-                        className="px-4 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-surface-container-high text-left w-full border-b border-gray-100 dark:border-surface-raised"
-                      >
-                        Edit Message
-                      </button>
+                      {!isMessageSeen(msg) && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleEditClick(msg); }} 
+                          className="px-4 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-surface-container-high text-left w-full border-b border-gray-100 dark:border-surface-raised"
+                        >
+                          Edit Message
+                        </button>
+                      )}
                       <button 
                         onClick={(e) => { e.stopPropagation(); handleDeleteClick(msg); }} 
                         className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 text-left w-full"

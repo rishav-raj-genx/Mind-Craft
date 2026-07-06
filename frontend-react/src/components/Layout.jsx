@@ -1,54 +1,14 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Moon, Sun, Bell, Grid, Map, MessageSquare, User, MessageCircle } from 'lucide-react';
+import { Bell, Grid, Map, MessageSquare, User, MessageCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { userService } from '../services/userService';
 import MindcraftLogo from './MindcraftLogo';
 
 const Layout = () => {
-  const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem('mindcraft-theme');
-    return saved !== null ? saved === 'dark' : true;
-  });
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const [photoUrl, setPhotoUrl] = useState(currentUser?.photoURL || "https://ui-avatars.com/api/?name=User");
   const [hasUnread, setHasUnread] = useState(false);
-
-  // Fetch the real Firestore photoUrl on mount (app-uploaded photo takes priority over Google avatar)
-  useEffect(() => {
-    if (currentUser?.uid) {
-      userService.getProfile(currentUser.uid).then(res => {
-        const firestorePhoto = res?.data?.photoUrl;
-        if (firestorePhoto) {
-          setPhotoUrl(firestorePhoto);
-        } else if (currentUser.photoURL) {
-          setPhotoUrl(currentUser.photoURL);
-        }
-      }).catch(() => {
-        // Fallback to auth photo
-        if (currentUser?.photoURL) setPhotoUrl(currentUser.photoURL);
-      });
-    }
-    const handleUpdate = (e) => {
-      if (e.detail?.photoUrl) setPhotoUrl(e.detail.photoUrl);
-    };
-    window.addEventListener('profile-updated', handleUpdate);
-    return () => window.removeEventListener('profile-updated', handleUpdate);
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-      localStorage.setItem('mindcraft-theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      document.documentElement.classList.add('light');
-      localStorage.setItem('mindcraft-theme', 'light');
-    }
-  }, [isDark]);
 
   const navItems = [
     { path: '/', icon: Grid, label: 'Home', match: (p) => p === '/' },
@@ -65,28 +25,9 @@ const Layout = () => {
       <header className="w-full top-0 sticky bg-gray-50 dark:bg-background-deep z-40 transition-colors duration-200 border-b border-gray-200 dark:border-transparent">
         <div className="flex items-center justify-between px-margin-mobile py-4 w-full">
           <div className="flex items-center gap-3">
-            {/* Profile Avatar — tappable, navigates to profile */}
-            <button
-              onClick={() => navigate(`/profile/${currentUser?.uid}`)}
-              className="active:scale-95 transition-transform duration-200 cursor-pointer"
-              aria-label="Go to profile"
-            >
-              <img
-                alt="User Profile"
-                className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 dark:border-surface-raised"
-                src={photoUrl}
-              />
-            </button>
             <MindcraftLogo size="md" />
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsDark(!isDark)}
-              className="w-10 h-10 rounded-full bg-white dark:bg-surface-container flex items-center justify-center text-green-700 dark:text-success-lime hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-200 shadow-sm dark:shadow-none"
-              aria-label="Toggle theme"
-            >
-              {isDark ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
             <button
               onClick={() => {
                 setHasUnread(false);
