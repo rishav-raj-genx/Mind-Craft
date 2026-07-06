@@ -179,6 +179,7 @@ const Chat = () => {
   
   const [threads, setThreads] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
   const [partner, setPartner] = useState(location.state?.partner || null);
   
   // -- New Chat feature state --

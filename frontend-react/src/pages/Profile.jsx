@@ -77,6 +77,7 @@ const compressImage = (file, maxDimension = 480, maxBytes = 180 * 1024) => {
 // ─── Edit Profile Modal ───────────────────────────────────────────────
 const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
   const [name, setName] = useState(user.name || '');
+  const [gender, setGender] = useState(user.gender || '');
   const [department, setDepartment] = useState(user.department || '');
   const [college, setCollege] = useState(user.college || '');
   const [collegeLocation, setCollegeLocation] = useState(user.collegeLocation || '');
@@ -109,7 +110,7 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
     }
     try {
       await onSave({ 
-        name, department, college, collegeLocation, year, 
+        name, gender, department, college, collegeLocation, year, 
         teaches: finalTeaches, learns: finalLearns,
         linkedinUsername, githubUsername, leetcodeUsername, codeforcesUsername, codechefUsername
       });
@@ -155,6 +156,26 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave }) => {
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Name</label>
             <input value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-[#7C3AED]" />
+          </div>
+          {/* Gender */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Gender</label>
+            <div className="flex gap-2">
+              {['Male', 'Female', 'Other'].map(g => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGender(g)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                    gender === g
+                      ? 'bg-[#DCFD8B] text-[#151f00] border-[#DCFD8B] shadow-[0_0_10px_rgba(220,253,139,0.3)]'
+                      : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-[#DCFD8B]/50'
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
           </div>
           {/* Department */}
           <div>

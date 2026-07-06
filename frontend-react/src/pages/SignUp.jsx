@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, MapPin, X, Rocket, Code, ChevronDown, ChevronUp, GraduationCap, Building2, Moon, Sun } from 'lucide-react';
+import { User, MapPin, X, Rocket, Code, ChevronDown, ChevronUp, GraduationCap, Building2, Moon, Sun, Camera, Edit2, Loader2, CheckCircle2, Link2 } from 'lucide-react';
 import { userService } from '../services/userService';
 import { useAppContext } from '../context/AppContext';
 
@@ -31,11 +31,150 @@ const CodeChefIcon = ({ size = 18, className = "" }) => (
   </svg>
 );
 
+// ─── Image Compression via Canvas ──────────────────────────────────────
+const compressImage = (file, maxDimension = 480, maxBytes = 180 * 1024) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ratio = Math.min(1, maxDimension / Math.max(img.width, img.height));
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        let quality = 0.78;
+        let dataUrl = canvas.toDataURL('image/webp', quality);
+        while (dataUrl.length * 0.75 > maxBytes && quality > 0.42) {
+          quality -= 0.08;
+          dataUrl = canvas.toDataURL('image/webp', quality);
+        }
+        resolve(dataUrl);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+const SocialLinksModal = ({ socials, onSave, onClose }) => {
+  const [links, setLinks] = useState(socials);
+  const [error, setError] = useState('');
+
+  const validateLink = (val, domain) => {
+    if (!val) return true;
+    try {
+      const url = new URL(val.startsWith('http') ? val : `https://${val}`);
+      return url.hostname.toLowerCase().includes(domain);
+    } catch {
+      return false;
+    }
+  };
+
+  const handleSave = () => {
+    if (links.linkedin && !validateLink(links.linkedin, 'linkedin.com')) return setError('Invalid LinkedIn URL (must be a proper linkedin.com link)');
+    if (links.github && !validateLink(links.github, 'github.com')) return setError('Invalid GitHub URL (must be a proper github.com link)');
+    if (links.leetcode && !validateLink(links.leetcode, 'leetcode.com')) return setError('Invalid LeetCode URL (must be a proper leetcode.com link)');
+    if (links.codeforces && !validateLink(links.codeforces, 'codeforces.com')) return setError('Invalid Codeforces URL (must be a proper codeforces.com link)');
+    if (links.codechef && !validateLink(links.codechef, 'codechef.com')) return setError('Invalid CodeChef URL (must be a proper codechef.com link)');
+    
+    // Extract usernames from full URLs to save to DB
+    const extract = (val) => {
+      if (!val) return '';
+      try {
+        const u = new URL(val.startsWith('http') ? val : `https://${val}`);
+        const parts = u.pathname.split('/').filter(Boolean);
+        return parts[parts.length - 1]; // E.g., 'in/username' -> 'username' for LinkedIn might be tricky, but works for most. For robust extraction, we just assume the last part is the username.
+      } catch {
+        return val.trim();
+      }
+    };
+
+    onSave({
+      linkedinUsername: extract(links.linkedin),
+      githubUsername: extract(links.github),
+      leetcodeUsername: extract(links.leetcode),
+      codeforcesUsername: extract(links.codeforces),
+      codechefUsername: extract(links.codechef),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-surface-container rounded-3xl p-6 w-full max-w-sm flex flex-col relative animate-[slideUp_0.2s_ease-out]">
+        <button 
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-500 dark:text-on-surface hover:text-gray-900 dark:hover:text-white"
+        >
+          <X size={20} />
+        </button>
+        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Add Social Profiles</h3>
+        
+        {error && <div className="text-red-500 text-sm mb-4 bg-red-100 dark:bg-red-900/30 p-2 rounded-lg">{error}</div>}
+
+        <div className="flex flex-col gap-4 overflow-y-auto max-h-[60vh] pb-4 hide-scrollbar">
+          <div className="relative">
+            <LinkedinIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-[#0077B5]" size={18} />
+            <input 
+              value={links.linkedin} onChange={(e) => setLinks({...links, linkedin: e.target.value})}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
+              placeholder="https://linkedin.com/in/username" 
+            />
+          </div>
+          <div className="relative">
+            <GithubIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface" size={18} />
+            <input 
+              value={links.github} onChange={(e) => setLinks({...links, github: e.target.value})}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
+              placeholder="https://github.com/username" 
+            />
+          </div>
+          <div className="relative">
+            <LeetCodeIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-500" size={18} />
+            <input 
+              value={links.leetcode} onChange={(e) => setLinks({...links, leetcode: e.target.value})}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
+              placeholder="https://leetcode.com/u/username" 
+            />
+          </div>
+          <div className="relative">
+            <CodeforcesIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
+            <input 
+              value={links.codeforces} onChange={(e) => setLinks({...links, codeforces: e.target.value})}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
+              placeholder="https://codeforces.com/profile/username" 
+            />
+          </div>
+          <div className="relative">
+            <CodeChefIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-700" size={18} />
+            <input 
+              value={links.codechef} onChange={(e) => setLinks({...links, codechef: e.target.value})}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
+              placeholder="https://www.codechef.com/users/username" 
+            />
+          </div>
+        </div>
+
+        <button 
+          onClick={handleSave}
+          className="w-full mt-4 bg-success-lime text-[#151f00] font-bold py-3 rounded-xl hover:bg-[#b3d266] transition-colors"
+        >
+          Save Profiles
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const SignUp = () => {
   const { loginWithGoogle } = useAuth();
   const { isDark, setIsDark } = useAppContext();
   const navigate = useNavigate();
   const [name, setName] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [gender, setGender] = useState('');
   const [college, setCollege] = useState('');
   const [collegeLocation, setCollegeLocation] = useState('');
   const [department, setDepartment] = useState('');
@@ -66,10 +205,26 @@ const SignUp = () => {
       .catch(() => { /* silent - suggestions just won't show */ });
   }, []);
 
+  const photoInputRef = useRef(null);
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const compressedDataUrl = await compressImage(file);
+      setPhotoUrl(compressedDataUrl);
+    } catch (err) {
+      setError('Failed to process image');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const handleGoogleSignup = async (e) => {
     e.preventDefault();
-    if (!college.trim() || !collegeLocation.trim() || !department.trim() || !year.trim()) {
-      setError('Please fill in all required fields: College, Location, Department, and Year.');
+    if (!college.trim() || !collegeLocation.trim() || !department.trim() || !year.trim() || !gender) {
+      setError('Please fill in all required fields: Gender, College, Location, Department, and Year.');
       return;
     }
     if (teaches.length === 0 || learns.length === 0) {
@@ -80,8 +235,23 @@ const SignUp = () => {
       setError('');
       const result = await loginWithGoogle();
       
+      let finalPhotoUrl = photoUrl || result.user.photoURL;
+      if (!photoUrl) {
+        // Fallback to cute avatars based on gender if no photo uploaded
+        const encodedName = encodeURIComponent(name || 'User');
+        if (gender === 'Male') {
+          finalPhotoUrl = `https://avatar.iran.liara.run/public/boy?username=${encodedName}`;
+        } else if (gender === 'Female') {
+          finalPhotoUrl = `https://avatar.iran.liara.run/public/girl?username=${encodedName}`;
+        } else {
+          finalPhotoUrl = `https://avatar.iran.liara.run/public?username=${encodedName}`;
+        }
+      }
+
       const userData = {
         name,
+        photoUrl: finalPhotoUrl,
+        gender,
         college,
         collegeLocation,
         department,
@@ -140,6 +310,30 @@ const SignUp = () => {
         {error && <div className="text-red-500 mb-4 z-10 relative text-sm">{error}</div>}
 
         <form onSubmit={handleGoogleSignup} className="space-y-5 relative z-10">
+          <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+          
+          {/* Profile Picture Upload */}
+          <div className="flex flex-col items-center mb-6">
+            <div className="relative shrink-0">
+              <div className="w-24 h-24 rounded-full overflow-hidden border-[3px] border-success-lime shadow-[0_0_15px_rgba(220,253,139,0.2)] bg-surface-raised flex items-center justify-center">
+                {photoUrl ? (
+                  <img src={photoUrl} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <Camera size={32} className="text-on-surface-variant/50" />
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="absolute -bottom-1 -right-1 w-8 h-8 bg-success-lime rounded-full flex items-center justify-center border-2 border-surface-container shadow-md hover:bg-[#b3d266] transition-colors"
+              >
+                {uploadingPhoto ? <Loader2 size={14} className="text-[#151f00] animate-spin" /> : <Edit2 size={14} className="text-[#151f00]" />}
+              </button>
+            </div>
+            <span className="text-xs font-label-sm text-on-surface-variant mt-2">Add Profile Picture</span>
+          </div>
+
           {/* Name */}
           <div>
             <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Preferred Name *</label>
@@ -151,6 +345,27 @@ const SignUp = () => {
                 placeholder="What should we call you?" 
                 required
               />
+            </div>
+          </div>
+
+          {/* Gender */}
+          <div>
+            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Gender *</label>
+            <div className="flex gap-2">
+              {['Male', 'Female', 'Other'].map(g => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGender(g)}
+                  className={`flex-1 py-2.5 rounded-full text-sm font-semibold border transition-all ${
+                    gender === g
+                      ? 'bg-success-lime text-[#151f00] border-success-lime shadow-[0_0_10px_rgba(220,253,139,0.3)]'
+                      : 'bg-background-deep text-on-surface-variant border-surface-raised hover:border-success-lime/50'
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -262,59 +477,34 @@ const SignUp = () => {
           </div>
 
           {/* Social Profiles */}
-          <div className="pt-2 border-t border-surface-raised mt-4">
+          <div className="pt-2 border-t border-surface-raised mt-4 relative z-10">
             <button
               type="button"
-              onClick={() => setShowSocials(!showSocials)}
-              className="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md hover:text-on-surface transition-colors w-full justify-between"
+              onClick={() => setShowSocials(true)}
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border-2 border-success-lime text-success-lime font-bold hover:bg-success-lime/10 transition-colors shadow-[0_0_15px_rgba(220,253,139,0.1)]"
             >
-              <span>Add Social Profiles (Optional)</span>
-              {showSocials ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              <Link2 size={20} /> Add Social Profiles (Optional)
             </button>
             
             {showSocials && (
-              <div className="mt-4 space-y-3 animate-[fadeIn_0.2s_ease-out]">
-                <div className="relative">
-                  <LinkedinIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-[#0077B5]" size={18} />
-                  <input 
-                    value={linkedinUsername} onChange={(e) => setLinkedinUsername(e.target.value)}
-                    className="glass-input w-full rounded-full py-2.5 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-                    placeholder="LinkedIn Username" 
-                  />
-                </div>
-                <div className="relative">
-                  <GithubIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface" size={18} />
-                  <input 
-                    value={githubUsername} onChange={(e) => setGithubUsername(e.target.value)}
-                    className="glass-input w-full rounded-full py-2.5 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-                    placeholder="GitHub Username" 
-                  />
-                </div>
-                <div className="relative">
-                  <LeetCodeIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-500" size={18} />
-                  <input 
-                    value={leetcodeUsername} onChange={(e) => setLeetcodeUsername(e.target.value)}
-                    className="glass-input w-full rounded-full py-2.5 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-                    placeholder="LeetCode Username" 
-                  />
-                </div>
-                <div className="relative">
-                  <CodeforcesIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
-                  <input 
-                    value={codeforcesUsername} onChange={(e) => setCodeforcesUsername(e.target.value)}
-                    className="glass-input w-full rounded-full py-2.5 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-                    placeholder="Codeforces Username" 
-                  />
-                </div>
-                <div className="relative">
-                  <CodeChefIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-700" size={18} />
-                  <input 
-                    value={codechefUsername} onChange={(e) => setCodechefUsername(e.target.value)}
-                    className="glass-input w-full rounded-full py-2.5 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-                    placeholder="CodeChef Username" 
-                  />
-                </div>
-              </div>
+              <SocialLinksModal 
+                socials={{
+                  linkedin: linkedinUsername ? `https://linkedin.com/in/${linkedinUsername}` : '',
+                  github: githubUsername ? `https://github.com/${githubUsername}` : '',
+                  leetcode: leetcodeUsername ? `https://leetcode.com/u/${leetcodeUsername}` : '',
+                  codeforces: codeforcesUsername ? `https://codeforces.com/profile/${codeforcesUsername}` : '',
+                  codechef: codechefUsername ? `https://www.codechef.com/users/${codechefUsername}` : '',
+                }}
+                onSave={(extracted) => {
+                  setLinkedinUsername(extracted.linkedinUsername);
+                  setGithubUsername(extracted.githubUsername);
+                  setLeetcodeUsername(extracted.leetcodeUsername);
+                  setCodeforcesUsername(extracted.codeforcesUsername);
+                  setCodechefUsername(extracted.codechefUsername);
+                  setShowSocials(false);
+                }}
+                onClose={() => setShowSocials(false)}
+              />
             )}
           </div>
 

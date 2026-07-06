@@ -25,7 +25,7 @@ const Layout = () => {
       <header className="w-full top-0 sticky bg-gray-50 dark:bg-background-deep z-40 transition-colors duration-200 border-b border-gray-200 dark:border-transparent">
         <div className="flex items-center justify-between px-margin-mobile py-4 w-full">
           <div className="flex items-center gap-3">
-            <MindcraftLogo size="md" />
+            <MindcraftLogo size="md" showIcon={true} />
           </div>
           <div className="flex items-center gap-2">
             <button
