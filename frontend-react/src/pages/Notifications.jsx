@@ -20,7 +20,14 @@ const Notifications = () => {
   } = useNotifications();
   
   const [restNotifications, setRestNotifications] = useState([]);
-  const [readIds, setReadIds] = useState(new Set()); // Track locally-dismissed REST notification IDs
+  const [readIds, setReadIds] = useState(() => {
+    try {
+      const stored = localStorage.getItem('mindcraft_read_notifs');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  }); // Track locally-dismissed REST notification IDs
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState({});
   const [activeTab, setActiveTab] = useState('All');
@@ -104,7 +111,7 @@ const Notifications = () => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         notifs.push({
-          id: 'streak-alert',
+          id: `streak-alert-${today.getTime()}`,
           category: 'gamification',
           type: 'STREAK_ALERT',
           title: 'Streak Alert',
@@ -162,7 +169,7 @@ const Notifications = () => {
       threads.forEach(t => {
         if (t.unread && t.lastMessageSender !== currentUser.uid) {
           notifs.push({
-            id: `chat-${t.matchId}`,
+            id: `msg-${t.matchId}`,
             category: 'message',
             type: 'UNREAD_CHAT',
             title: 'New Message',
@@ -186,7 +193,11 @@ const Notifications = () => {
     // Mark context notification as read
     markNotificationRead(notif.id);
     // Mark REST notification as locally read
-    setReadIds(prev => new Set(prev).add(notif.id));
+    setReadIds(prev => {
+      const next = new Set(prev).add(notif.id);
+      localStorage.setItem('mindcraft_read_notifs', JSON.stringify([...next]));
+      return next;
+    });
     // If it's a chat notification, also mark that chat as read
     if (notif.matchId) {
       markChatRead(notif.matchId);
@@ -196,10 +207,13 @@ const Notifications = () => {
   const handleMarkAllRead = useCallback(() => {
     markAllNotificationsRead();
     // Mark all REST notifications as locally read
-    const allIds = new Set(readIds);
-    restNotifications.forEach(n => allIds.add(n.id));
-    setReadIds(allIds);
-  }, [markAllNotificationsRead, readIds, restNotifications]);
+    setReadIds(prev => {
+      const next = new Set(prev);
+      restNotifications.forEach(n => next.add(n.id));
+      localStorage.setItem('mindcraft_read_notifs', JSON.stringify([...next]));
+      return next;
+    });
+  }, [markAllNotificationsRead, restNotifications]);
 
   // ── Merge context and REST notifications ─────────────────────────
   const mergedNotifications = useMemo(() => {
@@ -208,6 +222,9 @@ const Notifications = () => {
     // Add REST notifications, applying local read state
     restNotifications.forEach(n => {
       const isLocallyRead = readIds.has(n.id);
+      // Eliminate streak alerts that are already read/dismissed
+      if (isLocallyRead && n.type === 'STREAK_ALERT') return;
+
       // For chat notifications, check if the chat has been read (no longer in unreadCounts)
       const isChatRead = n.matchId && !unreadCounts[n.matchId];
       map.set(n.id, { 
@@ -217,11 +234,16 @@ const Notifications = () => {
     });
     
     // Add Context (overwrites REST if dup)
-    contextNotifs.forEach(n => map.set(n.id, {
-      ...n,
-      category: n.category || 'general',
-      read: n.read || readIds.has(n.id)
-    }));
+    contextNotifs.forEach(n => {
+      // Eliminate streak alerts that are already read/dismissed
+      if (readIds.has(n.id) && n.type === 'STREAK_ALERT') return;
+      
+      map.set(n.id, {
+        ...n,
+        category: n.category || 'general',
+        read: n.read || readIds.has(n.id)
+      });
+    });
     
     let result = Array.from(map.values());
     
