@@ -25,16 +25,15 @@ const Layout = () => {
     <div className="bg-gray-50 dark:bg-background-deep text-gray-900 dark:text-on-surface font-body-md min-h-screen pb-[100px] transition-colors duration-200">
 
       {/* TopAppBar */}
-      <header className={`w-full top-0 sticky z-50 transition-colors duration-200 bg-gray-50/95 dark:bg-background-deep/95 backdrop-blur-md ${isProfilePage ? 'border-transparent' : 'border-b border-gray-200 dark:border-transparent'}`}>
+      <header className={`w-full top-0 sticky z-50 transition-colors duration-200 ${
+        isProfilePage
+          ? 'bg-black/95 border-transparent'
+          : 'bg-gray-50/95 dark:bg-background-deep/95 border-b border-gray-200 dark:border-transparent'
+      } backdrop-blur-md`}>
         {isProfilePage && <ThemeToggle />}
         <div className="flex items-center justify-between px-margin-mobile py-4 w-full min-h-[76px] relative z-10 pointer-events-none">
           <div className="flex items-center gap-3 pointer-events-auto">
-            <MindcraftLogo
-              size={isProfilePage ? 'sm' : 'md'}
-              showIcon={true}
-              variant={isProfilePage ? 'profile' : 'default'}
-              className={isProfilePage ? 'max-w-[calc(100vw-132px)] overflow-hidden' : ''}
-            />
+            <MindcraftLogo size="md" showIcon={true} variant={isProfilePage ? 'profile' : 'default'} />
           </div>
           <div className="flex items-center gap-2 pointer-events-auto">
             <button
@@ -46,9 +45,13 @@ const Layout = () => {
               aria-label="Notifications"
             >
               <Bell size={20} />
-              {hasUnreadNotifications && (
-                <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.8)]"></div>
-              )}
+              <div 
+                className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full transition-colors duration-500 ${
+                  hasUnreadNotifications 
+                    ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' 
+                    : 'bg-success-lime shadow-[0_0_8px_rgba(220,253,139,0.5)]'
+                }`}
+              ></div>
             </button>
           </div>
         </div>

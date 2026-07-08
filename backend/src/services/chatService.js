@@ -224,6 +224,32 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
         text,
         timestamp,
       });
+
+      // ── Send FCM push notification ────────────────────────────────
+      try {
+        const { admin } = require('../config/firebase');
+        const recipientDoc = await db.collection('users').doc(recipientUid).get();
+        if (recipientDoc.exists) {
+          const fcmToken = recipientDoc.data().fcmToken;
+          if (fcmToken) {
+            await admin.messaging().send({
+              token: fcmToken,
+              notification: {
+                title: user.name,
+                body: text,
+              },
+              data: {
+                type: 'chat',
+                matchId: matchId,
+                url: `/chat/${matchId}`
+              }
+            });
+            console.log(`✅ FCM push sent to ${recipientUid}`);
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️  FCM push failed:', err.message);
+      }
     }
 
   } catch (err) {

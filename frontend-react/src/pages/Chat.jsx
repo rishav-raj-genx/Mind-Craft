@@ -178,7 +178,8 @@ const Chat = () => {
     sendTyping: globalSendTyping, 
     markRead: globalMarkRead,
     editMessage: globalEditMessage,
-    deleteMessage: globalDeleteMessage
+    deleteMessage: globalDeleteMessage,
+    unreadCounts
   } = useNotifications();
   
   const [messages, setMessages] = useState([]);
@@ -484,11 +485,14 @@ const Chat = () => {
           ) : (
             threads.map((thread) => {
               const partner = thread.partner;
+              const unreadCount = unreadCounts[thread.matchId] || 0;
+              const isUnread = unreadCount > 0 && thread.lastMessageSender !== currentUser?.uid;
+              
               return (
                 <div 
                   key={thread.matchId}
                   onClick={() => navigate(`/chat/${thread.matchId}`, { state: { partner } })}
-                  className="bg-white dark:bg-surface-container rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-container-high transition-all active:scale-[0.98] border border-transparent hover:border-gray-100 dark:hover:border-surface-raised shadow-sm"
+                  className="bg-white dark:bg-surface-container rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-container-high transition-all active:scale-[0.98] border border-transparent hover:border-gray-100 dark:hover:border-surface-raised shadow-sm animate-in slide-in-from-top-2 duration-300"
                 >
                   <div className="relative shrink-0">
                     <img 
@@ -502,19 +506,19 @@ const Chat = () => {
                       <h3 className="font-bold text-gray-900 dark:text-on-surface text-base truncate">{partner?.name || 'Study Partner'}</h3>
                       <div className="flex flex-col items-end gap-1">
                         {!!thread.lastMessageTime && (
-                          <span className={`text-[11px] whitespace-nowrap ml-2 ${thread.unread && thread.lastMessageSender !== currentUser?.uid ? 'text-success-lime font-bold' : 'text-gray-400'}`}>
+                          <span className={`text-[11px] whitespace-nowrap ml-2 ${isUnread ? 'text-success-lime font-bold' : 'text-gray-400'}`}>
                             {new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
                       </div>
                     </div>
                     <div className="flex justify-between items-center">
-                      <p className={`text-sm truncate ${thread.unread && thread.lastMessageSender !== currentUser?.uid ? 'text-gray-900 dark:text-white font-semibold' : 'text-gray-500 dark:text-on-surface-variant'}`}>
+                      <p className={`text-sm truncate ${isUnread ? 'text-gray-900 dark:text-white font-semibold' : 'text-gray-500 dark:text-on-surface-variant'}`}>
                         {thread.lastMessage || 'Say hi!'}
                       </p>
-                      {thread.unread && thread.lastMessageSender !== currentUser?.uid && (
-                        <div className="w-[18px] h-[18px] bg-success-lime text-gray-900 text-[10px] font-bold rounded-full flex items-center justify-center shrink-0 ml-2 shadow-sm">
-                          1
+                      {isUnread && (
+                        <div className="min-w-[18px] px-1.5 h-[18px] bg-success-lime text-gray-900 text-[10px] font-bold rounded-full flex items-center justify-center shrink-0 ml-2 shadow-sm">
+                          {unreadCount > 99 ? '99+' : unreadCount}
                         </div>
                       )}
                     </div>

@@ -85,7 +85,11 @@ router.post(
       const { broadcastToGlobal } = require('../services/chatService');
       broadcastToGlobal(req.body.teacherUid, {
         type: 'global_notification',
-        message: `New session request for ${req.body.skill}`,
+        subType: 'session_booked',
+        data: {
+          message: `New session request for ${req.body.skill}`,
+          partnerName: req.user.name || 'a user'
+        },
         sessionId: sessionRef.id,
         timestamp: Date.now()
       });

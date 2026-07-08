@@ -1,25 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 import { sessionService } from '../services/sessionService';
 import { gamificationService } from '../services/gamificationService';
 import { doubtService } from '../services/doubtService';
 import { chatService } from '../services/chatService';
-import { ArrowLeft, Check, X, MessageCircle, Coins, Flame, UserPlus, Calendar, CalendarPlus, Bell, MessageSquare, Loader2, Clock } from 'lucide-react';
+import { ArrowLeft, Check, X, MessageCircle, Coins, Flame, UserPlus, Calendar, CalendarPlus, Bell, MessageSquare, Loader2, Clock, CheckCircle2 } from 'lucide-react';
 
 const Notifications = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const [notifications, setNotifications] = useState([]);
+  const { notifications: contextNotifs, markNotificationRead, markAllNotificationsRead } = useNotifications();
+  
+  const [restNotifications, setRestNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState({});
+  const [activeTab, setActiveTab] = useState('All');
+
+  const tabs = ['All', 'Messages', 'Sessions', 'Gamification', 'Social'];
 
   useEffect(() => {
     if (!currentUser) return;
     buildNotifications();
   }, [currentUser]);
 
-  // Build dynamic notifications from real data sources
+  // Build dynamic notifications from real data sources (REST fallback)
   const buildNotifications = async () => {
     setLoading(true);
     const notifs = [];
@@ -33,15 +39,17 @@ const Notifications = () => {
         const dateStr = new Date(s.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         notifs.push({
           id: `session-${s.sessionId}`,
+          category: 'session',
           type: 'SESSION_REQUEST',
           title: 'Upcoming Session',
           message: isTeacher
             ? `You have an upcoming tutoring session for "${s.skill}" with ${s.peerName} on ${dateStr}.`
             : `You're scheduled to learn "${s.skill}" with ${s.peerName} on ${dateStr}.`,
-          timeAgo: formatTime(s.scheduledAt),
+          timestamp: s.scheduledAt,
           read: false,
           sessionId: s.sessionId,
           actionable: false,
+          route: '/sessions'
         });
       });
 
@@ -52,149 +60,165 @@ const Notifications = () => {
         const isTeacher = s.teacherUid === currentUser.uid;
         const dateStr = new Date(s.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         if (isTeacher) {
-          // Teacher sees accept/reject
           notifs.push({
             id: `session-req-${s.sessionId}`,
+            category: 'session',
             type: 'SESSION_PENDING',
             title: 'Session Request',
             message: `${s.peerName} requested a session for "${s.skill}" on ${dateStr}.`,
-            timeAgo: formatTime(s.createdAt || s.scheduledAt),
+            timestamp: s.createdAt || s.scheduledAt,
             read: false,
             sessionId: s.sessionId,
             actionable: true,
+            route: '/sessions'
           });
         } else {
-          // Learner sees a waiting notification
           notifs.push({
             id: `session-wait-${s.sessionId}`,
+            category: 'session',
             type: 'SESSION_WAITING',
             title: 'Session Pending',
             message: `Your session request for "${s.skill}" with ${s.peerName} is waiting for approval.`,
-            timeAgo: formatTime(s.createdAt || s.scheduledAt),
+            timestamp: s.createdAt || s.scheduledAt,
             read: false,
             sessionId: s.sessionId,
             actionable: false,
+            route: '/sessions'
           });
         }
       });
-    } catch (err) {
-      console.error('Session notifs error:', err);
-    }
+    } catch (err) {}
 
     try {
-      // 2. Streak notification
       const streakRes = await gamificationService.getStreak(currentUser.uid);
       const streak = streakRes.data || {};
       if (streak.currentStreak > 0) {
         notifs.push({
           id: 'streak-alert',
+          category: 'gamification',
           type: 'STREAK_ALERT',
           title: 'Streak Alert',
           message: `${streak.currentStreak} Day Streak! ${streak.currentStreak >= 7 ? "You're on fire! 🔥" : 'Keep studying daily to build your streak.'}`,
-          timeAgo: 'Today',
+          timestamp: Date.now(),
           read: streak.currentStreak > 3,
           actionable: false,
+          route: '/streak'
         });
       }
-    } catch (err) {
-      console.error('Streak notifs error:', err);
-    }
+    } catch (err) {}
 
     try {
-      // 3. Token rewards — check recent transactions
       const tokensRes = await gamificationService.getTokens(currentUser.uid);
       const balance = tokensRes.data?.balance || 0;
       const transactions = tokensRes.data?.transactions || [];
-      // Show the most recent transaction as a notification
       if (transactions.length > 0) {
         const latest = transactions[0];
         notifs.push({
           id: `token-${latest.id || 'latest'}`,
+          category: 'gamification',
           type: 'REWARD',
           title: 'Token Reward',
           message: `You earned ${latest.amount || 0} Mind Tokens${latest.reason ? ` for ${latest.reason}` : ''}. Balance: ${balance}`,
-          timeAgo: latest.createdAt ? formatTime(latest.createdAt) : 'Recently',
+          timestamp: latest.createdAt || Date.now(),
           read: true,
           actionable: false,
+          route: '/'
         });
       }
-    } catch (err) {
-      console.error('Token notifs error:', err);
-    }
+    } catch (err) {}
 
     try {
-      // 4. Forum activity — check if your doubts got answers
       const doubtsRes = await doubtService.getAllDoubts('All Doubts');
       const doubts = doubtsRes.data || [];
       const myDoubts = doubts.filter(d => d.authorUid === currentUser.uid && d.answerCount > 0);
       myDoubts.slice(0, 3).forEach(d => {
         notifs.push({
           id: `doubt-${d.id}`,
+          category: 'social',
           type: 'FORUM_REPLY',
           title: 'Forum Activity',
           message: `Your doubt "${d.title}" has ${d.answerCount} answer${d.answerCount > 1 ? 's' : ''}!`,
-          timeAgo: formatTime(d.createdAt),
+          timestamp: d.createdAt,
           read: true,
           actionable: false,
-          doubtId: d.id,
+          route: `/forum?doubtId=${d.id}`
         });
       });
 
-      // 5. New Doubts - show doubts posted by others recently (last 24 hours)
       const now = Date.now();
-      const recentDoubts = doubts.filter(d =>
-        d.authorUid !== currentUser.uid &&
-        (now - d.createdAt) < 24 * 60 * 60 * 1000
-      );
-
+      const recentDoubts = doubts.filter(d => d.authorUid !== currentUser.uid && (now - d.createdAt) < 24 * 60 * 60 * 1000);
       recentDoubts.slice(0, 5).forEach(d => {
         notifs.push({
           id: `new-doubt-${d.id}`,
+          category: 'social',
           type: 'NEW_DOUBT',
           title: `New in ${d.tag}`,
           message: `${d.authorName} asked: "${d.title}"`,
-          timeAgo: formatTime(d.createdAt),
-          read: false, // Unread to grab attention
+          timestamp: d.createdAt,
+          read: false,
           actionable: false,
-          doubtId: d.id,
+          route: `/forum?doubtId=${d.id}`
         });
       });
-    } catch (err) {
-      console.error('Forum notifs error:', err);
-    }
+    } catch (err) {}
 
     try {
-      // 6. Unread Chats
       const threadsRes = await chatService.getThreads(currentUser.uid);
       const threads = threadsRes.data || [];
       threads.forEach(t => {
         if (t.unread && t.lastMessageSender !== currentUser.uid) {
           notifs.push({
             id: `chat-${t.matchId}`,
+            category: 'message',
             type: 'UNREAD_CHAT',
             title: 'New Message',
-            message: `You have an unread message from a study partner.`,
-            timeAgo: formatTime(t.lastMessageTime),
+            message: `You have an unread message from ${t.partner?.name || 'a study partner'}.`,
+            timestamp: t.lastMessageTime || Date.now(),
             read: false,
             actionable: true,
-            matchId: t.matchId,
+            route: `/chat/${t.matchId}`
           });
         }
       });
-    } catch (err) {
-      console.error('Chat notifs error:', err);
-    }
+    } catch (err) {}
 
-    // Sort by read status (unread first), keep the order otherwise
-    notifs.sort((a, b) => (a.read === b.read ? 0 : a.read ? 1 : -1));
-    setNotifications(notifs);
+    setRestNotifications(notifs);
     setLoading(false);
   };
 
+  // ── Merge context and REST notifications ─────────────────────────
+  const mergedNotifications = useMemo(() => {
+    const map = new Map();
+    // Add REST
+    restNotifications.forEach(n => map.set(n.id, n));
+    // Add Context (overwrites REST if dup)
+    contextNotifs.forEach(n => map.set(n.id, {
+      ...n,
+      category: n.category || 'general'
+    }));
+    
+    let result = Array.from(map.values());
+    
+    // Sort: unread first, then by timestamp descending
+    result.sort((a, b) => {
+      if (a.read === b.read) {
+        return (b.timestamp || 0) - (a.timestamp || 0);
+      }
+      return a.read ? 1 : -1;
+    });
+
+    // Filter by tab
+    if (activeTab !== 'All') {
+      const cat = activeTab.toLowerCase();
+      result = result.filter(n => (n.category || '').includes(cat) || (cat === 'messages' && n.category === 'message'));
+    }
+
+    return result;
+  }, [restNotifications, contextNotifs, activeTab]);
+
   const formatTime = (ts) => {
     if (!ts) return '';
-    const now = Date.now();
-    const diff = now - ts;
+    const diff = Date.now() - ts;
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return 'just now';
     if (mins < 60) return `${mins}m ago`;
@@ -205,10 +229,10 @@ const Notifications = () => {
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const handleAcceptSession = async (sessionId) => {
+  const handleAcceptSession = async (e, sessionId) => {
+    e.stopPropagation();
     setActionLoading(prev => ({ ...prev, [sessionId]: true }));
     try {
-      // Try Google Calendar auth first
       let googleTokens = null;
       try {
         const authRes = await sessionService.getGoogleAuthUrl();
@@ -222,151 +246,151 @@ const Notifications = () => {
               }
             };
             window.addEventListener('message', handleMessage);
-            // Timeout after 2 minutes
             setTimeout(() => {
               window.removeEventListener('message', handleMessage);
               resolve(null);
             }, 120000);
           });
         }
-      } catch (calErr) {
-        console.warn('Google auth not available, accepting without calendar:', calErr);
-      }
+      } catch (calErr) {}
 
       await sessionService.acceptSession(sessionId, googleTokens);
       alert('Session accepted! 🎉');
-      buildNotifications(); // Refresh
+      buildNotifications();
     } catch (err) {
-      console.error('Accept session error:', err);
       alert('Failed to accept session: ' + (err.response?.data?.error || err.message));
     } finally {
       setActionLoading(prev => ({ ...prev, [sessionId]: false }));
     }
   };
 
-  const handleRejectSession = async (sessionId) => {
+  const handleRejectSession = async (e, sessionId) => {
+    e.stopPropagation();
     if (!confirm('Are you sure you want to reject this session request?')) return;
     setActionLoading(prev => ({ ...prev, [sessionId]: true }));
     try {
       await sessionService.rejectSession(sessionId);
       alert('Session rejected.');
-      buildNotifications(); // Refresh
+      buildNotifications();
     } catch (err) {
-      console.error('Reject session error:', err);
       alert('Failed to reject session.');
     } finally {
       setActionLoading(prev => ({ ...prev, [sessionId]: false }));
     }
   };
 
-  const getIcon = (type) => {
-    switch (type) {
-      case 'SESSION_REQUEST': return <Calendar size={18} className="text-blue-500" />;
-      case 'SESSION_PENDING': return <CalendarPlus size={18} className="text-emerald-500" />;
-      case 'SESSION_WAITING': return <Clock size={18} className="text-amber-500" />;
-      case 'FORUM_REPLY': return <MessageCircle size={18} className="text-[#7C3AED]" />;
-      case 'REWARD': return <Coins size={18} className="text-amber-500" />;
-      case 'STREAK_ALERT': return <Flame size={18} className="text-orange-500" />;
-      case 'NEW_DOUBT': return <MessageCircle size={18} className="text-pink-500" />;
-      case 'UNREAD_CHAT': return <MessageSquare size={18} className="text-teal-500" />;
-      default: return <Bell size={18} />;
-    }
+  const getIcon = (type, category) => {
+    if (category === 'session' || type?.includes('SESSION')) return <Calendar size={18} className="text-blue-500" />;
+    if (type === 'FORUM_REPLY' || category === 'social') return <MessageCircle size={18} className="text-[#7C3AED]" />;
+    if (category === 'gamification') return <Flame size={18} className="text-orange-500" />;
+    if (category === 'message' || type === 'UNREAD_CHAT') return <MessageSquare size={18} className="text-teal-500" />;
+    return <Bell size={18} />;
   };
 
-  const getTagColor = (type) => {
-    switch (type) {
-      case 'SESSION_REQUEST': return 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700';
-      case 'SESSION_PENDING': return 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700';
-      case 'SESSION_WAITING': return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700';
-      case 'FORUM_REPLY': return 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700';
-      case 'REWARD': return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700';
-      case 'STREAK_ALERT': return 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-700';
-      case 'NEW_DOUBT': return 'bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-300 border-pink-200 dark:border-pink-700';
-      case 'UNREAD_CHAT': return 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-700';
-      default: return 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700';
-    }
+  const getTagColor = (type, category) => {
+    if (category === 'session' || type?.includes('SESSION')) return 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700';
+    if (category === 'gamification') return 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-700';
+    if (category === 'social') return 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700';
+    if (category === 'message') return 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-700';
+    return 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700';
   };
 
   return (
-    <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out]">
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-background-deep -mx-margin-mobile px-margin-mobile -mt-6">
       {/* Header */}
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between py-6 sticky top-0 z-10 bg-gray-50/90 dark:bg-background-deep/90 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">
             <ArrowLeft size={20} className="text-gray-700 dark:text-white" />
           </button>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Notifications</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Notifications</h1>
         </div>
+        <button 
+          onClick={markAllNotificationsRead}
+          className="text-sm font-bold text-[#7C3AED] hover:bg-[#7C3AED]/10 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
+        >
+          <CheckCircle2 size={16} /> Mark all read
+        </button>
       </header>
 
+      {/* Tabs */}
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar mb-4 pb-2">
+        {tabs.map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${
+              activeTab === tab 
+                ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' 
+                : 'bg-white text-gray-600 border border-gray-200 dark:bg-surface-container dark:text-gray-300 dark:border-surface-raised hover:bg-gray-100 dark:hover:bg-surface-container-high'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
       {/* Notification List */}
-      <div className="flex flex-col gap-3 pb-32">
+      <div className="flex flex-col gap-3 pb-32 flex-1">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <div className="w-10 h-10 border-4 border-[#DCFD8B] border-t-transparent rounded-full animate-spin" />
-            <span className="text-gray-400 text-sm">Loading notifications...</span>
           </div>
-        ) : notifications.length === 0 ? (
+        ) : mergedNotifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+            <div className="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center mb-4">
               <Bell size={32} className="text-gray-400 dark:text-gray-600" />
             </div>
             <h3 className="font-bold text-gray-900 dark:text-white mb-1">All caught up!</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">No new notifications.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No new notifications in this category.</p>
           </div>
         ) : (
-          notifications.map((notif, idx) => (
-            <article
+          mergedNotifications.map((notif, idx) => (
+            <div
               key={notif.id}
-              className={`bg-white dark:bg-[#1C1C2E] rounded-2xl p-4 border transition-all ${notif.read
-                  ? 'border-gray-100 dark:border-gray-800 opacity-75'
-                  : 'border-[#7C3AED]/30 dark:border-purple-700/30 shadow-sm'
-                }`}
-              style={{ animationDelay: `${idx * 60}ms`, animation: 'slideUp 0.4s ease-out both' }}
+              onClick={() => {
+                markNotificationRead(notif.id);
+                if (notif.route) navigate(notif.route);
+              }}
+              className={`bg-white dark:bg-surface-container rounded-2xl p-4 transition-all cursor-pointer ${
+                notif.read
+                  ? 'border border-gray-100 dark:border-surface-raised opacity-70'
+                  : 'border border-success-lime shadow-sm ring-1 ring-success-lime/20'
+              } hover:shadow-md hover:-translate-y-0.5 animate-in slide-in-from-bottom-4 duration-300`}
+              style={{ animationDelay: `${idx * 50}ms` }}
             >
-              <div className="flex justify-between items-center mb-3">
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${getTagColor(notif.type)}`}>
-                  {getIcon(notif.type)} {notif.title}
+              <div className="flex justify-between items-start mb-2">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] uppercase font-bold border ${getTagColor(notif.type, notif.category)}`}>
+                  {getIcon(notif.type, notif.category)} {notif.title}
                 </span>
-                <span className="text-xs text-gray-400 dark:text-gray-500">{notif.timeAgo}</span>
+                <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap ml-2 mt-1">
+                  {formatTime(notif.timestamp)}
+                </span>
               </div>
-              <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed mb-3">{notif.message}</p>
+              <p className={`text-sm leading-relaxed mb-3 ${notif.read ? 'text-gray-600 dark:text-gray-400' : 'text-gray-900 dark:text-on-surface font-semibold'}`}>
+                {notif.message}
+              </p>
 
               {/* Action Buttons */}
               {notif.type === 'SESSION_PENDING' && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 mt-2">
                   <button
-                    onClick={() => handleAcceptSession(notif.sessionId)}
+                    onClick={(e) => handleAcceptSession(e, notif.sessionId)}
                     disabled={actionLoading[notif.sessionId]}
-                    className="text-xs font-bold bg-emerald-500 text-white px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
+                    className="text-xs font-bold bg-success-lime text-gray-900 px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
                   >
-                    {actionLoading[notif.sessionId] ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Accept
+                    {actionLoading[notif.sessionId] ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Accept
                   </button>
                   <button
-                    onClick={() => handleRejectSession(notif.sessionId)}
+                    onClick={(e) => handleRejectSession(e, notif.sessionId)}
                     disabled={actionLoading[notif.sessionId]}
-                    className="text-xs font-bold bg-red-500 text-white px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
+                    className="text-xs font-bold bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
                   >
-                    <X size={12} /> Reject
+                    <X size={14} /> Reject
                   </button>
                 </div>
               )}
-              {notif.type === 'NEW_DOUBT' && (
-                <button onClick={() => navigate(`/forum?doubtId=${notif.doubtId}`)} className="text-xs font-bold bg-[#DCFD8B] text-[#151f00] px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
-                  <MessageCircle size={12} /> Answer Doubt
-                </button>
-              )}
-              {notif.type === 'FORUM_REPLY' && (
-                <button onClick={() => navigate(`/forum?doubtId=${notif.doubtId}`)} className="text-xs font-bold bg-[#7C3AED] text-white px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
-                  <MessageCircle size={12} /> View Answers
-                </button>
-              )}
-              {notif.type === 'UNREAD_CHAT' && (
-                <button onClick={() => navigate(`/chat/${notif.matchId}`)} className="text-xs font-bold bg-teal-500 text-white px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform">
-                  <MessageSquare size={12} /> Open Chat
-                </button>
-              )}
-            </article>
+            </div>
           ))
         )}
       </div>

@@ -40,5 +40,10 @@ export const userService = {
   getMetadataOptions: async () => {
     const response = await api.get('/user/metadata/options');
     return response.data;
+  },
+
+  saveFcmToken: async (uid, fcmToken) => {
+    const response = await api.patch(`/user/${uid}`, { fcmToken });
+    return response.data;
   }
 };

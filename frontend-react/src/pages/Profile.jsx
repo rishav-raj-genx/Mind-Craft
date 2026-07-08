@@ -140,9 +140,9 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] flex flex-col justify-end sm:items-center sm:justify-center bg-black/80 backdrop-blur-sm p-0 pb-[92px] sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-x-0 top-[76px] bottom-0 z-[1000] flex flex-col justify-end sm:items-center sm:justify-center bg-black/80 backdrop-blur-sm p-0 pb-[92px] sm:p-4 animate-in fade-in duration-200">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative w-full sm:max-w-lg bg-white dark:bg-[#1C1C2E] rounded-t-[32px] sm:rounded-3xl shadow-2xl z-10 flex flex-col max-h-[calc(100dvh-112px)] sm:max-h-[80vh] overflow-hidden animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-8 duration-300">
+      <div className="relative w-full sm:max-w-lg bg-white dark:bg-[#1C1C2E] rounded-t-[32px] sm:rounded-3xl shadow-2xl z-10 flex flex-col max-h-[calc(100dvh-188px)] sm:max-h-[80vh] overflow-hidden animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-8 duration-300">
         
         {/* Header */}
         <div className="shrink-0 flex flex-col items-center pt-3 pb-4 px-6 border-b border-gray-100 dark:border-gray-800">
@@ -576,8 +576,8 @@ const Profile = () => {
   const hasSocialLinks = !!(user?.linkedinUsername || user?.githubUsername || user?.leetcodeUsername || user?.codeforcesUsername || user?.codechefUsername);
 
   return (
-    <div className={`min-h-screen pb-[100px] sm:pb-8 flex flex-col font-body-md transition-colors ${isDark ? 'bg-[#1C1C2E] text-white' : 'bg-[#FAFAFA] text-gray-900'}`}>
-      <main className="flex-1 w-full max-w-[600px] mx-auto p-4 sm:p-6 sm:mt-16 relative z-10">
+    <div className={`min-h-screen pb-[100px] sm:pb-8 flex flex-col font-body-md transition-colors ${isDark ? 'bg-black text-white' : 'bg-[#FAFAFA] text-gray-900'}`}>
+      <main className="profile-stage flex-1 w-full max-w-[600px] mx-auto px-4 py-8 sm:px-6 sm:py-10 relative z-10 flex flex-col gap-5">
       <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
 
       {/* ── Profile Links Modal ─────────────────────────────────────── */}
