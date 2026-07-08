@@ -290,13 +290,12 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
 
 // ─── Consistency Grid Cell ────────────────────────────────────────────
 const GridCell = ({ level, title }) => {
-  // level: -1 = future (invisible), 0 = empty, 1 = low, 2 = med, 3 = high
   const bgColors = {
     '-1': 'bg-transparent',
-    0: 'bg-gray-200 dark:bg-[#2A2A3A]',
+    0: 'bg-gray-100 dark:bg-[#2A2A3A]',
     1: 'bg-purple-200 dark:bg-[#4C1D95]',
     2: 'bg-[#7C3AED]',
-    3: 'bg-[#DCFD8B] shadow-[0_0_6px_rgba(220,253,139,0.3)]'
+    3: 'bg-[#DCFD8B] shadow-[0_0_6px_rgba(220,253,139,0.3)]',
   };
   return (
     <div
@@ -897,6 +896,15 @@ const Profile = () => {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Log Out Button */}
+      {isOwner && (
+        <div className="flex justify-center mt-4">
+          <button onClick={logout} className="px-8 py-3 rounded-full bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 font-bold text-sm hover:bg-red-200 dark:hover:bg-red-900/40 transition-colors w-full sm:w-auto">
+            Log Out
+          </button>
+        </div>
       )}
 
       {/* Edit Modal */}

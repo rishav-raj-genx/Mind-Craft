@@ -177,6 +177,24 @@ router.post(
         answerCount: (doubtDoc.data().answerCount || 0) + 1,
       });
 
+      // Emit global notification to doubt author if answered by someone else
+      if (doubtDoc.data().authorUid !== uid) {
+        const { broadcastToGlobal } = require('../services/chatService');
+        broadcastToGlobal(doubtDoc.data().authorUid, {
+          type: 'global_new_message', // Using same wrapper to trigger foreground FCM/toast
+          notification: {
+            title: 'Forum Activity',
+            body: `${authorName} answered your doubt: "${doubtDoc.data().title}"`,
+          },
+          data: {
+            type: 'FORUM_REPLY',
+            id: `doubt-${req.params.id}`,
+            route: `/forum?doubtId=${req.params.id}`,
+            matchId: '',
+          }
+        });
+      }
+
       res.json({ success: true, data: answer });
     } catch (err) {
       next(err);

@@ -272,12 +272,14 @@ const StreakDetail = () => {
 
   // Build 35-day contribution grid
   const gridCells = [];
-  const todayDate = new Date();
+  const nowLocal = new Date();
+  const utcMs = nowLocal.getTime() + (nowLocal.getTimezoneOffset() * 60000);
+  const todayDate = new Date(utcMs + (5.5 * 60 * 60 * 1000)); // Align with backend IST (UTC+5:30)
 
   for (let i = 34; i >= 0; i--) {
     const d = new Date(todayDate);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     gridCells.push({
       dateStr,
       isActive: activeDateSet.has(dateStr),

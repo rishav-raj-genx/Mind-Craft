@@ -29,7 +29,7 @@ const BADGE_DEFINITIONS = [
     name: 'Streak Champion',
     emoji: '🔥',
     description: 'Maintain a daily streak',
-    metric: 'currentStreak',
+    metric: 'longestStreak',
     thresholds: [3, 7, 14, 30],
     color: 'from-orange-500/20 to-orange-400/10',
     borderColor: 'border-orange-400/30',
@@ -136,6 +136,7 @@ async function calculateBadges(uid) {
 
   const metrics = {
     currentStreak:     streakData.currentStreak,
+    longestStreak:     streakData.longestStreak,
     totalSessions:     sessionMetrics.totalSessions,
     dsaSessions:       sessionMetrics.dsaSessions,
     lateNightSessions: sessionMetrics.lateNightSessions,
