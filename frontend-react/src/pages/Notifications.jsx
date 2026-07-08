@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -6,14 +6,21 @@ import { sessionService } from '../services/sessionService';
 import { gamificationService } from '../services/gamificationService';
 import { doubtService } from '../services/doubtService';
 import { chatService } from '../services/chatService';
-import { ArrowLeft, Check, X, MessageCircle, Coins, Flame, UserPlus, Calendar, CalendarPlus, Bell, MessageSquare, Loader2, Clock, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Check, X, MessageCircle, Flame, Calendar, Bell, MessageSquare, Loader2, Clock, CheckCircle2 } from 'lucide-react';
 
 const Notifications = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const { notifications: contextNotifs, markNotificationRead, markAllNotificationsRead } = useNotifications();
+  const { 
+    notifications: contextNotifs, 
+    markNotificationRead, 
+    markAllNotificationsRead,
+    unreadCounts,
+    markRead: markChatRead
+  } = useNotifications();
   
   const [restNotifications, setRestNotifications] = useState([]);
+  const [readIds, setReadIds] = useState(new Set()); // Track locally-dismissed REST notification IDs
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState({});
   const [activeTab, setActiveTab] = useState('All');
@@ -31,7 +38,7 @@ const Notifications = () => {
     const notifs = [];
 
     try {
-      // 1. Upcoming sessions (session requests)
+      // Upcoming sessions
       const sessRes = await sessionService.getSessions(currentUser.uid, 'upcoming');
       const upcomingSessions = sessRes.data || [];
       upcomingSessions.forEach(s => {
@@ -46,14 +53,14 @@ const Notifications = () => {
             ? `You have an upcoming tutoring session for "${s.skill}" with ${s.peerName} on ${dateStr}.`
             : `You're scheduled to learn "${s.skill}" with ${s.peerName} on ${dateStr}.`,
           timestamp: s.scheduledAt,
-          read: false,
+          read: true, // Upcoming sessions are informational, not urgent
           sessionId: s.sessionId,
           actionable: false,
           route: '/sessions'
         });
       });
 
-      // 1a. Pending session requests
+      // Pending session requests
       const pendingRes = await sessionService.getSessions(currentUser.uid, 'pending');
       const pendingSessions = pendingRes.data || [];
       pendingSessions.forEach(s => {
@@ -80,7 +87,7 @@ const Notifications = () => {
             title: 'Session Pending',
             message: `Your session request for "${s.skill}" with ${s.peerName} is waiting for approval.`,
             timestamp: s.createdAt || s.scheduledAt,
-            read: false,
+            read: true, // This is informational for the learner
             sessionId: s.sessionId,
             actionable: false,
             route: '/sessions'
@@ -93,14 +100,17 @@ const Notifications = () => {
       const streakRes = await gamificationService.getStreak(currentUser.uid);
       const streak = streakRes.data || {};
       if (streak.currentStreak > 0) {
+        // Use a stable timestamp so streak doesn't always jump to top
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
         notifs.push({
           id: 'streak-alert',
           category: 'gamification',
           type: 'STREAK_ALERT',
           title: 'Streak Alert',
           message: `${streak.currentStreak} Day Streak! ${streak.currentStreak >= 7 ? "You're on fire! 🔥" : 'Keep studying daily to build your streak.'}`,
-          timestamp: Date.now(),
-          read: streak.currentStreak > 3,
+          timestamp: today.getTime(), // Midnight today, not Date.now()
+          read: true, // Streak alerts are informational
           actionable: false,
           route: '/streak'
         });
@@ -144,22 +154,6 @@ const Notifications = () => {
           route: `/forum?doubtId=${d.id}`
         });
       });
-
-      const now = Date.now();
-      const recentDoubts = doubts.filter(d => d.authorUid !== currentUser.uid && (now - d.createdAt) < 24 * 60 * 60 * 1000);
-      recentDoubts.slice(0, 5).forEach(d => {
-        notifs.push({
-          id: `new-doubt-${d.id}`,
-          category: 'social',
-          type: 'NEW_DOUBT',
-          title: `New in ${d.tag}`,
-          message: `${d.authorName} asked: "${d.title}"`,
-          timestamp: d.createdAt,
-          read: false,
-          actionable: false,
-          route: `/forum?doubtId=${d.id}`
-        });
-      });
     } catch (err) {}
 
     try {
@@ -176,7 +170,8 @@ const Notifications = () => {
             timestamp: t.lastMessageTime || Date.now(),
             read: false,
             actionable: true,
-            route: `/chat/${t.matchId}`
+            route: `/chat/${t.matchId}`,
+            matchId: t.matchId
           });
         }
       });
@@ -186,15 +181,46 @@ const Notifications = () => {
     setLoading(false);
   };
 
+  // Handle local "mark as read" for REST items
+  const handleMarkRead = useCallback((notif) => {
+    // Mark context notification as read
+    markNotificationRead(notif.id);
+    // Mark REST notification as locally read
+    setReadIds(prev => new Set(prev).add(notif.id));
+    // If it's a chat notification, also mark that chat as read
+    if (notif.matchId) {
+      markChatRead(notif.matchId);
+    }
+  }, [markNotificationRead, markChatRead]);
+
+  const handleMarkAllRead = useCallback(() => {
+    markAllNotificationsRead();
+    // Mark all REST notifications as locally read
+    const allIds = new Set(readIds);
+    restNotifications.forEach(n => allIds.add(n.id));
+    setReadIds(allIds);
+  }, [markAllNotificationsRead, readIds, restNotifications]);
+
   // ── Merge context and REST notifications ─────────────────────────
   const mergedNotifications = useMemo(() => {
     const map = new Map();
-    // Add REST
-    restNotifications.forEach(n => map.set(n.id, n));
+    
+    // Add REST notifications, applying local read state
+    restNotifications.forEach(n => {
+      const isLocallyRead = readIds.has(n.id);
+      // For chat notifications, check if the chat has been read (no longer in unreadCounts)
+      const isChatRead = n.matchId && !unreadCounts[n.matchId];
+      map.set(n.id, { 
+        ...n, 
+        read: n.read || isLocallyRead || (n.matchId ? isChatRead : false)
+      });
+    });
+    
     // Add Context (overwrites REST if dup)
     contextNotifs.forEach(n => map.set(n.id, {
       ...n,
-      category: n.category || 'general'
+      category: n.category || 'general',
+      read: n.read || readIds.has(n.id)
     }));
     
     let result = Array.from(map.values());
@@ -210,11 +236,15 @@ const Notifications = () => {
     // Filter by tab
     if (activeTab !== 'All') {
       const cat = activeTab.toLowerCase();
-      result = result.filter(n => (n.category || '').includes(cat) || (cat === 'messages' && n.category === 'message'));
+      result = result.filter(n => {
+        const nCat = (n.category || '').toLowerCase();
+        if (cat === 'messages') return nCat === 'message' || nCat === 'messages';
+        return nCat.includes(cat);
+      });
     }
 
     return result;
-  }, [restNotifications, contextNotifs, activeTab]);
+  }, [restNotifications, contextNotifs, activeTab, readIds, unreadCounts]);
 
   const formatTime = (ts) => {
     if (!ts) return '';
@@ -306,7 +336,7 @@ const Notifications = () => {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Notifications</h1>
         </div>
         <button 
-          onClick={markAllNotificationsRead}
+          onClick={handleMarkAllRead}
           className="text-sm font-bold text-[#7C3AED] hover:bg-[#7C3AED]/10 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
         >
           <CheckCircle2 size={16} /> Mark all read
@@ -349,7 +379,7 @@ const Notifications = () => {
             <div
               key={notif.id}
               onClick={() => {
-                markNotificationRead(notif.id);
+                handleMarkRead(notif);
                 if (notif.route) navigate(notif.route);
               }}
               className={`bg-white dark:bg-surface-container rounded-2xl p-4 transition-all cursor-pointer ${

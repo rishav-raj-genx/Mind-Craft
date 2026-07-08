@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { API_BASE_URL } from '../config/api';
 import { chatService } from '../services/chatService';
@@ -25,7 +25,7 @@ const sortThreadsByTimestamp = (threads) =>
   [...threads].sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
 
 export const NotificationProvider = ({ children }) => {
-  const { currentUser, token } = useAuth();
+  const { currentUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   
@@ -36,14 +36,22 @@ export const NotificationProvider = ({ children }) => {
   
   // ── Unified Notifications State ────────────────────────────────────
   const [notifications, setNotifications] = useState([]);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   
   const wsRef = useRef(null);
   const chatListeners = useRef(new Map()); // matchId -> callback
   const fcmInitialized = useRef(false);
 
   // ── Computed values ────────────────────────────────────────────────
-  const unreadChatCount = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+  const unreadChatCount = useMemo(
+    () => Object.values(unreadCounts).reduce((sum, c) => sum + c, 0),
+    [unreadCounts]
+  );
+
+  // Derive hasUnreadNotifications from actual state (single source of truth)
+  const hasUnreadNotifications = useMemo(
+    () => notifications.some(n => !n.read) || unreadChatCount > 0,
+    [notifications, unreadChatCount]
+  );
 
   // ── Add a notification to the unified list ─────────────────────────
   const pushNotification = useCallback((notif) => {
@@ -52,11 +60,10 @@ export const NotificationProvider = ({ children }) => {
       if (prev.find(n => n.id === notif.id)) return prev;
       return [notif, ...prev];
     });
-    setHasUnreadNotifications(true);
   }, []);
 
   // ── Fetch initial data from REST ───────────────────────────────────
-  const fetchInitialData = async () => {
+  const fetchInitialData = useCallback(async () => {
     if (!currentUser) return;
     try {
       // 1. Fetch threads & compute per-thread unread counts
@@ -72,15 +79,10 @@ export const NotificationProvider = ({ children }) => {
         }
       });
       setUnreadCounts(counts);
-
-      // 2. Fetch pending sessions → sets notification dot
-      const pendingRes = await sessionService.getSessions(currentUser.uid, 'pending');
-      const hasPending = (pendingRes.data || []).some(s => s.teacherUid === currentUser.uid && s.status === 'pending');
-      if (hasPending) setHasUnreadNotifications(true);
     } catch (err) {
       console.error('Error fetching initial notification data', err);
     }
-  };
+  }, [currentUser]);
 
   // ── FCM Token Setup ────────────────────────────────────────────────
   const initFCM = async () => {
@@ -116,7 +118,7 @@ export const NotificationProvider = ({ children }) => {
 
   // ── WebSocket Connection & Message Handling ────────────────────────
   useEffect(() => {
-    if (!currentUser || !token) {
+    if (!currentUser) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -128,19 +130,19 @@ export const NotificationProvider = ({ children }) => {
     initFCM();
 
     // ── Unified Master WebSocket ──────────────────────────────────
-    const wsBaseUrl = API_BASE_URL.replace(/^http/, 'ws');
-    const ws = new WebSocket(`${wsBaseUrl}/ws?token=${encodeURIComponent(token)}`);
-    wsRef.current = ws;
+    currentUser.getIdToken().then(token => {
+      const wsBaseUrl = API_BASE_URL.replace(/^http/, 'ws');
+      const ws = new WebSocket(`${wsBaseUrl}/ws?token=${encodeURIComponent(token)}`);
+      wsRef.current = ws;
 
-    ws.onopen = () => console.log('🌍 Unified WebSocket connected');
+      ws.onopen = () => console.log('🌍 Unified WebSocket connected');
 
-    ws.onmessage = (event) => {
-      try {
+      ws.onmessage = (event) => {
+        try {
         const data = JSON.parse(event.data);
         
         // 1. Structured Global Notification (sessions, badges, streaks, social, reviews)
         if (data.type === 'global_notification') {
-          setHasUnreadNotifications(true);
           const audio = new Audio('/notification.mp3'); 
           audio.volume = 0.5;
           audio.play().catch(() => {});
@@ -256,13 +258,14 @@ export const NotificationProvider = ({ children }) => {
             
             // Push into unified notifications
             pushNotification({
-              id: `msg-${data.messageId || Date.now()}`,
+              id: `msg-${data.matchId}`,  // use matchId so duplicates get deduped
               category: CATEGORIES.MESSAGE,
               title: 'New Message',
               message: `New message from ${data.senderName || 'Study Partner'}`,
               timestamp: data.timestamp || Date.now(),
               read: false,
               route: `/chat/${data.matchId}`,
+              matchId: data.matchId, // store for clearing
             });
           }
           return;
@@ -272,16 +275,21 @@ export const NotificationProvider = ({ children }) => {
         if (data.matchId) {
           const listener = chatListeners.current.get(data.matchId);
           if (listener) {
-            listener(data.type, data);
+            listener(data);
           }
         }
       } catch (err) {}
     };
 
-    ws.onclose = () => console.log('🌍 Unified WebSocket disconnected');
+      ws.onclose = () => console.log('🌍 Unified WebSocket disconnected');
+    });
 
-    return () => ws.close();
-  }, [currentUser, token]);
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [currentUser]);
 
   // ── Listen for service worker notification clicks ──────────────────
   useEffect(() => {
@@ -338,15 +346,23 @@ export const NotificationProvider = ({ children }) => {
   const markRead = (matchId) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'read', matchId }));
-      
-      // Clear unread count for this thread
-      setThreads(prev => prev.map(t => t.matchId === matchId ? { ...t, unread: false } : t));
-      setUnreadCounts(prev => {
-        const next = { ...prev };
-        delete next[matchId];
-        return next;
-      });
     }
+    
+    // Clear unread count for this thread
+    setThreads(prev => prev.map(t => t.matchId === matchId ? { ...t, unread: false } : t));
+    setUnreadCounts(prev => {
+      const next = { ...prev };
+      delete next[matchId];
+      return next;
+    });
+
+    // Also mark any matching notification as read
+    setNotifications(prev => prev.map(n => {
+      if (n.matchId === matchId || n.route === `/chat/${matchId}`) {
+        return { ...n, read: true };
+      }
+      return n;
+    }));
   };
 
   const editMessage = (matchId, messageId, text) => {
@@ -362,23 +378,20 @@ export const NotificationProvider = ({ children }) => {
   };
 
   // ── Notification Management ────────────────────────────────────────
-  const clearUnreadNotifications = () => setHasUnreadNotifications(false);
-  const decrementUnreadChat = () => {}; // Deprecated — handled by per-thread counts
+  const clearUnreadNotifications = () => {
+    // No-op: hasUnreadNotifications is now derived from actual state
+  };
 
-  const markNotificationRead = (id) => {
+  const markNotificationRead = useCallback((id) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-    // Recompute hasUnread
-    setNotifications(prev => {
-      const stillHasUnread = prev.some(n => !n.read);
-      setHasUnreadNotifications(stillHasUnread);
-      return prev;
-    });
-  };
+  }, []);
 
-  const markAllNotificationsRead = () => {
+  const markAllNotificationsRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    setHasUnreadNotifications(false);
-  };
+    // Also clear all unread chat counts since user explicitly wants everything read
+    setUnreadCounts({});
+    setThreads(prev => prev.map(t => ({ ...t, unread: false })));
+  }, []);
 
   return (
     <NotificationContext.Provider value={{
@@ -398,7 +411,6 @@ export const NotificationProvider = ({ children }) => {
       hasUnreadNotifications,
       notifications,
       clearUnreadNotifications,
-      decrementUnreadChat,
       markNotificationRead,
       markAllNotificationsRead,
     }}>

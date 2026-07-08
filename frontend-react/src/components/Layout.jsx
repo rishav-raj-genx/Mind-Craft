@@ -27,7 +27,7 @@ const Layout = () => {
       {/* TopAppBar */}
       <header className={`w-full top-0 sticky z-50 transition-colors duration-200 ${
         isProfilePage
-          ? 'bg-black/95 border-transparent'
+          ? 'bg-white/95 dark:bg-black/95 border-transparent'
           : 'bg-gray-50/95 dark:bg-background-deep/95 border-b border-gray-200 dark:border-transparent'
       } backdrop-blur-md`}>
         {isProfilePage && <ThemeToggle />}
@@ -45,13 +45,9 @@ const Layout = () => {
               aria-label="Notifications"
             >
               <Bell size={20} />
-              <div 
-                className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full transition-colors duration-500 ${
-                  hasUnreadNotifications 
-                    ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' 
-                    : 'bg-success-lime shadow-[0_0_8px_rgba(220,253,139,0.5)]'
-                }`}
-              ></div>
+              {hasUnreadNotifications && (
+                <div className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse"></div>
+              )}
             </button>
           </div>
         </div>
@@ -79,9 +75,7 @@ const Layout = () => {
               <div className="relative">
                 <Icon size={24} />
                 {item.label === 'Chat' && unreadChatCount > 0 && (
-                  <div className="absolute -top-1 -right-2 bg-success-lime text-gray-900 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white dark:border-[#1C1C2E]">
-                    {unreadChatCount}
-                  </div>
+                  <div className="absolute -top-1 -right-1.5 w-2.5 h-2.5 bg-success-lime rounded-full shadow-[0_0_8px_rgba(220,253,139,0.8)] border border-white dark:border-surface-container-low animate-pulse"></div>
                 )}
               </div>
               <span className="font-label-md text-label-md mt-1">{item.label}</span>

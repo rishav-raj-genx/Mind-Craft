@@ -183,21 +183,32 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
     const uid = req.params.uid;
 
     // Get all matches where user is a participant
-    const [asUser1, asUser2] = await Promise.all([
+    const [asUser1, asUser2, asTeacher, asLearner] = await Promise.all([
       db.collection(COLLECTION_MATCHES).where('user1Uid', '==', uid).get(),
       db.collection(COLLECTION_MATCHES).where('user2Uid', '==', uid).get(),
+      db.collection(COLLECTION_MATCHES).where('teacherUid', '==', uid).get(),
+      db.collection(COLLECTION_MATCHES).where('learnerUid', '==', uid).get(),
     ]);
 
-    const allMatches = [
-      ...asUser1.docs.map((d) => ({ ...d.data(), matchId: d.id })),
-      ...asUser2.docs.map((d) => ({ ...d.data(), matchId: d.id })),
-    ].sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+    const allMatchesMap = new Map();
+    [...asUser1.docs, ...asUser2.docs, ...asTeacher.docs, ...asLearner.docs].forEach(d => {
+      allMatchesMap.set(d.id, { ...d.data(), matchId: d.id });
+    });
+
+    const allMatches = Array.from(allMatchesMap.values())
+      .sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
 
     // Resolve partner profiles
     const COLLECTION_USERS = 'users';
-    const threads = await Promise.all(
+    const threads = (await Promise.all(
       allMatches.map(async (match) => {
-        const partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
+        let partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
+        if (!partnerUid && match.teacherUid && match.learnerUid) {
+          partnerUid = match.teacherUid === uid ? match.learnerUid : match.teacherUid;
+        }
+        // Skip matches where we can't determine the partner
+        if (!partnerUid) return null;
+        
         let partner = { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
         try {
           const userDoc = await db.collection(COLLECTION_USERS).doc(partnerUid).get();
@@ -221,7 +232,7 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
           unread: match.unread || false,
         };
       })
-    );
+    )).filter(Boolean);
 
     res.json({
       success: true,
@@ -245,7 +256,10 @@ router.get('/:matchId/detail', verifyFirebaseToken, async (req, res, next) => {
     }
 
     const match = matchDoc.data();
-    const partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
+    let partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
+    if (!partnerUid && match.teacherUid && match.learnerUid) {
+      partnerUid = match.teacherUid === uid ? match.learnerUid : match.teacherUid;
+    }
 
     let partner = { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
     try {

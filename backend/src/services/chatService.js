@@ -185,7 +185,11 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
     let recipientUid = null;
     if (matchDoc.exists) {
       const matchData = matchDoc.data();
-      recipientUid = matchData.teacherUid === user.uid ? matchData.learnerUid : matchData.teacherUid;
+      if (matchData.user1Uid && matchData.user2Uid) {
+        recipientUid = matchData.user1Uid === user.uid ? matchData.user2Uid : matchData.user1Uid;
+      } else {
+        recipientUid = matchData.teacherUid === user.uid ? matchData.learnerUid : matchData.teacherUid;
+      }
     }
 
     // Write message and update match's last message in parallel
