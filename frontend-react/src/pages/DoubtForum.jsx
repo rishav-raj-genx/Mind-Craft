@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { doubtService } from '../services/doubtService';
-import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2 } from 'lucide-react';
+import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles } from 'lucide-react';
 
 const TAGS = ['#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
 const FILTERS = ['All Doubts', 'My Doubts', '#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
@@ -32,6 +32,20 @@ const tagColor = (tag) => {
     '#ML': 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-700',
   };
   return map[tag] || 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700';
+};
+
+const AIAssistHint = ({ hint }) => {
+  if (!hint) return null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50 dark:bg-cyan-950/30 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-cyan-700 dark:text-cyan-300 mb-1">
+        <Sparkles size={13} />
+        AI Assist
+      </div>
+      <p className="text-sm leading-relaxed whitespace-pre-line text-gray-700 dark:text-gray-300">{hint}</p>
+    </div>
+  );
 };
 
 // ── Add Doubt Modal ───────────────────────────────────────────────────
@@ -241,6 +255,7 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner }) => {
              </div>
              <h3 className="font-bold text-gray-900 dark:text-white mb-1">{post.title}</h3>
              <p className="text-sm text-gray-600 dark:text-gray-400">{post.content}</p>
+             <AIAssistHint hint={post.aiHint} />
           </div>
 
           <h4 className="font-bold text-sm text-gray-700 dark:text-gray-300 mb-4">{post.answers?.length || 0} Answers</h4>
@@ -573,6 +588,7 @@ const DoubtForum = () => {
                 <div className="mb-4">
                   <h2 className="font-bold text-base text-gray-900 dark:text-white mb-1">{post.title}</h2>
                   <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed">{post.content}</p>
+                  <AIAssistHint hint={post.aiHint} />
                 </div>
 
                 {/* Actions */}

@@ -1,8 +1,7 @@
 /**
- * sarvamAI.js — Sarvam AI Speech-to-Text Service Wrapper
+ * sarvamAI.js — Sarvam AI Service Wrapper
  *
- * Wraps the Sarvam AI REST API for converting regional language
- * audio into text. Supports 22 Indian languages via BCP-47 codes.
+ * Wraps Sarvam AI REST APIs for Indic speech-to-text and chat completion.
  *
  * @see https://docs.sarvam.ai/
  */
@@ -10,8 +9,9 @@
 const axios    = require('axios');
 const FormData = require('form-data');
 
-const STT_URL = process.env.SARVAM_STT_URL || 'https://api.sarvam.ai/speech-to-text';
-const API_KEY = process.env.SARVAM_API_KEY  || '';
+const STT_URL  = process.env.SARVAM_STT_URL  || 'https://api.sarvam.ai/speech-to-text';
+const CHAT_URL = process.env.SARVAM_CHAT_URL || 'https://api.sarvam.ai/v1/chat/completions';
+const API_KEY  = process.env.SARVAM_API_KEY  || '';
 
 /**
  * Supported language codes (BCP-47) for Sarvam AI STT.
@@ -108,7 +108,107 @@ async function transcribeAudio(audioBuffer, originalName, mimeType, options = {}
   }
 }
 
+/**
+ * Generates a short bilingual study hint for a forum doubt using Sarvam's
+ * Indic LLM chat-completion endpoint.
+ *
+ * @param {object} doubt
+ * @param {string} doubt.title
+ * @param {string} doubt.content
+ * @param {string} [doubt.tag]
+ * @param {object} [options]
+ * @param {string} [options.model='sarvam-30b']
+ * @returns {Promise<{ hint: string, model: string, usage: object | null }>}
+ */
+async function generateStudyHint(doubt, options = {}) {
+  const {
+    model = process.env.SARVAM_CHAT_MODEL || 'sarvam-30b',
+  } = options;
+
+  if (!API_KEY) {
+    throw Object.assign(
+      new Error('Sarvam AI API key not configured. Set SARVAM_API_KEY in .env'),
+      { statusCode: 503 },
+    );
+  }
+
+  const title = String(doubt?.title || '').trim();
+  const content = String(doubt?.content || '').trim();
+  const tag = String(doubt?.tag || 'General').trim();
+
+  if (!title || !content) {
+    return { hint: '', model, usage: null };
+  }
+
+  try {
+    const response = await axios.post(CHAT_URL, {
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are MindCraft AI Assist for Indian college students.',
+            'Generate a brief conceptual study hint, not a full solution.',
+            'Respond bilingually with English and Hindi in simple language.',
+            'Keep it under 90 words total.',
+            'Use this exact format:',
+            'English: <hint>',
+            'Hindi: <hint in Devanagari>',
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: [
+            `Subject/tag: ${tag}`,
+            `Question title: ${title}`,
+            `Question details: ${content}`,
+          ].join('\n'),
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: 220,
+    }, {
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+        'api-subscription-key': API_KEY,
+        'Content-Type': 'application/json',
+      },
+      timeout: 20_000,
+    });
+
+    const data = response.data;
+    const hint = data?.choices?.[0]?.message?.content?.trim() || '';
+
+    return {
+      hint,
+      model: data?.model || model,
+      usage: data?.usage || null,
+    };
+  } catch (err) {
+    if (err.response) {
+      const status = err.response.status;
+      const body = err.response.data;
+
+      console.error(`❌ Sarvam AI chat API error (${status}):`, body);
+
+      throw Object.assign(
+        new Error(
+          `Sarvam AI study hint failed: ${body?.message || body?.error || 'Unknown error'}`,
+        ),
+        { statusCode: status >= 500 ? 503 : 400 },
+      );
+    }
+
+    console.error('❌ Sarvam AI chat network error:', err.message);
+    throw Object.assign(
+      new Error('Unable to reach Sarvam AI chat service. Please try again.'),
+      { statusCode: 503 },
+    );
+  }
+}
+
 module.exports = {
+  generateStudyHint,
   transcribeAudio,
   SUPPORTED_LANGUAGES,
 };

@@ -6,6 +6,7 @@ const { verifyFirebaseToken }    = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { getDriver } = require('../config/neo4j');
 const { awardForumAnswer } = require('../services/tokenEconomy');
+const { generateStudyHint } = require('../services/sarvamAI');
 const { v4: uuidv4 } = require('uuid');
 
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
@@ -18,6 +19,45 @@ const parseJsonArray = (value) => {
   } catch (_err) {
     return [];
   }
+};
+const parseJsonValue = (value, fallback = null) => {
+  if (!value || typeof value !== 'string') return value || fallback;
+  try {
+    return JSON.parse(value);
+  } catch (_err) {
+    return fallback;
+  }
+};
+
+const attachSarvamStudyHint = async (req, _res, next) => {
+  try {
+    const errors = formatValidationErrors(req);
+    if (errors) return next();
+
+    const { hint, model, usage } = await generateStudyHint({
+      title: req.body.title,
+      content: req.body.content,
+      tag: req.body.tag,
+    });
+
+    req.aiAssist = {
+      hint,
+      provider: 'sarvam-ai',
+      model,
+      usage,
+      generatedAt: Date.now(),
+    };
+  } catch (err) {
+    console.warn('Sarvam AI study hint skipped:', err.message);
+    req.aiAssist = {
+      hint: '',
+      provider: 'sarvam-ai',
+      error: err.message,
+      generatedAt: Date.now(),
+    };
+  }
+
+  next();
 };
 
 router.get('/', verifyFirebaseToken, async (req, res, next) => {
@@ -40,6 +80,7 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
       // Fetch answers and upvotes later or assume empty for list view
       d.answers = parseJsonArray(d.answers);
       d.upvotedBy = parseJsonArray(d.upvotedBy);
+      d.aiAssistUsage = parseJsonValue(d.aiAssistUsage, null);
       return d;
     });
     res.json({ success: true, data: doubts });
@@ -64,7 +105,7 @@ router.post('/', verifyFirebaseToken, [
   body('title').trim().notEmpty().withMessage('Title is required'),
   body('content').trim().notEmpty().withMessage('Content is required'),
   body('tag').trim().notEmpty().withMessage('Tag is required'),
-], async (req, res, next) => {
+], attachSarvamStudyHint, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -87,12 +128,18 @@ router.post('/', verifyFirebaseToken, [
       authorAvatar: authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=7C3AED&color=fff`,
       title: req.body.title, content: req.body.content, tag: req.body.tag,
       upvotes: 0, answerCount: 0, createdAt: Date.now(),
-      answers: JSON.stringify([]), upvotedBy: JSON.stringify([])
+      answers: JSON.stringify([]), upvotedBy: JSON.stringify([]),
+      aiHint: req.aiAssist?.hint || '',
+      aiAssistProvider: req.aiAssist?.provider || 'sarvam-ai',
+      aiAssistModel: req.aiAssist?.model || '',
+      aiAssistUsage: req.aiAssist?.usage ? JSON.stringify(req.aiAssist.usage) : '',
+      aiAssistGeneratedAt: req.aiAssist?.generatedAt || Date.now(),
+      aiAssistError: req.aiAssist?.error || ''
     };
 
     await session.executeWrite(tx => tx.run(`CREATE (d:Doubt) SET d = $doubt`, { doubt }));
     
-    const ret = {...doubt, answers: [], upvotedBy: []};
+    const ret = {...doubt, answers: [], upvotedBy: [], aiAssistUsage: parseJsonValue(doubt.aiAssistUsage, null)};
     res.status(201).json({ success: true, data: ret });
   } catch (err) { next(err); } finally { await session.close(); }
 });
