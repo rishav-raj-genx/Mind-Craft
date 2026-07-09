@@ -21,7 +21,7 @@ let driver = null;
 function getDriver() {
   if (driver) return driver;
 
-  const uri      = process.env.NEO4J_URI      || 'bolt://localhost:7687';
+  const uri      = process.env.NEO4J_URI      || 'neo4j+s://localhost:7687';
   const user     = process.env.NEO4J_USER     || 'neo4j';
   const password = process.env.NEO4J_PASSWORD || 'password';
 
@@ -60,6 +60,14 @@ async function ensureConstraints() {
     'CREATE CONSTRAINT skill_name_unique IF NOT EXISTS FOR (s:Skill) REQUIRE s.name IS UNIQUE',
     // College nodes — name must be unique
     'CREATE CONSTRAINT college_name_unique IF NOT EXISTS FOR (c:College) REQUIRE c.name IS UNIQUE',
+    // Session nodes — sessionId must be unique
+    'CREATE CONSTRAINT session_id_unique IF NOT EXISTS FOR (s:Session) REQUIRE s.sessionId IS UNIQUE',
+    // Message nodes — messageId must be unique
+    'CREATE CONSTRAINT message_id_unique IF NOT EXISTS FOR (m:Message) REQUIRE m.messageId IS UNIQUE',
+    // ChatThread nodes — id must be unique
+    'CREATE CONSTRAINT thread_id_unique IF NOT EXISTS FOR (t:ChatThread) REQUIRE t.id IS UNIQUE',
+    // Badge nodes — name must be unique
+    'CREATE CONSTRAINT badge_name_unique IF NOT EXISTS FOR (b:Badge) REQUIRE b.name IS UNIQUE',
   ];
 
   try {

@@ -1,261 +1,178 @@
-/**
- * doubt.js — Doubt Forum Routes
- *
- * CRUD for the Doubt Forum feature. Stores doubts and their answers
- * in Firestore's `doubts` collection.
- *
- * Endpoints:
- *   GET    /api/doubt              — Fetch all doubts (optionally filtered by tag)
- *   POST   /api/doubt              — Create a new doubt
- *   POST   /api/doubt/:id/answer   — Add an answer to a doubt
- *   PATCH  /api/doubt/:id/upvote   — Upvote a doubt
- */
-
 const express = require('express');
 const { body } = require('express-validator');
 const router  = express.Router();
 
-const { db }                     = require('../config/firebase');
 const { verifyFirebaseToken }    = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
-const { COLLECTION_USERS }       = require('../utils/constants');
+const { getDriver } = require('../config/neo4j');
+const { v4: uuidv4 } = require('uuid');
 
-const COLLECTION_DOUBTS = 'doubts';
+const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 
-// ── GET /api/doubt — Fetch all doubts ─────────────────────────────────
 router.get('/', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const { tag } = req.query;
-
-    let query;
+    let query = `MATCH (d:Doubt) RETURN d ORDER BY d.createdAt DESC LIMIT 50`;
+    let params = {};
     if (tag && tag !== 'All Doubts') {
-      // Don't use orderBy with where on different field — avoids composite index requirement
-      query = db.collection(COLLECTION_DOUBTS)
-        .where('tag', '==', tag)
-        .limit(50);
-    } else {
-      query = db.collection(COLLECTION_DOUBTS).orderBy('createdAt', 'desc').limit(50);
+      query = `MATCH (d:Doubt {tag: $tag}) RETURN d ORDER BY d.createdAt DESC LIMIT 50`;
+      params = { tag };
     }
-
-    const snapshot = await query.get();
-    let doubts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    
-    // Sort in-memory when filtered by tag (since we couldn't use orderBy)
-    if (tag && tag !== 'All Doubts') {
-      doubts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    }
-
-    res.json({ success: true, data: doubts });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ── GET /api/doubt/trending — Top trending tags ───────────────────────
-router.get('/trending', verifyFirebaseToken, async (req, res, next) => {
-  try {
-    const snapshot = await db.collection(COLLECTION_DOUBTS)
-      .orderBy('createdAt', 'desc')
-      .limit(200)
-      .get();
-    
-    const tagCounts = {};
-    snapshot.docs.forEach(doc => {
-      const tag = doc.data().tag;
-      if (tag) {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-      }
+    const result = await session.executeRead(tx => tx.run(query, params));
+    const doubts = result.records.map(r => {
+      const d = r.get('d').properties;
+      d.createdAt = toNumber(d.createdAt);
+      d.upvotes = toNumber(d.upvotes);
+      d.answerCount = toNumber(d.answerCount);
+      // Fetch answers and upvotes later or assume empty for list view
+      d.answers = d.answers ? JSON.parse(d.answers) : [];
+      d.upvotedBy = d.upvotedBy ? JSON.parse(d.upvotedBy) : [];
+      return d;
     });
-    
-    const trending = Object.entries(tagCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([tag, count]) => ({ tag, count }));
-    
+    res.json({ success: true, data: doubts });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
+
+router.get('/trending', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.executeRead(tx => tx.run(`
+      MATCH (d:Doubt)
+      RETURN d.tag AS tag, count(d) AS count
+      ORDER BY count DESC LIMIT 6
+    `));
+    const trending = result.records.map(r => ({ tag: r.get('tag'), count: toNumber(r.get('count')) })).filter(t => t.tag);
     res.json({ success: true, data: trending });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── POST /api/doubt — Create a new doubt ──────────────────────────────
-router.post(
-  '/',
-  verifyFirebaseToken,
-  [
-    body('title').trim().notEmpty().withMessage('Title is required'),
-    body('content').trim().notEmpty().withMessage('Content is required'),
-    body('tag').trim().notEmpty().withMessage('Tag is required'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
+router.post('/', verifyFirebaseToken, [
+  body('title').trim().notEmpty().withMessage('Title is required'),
+  body('content').trim().notEmpty().withMessage('Content is required'),
+  body('tag').trim().notEmpty().withMessage('Tag is required'),
+], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const errors = formatValidationErrors(req);
+    if (errors) return res.status(400).json(errors);
+    const uid = req.user.uid;
+    let authorName = req.user.name || req.user.email || 'Anonymous';
+    let authorAvatar = req.user.picture || '';
 
-      const uid = req.user.uid;
-
-      // Fetch user info for display
-      let authorName = req.user.name || req.user.email || 'Anonymous';
-      let authorAvatar = req.user.picture || '';
-
-      try {
-        const userDoc = await db.collection(COLLECTION_USERS).doc(uid).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          authorName = userData.name || authorName;
-          authorAvatar = userData.photoUrl || authorAvatar;
-        }
-      } catch (_err) {
-        // Proceed with defaults
-      }
-
-      const doubt = {
-        authorUid:    uid,
-        authorName,
-        authorAvatar: authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=7C3AED&color=fff`,
-        title:        req.body.title,
-        content:      req.body.content,
-        tag:          req.body.tag,
-        upvotes:      0,
-        upvotedBy:    [],
-        answers:      [],
-        answerCount:  0,
-        createdAt:    Date.now(),
-      };
-
-      const docRef = await db.collection(COLLECTION_DOUBTS).add(doubt);
-      res.status(201).json({ success: true, data: { id: docRef.id, ...doubt } });
-    } catch (err) {
-      next(err);
+    const userRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $uid}) RETURN u`, { uid }));
+    if(userRes.records.length > 0) {
+      const u = userRes.records[0].get('u').properties;
+      authorName = u.name || authorName;
+      authorAvatar = u.photoUrl || authorAvatar;
     }
-  },
-);
 
-// ── POST /api/doubt/:id/answer — Add an answer ────────────────────────
-router.post(
-  '/:id/answer',
-  verifyFirebaseToken,
-  [
-    body('content').trim().notEmpty().withMessage('Answer content is required'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
+    const id = uuidv4();
+    const doubt = {
+      id, authorUid: uid, authorName, 
+      authorAvatar: authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=7C3AED&color=fff`,
+      title: req.body.title, content: req.body.content, tag: req.body.tag,
+      upvotes: 0, answerCount: 0, createdAt: Date.now(),
+      answers: JSON.stringify([]), upvotedBy: JSON.stringify([])
+    };
 
-      const uid = req.user.uid;
-      const doubtRef = db.collection(COLLECTION_DOUBTS).doc(req.params.id);
-      const doubtDoc = await doubtRef.get();
+    await session.executeWrite(tx => tx.run(`CREATE (d:Doubt) SET d = $doubt`, { doubt }));
+    
+    const ret = {...doubt, answers: [], upvotedBy: []};
+    res.status(201).json({ success: true, data: ret });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
 
-      if (!doubtDoc.exists) {
-        return res.status(404).json({ success: false, error: 'Doubt not found' });
-      }
+router.post('/:id/answer', verifyFirebaseToken, [
+  body('content').trim().notEmpty().withMessage('Answer content is required'),
+], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const errors = formatValidationErrors(req);
+    if (errors) return res.status(400).json(errors);
+    const uid = req.user.uid;
+    
+    let authorName = req.user.name || 'Anonymous';
+    let authorAvatar = req.user.picture || '';
+    const userRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $uid}) RETURN u`, { uid }));
+    if(userRes.records.length > 0) {
+      const u = userRes.records[0].get('u').properties;
+      authorName = u.name || authorName;
+      authorAvatar = u.photoUrl || authorAvatar;
+    }
 
-      let authorName = req.user.name || 'Anonymous';
-      let authorAvatar = req.user.picture || '';
-
-      try {
-        const userDoc = await db.collection(COLLECTION_USERS).doc(uid).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          authorName = userData.name || authorName;
-          authorAvatar = userData.photoUrl || authorAvatar;
-        }
-      } catch (_err) {}
-
-      const answer = {
-        uid,
-        authorName,
-        authorAvatar: authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=DCFD8B&color=151f00`,
-        content: req.body.content,
-        createdAt: Date.now(),
-      };
-
-      const currentAnswers = doubtDoc.data().answers || [];
-      await doubtRef.update({
-        answers: [...currentAnswers, answer],
-        answerCount: (doubtDoc.data().answerCount || 0) + 1,
+    const answer = { uid, authorName, authorAvatar: authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=DCFD8B&color=151f00`, content: req.body.content, createdAt: Date.now() };
+    
+    const result = await session.executeWrite(tx => tx.run(`
+      MATCH (d:Doubt {id: $id})
+      RETURN d
+    `, { id: req.params.id }));
+    if(result.records.length === 0) return res.status(404).json({ success: false, error: 'Doubt not found' });
+    
+    const dProp = result.records[0].get('d').properties;
+    const answers = dProp.answers ? JSON.parse(dProp.answers) : [];
+    answers.push(answer);
+    
+    await session.executeWrite(tx => tx.run(`
+      MATCH (d:Doubt {id: $id})
+      SET d.answers = $answers, d.answerCount = d.answerCount + 1
+      RETURN d.authorUid AS authorUid, d.title AS title
+    `, { id: req.params.id, answers: JSON.stringify(answers) }));
+    
+    const authorUid = dProp.authorUid;
+    if(authorUid !== uid) {
+      const { broadcastToGlobal } = require('../services/chatService');
+      broadcastToGlobal(authorUid, {
+        type: 'global_new_message',
+        notification: { title: 'Forum Activity', body: `${authorName} answered your doubt: "${dProp.title}"` },
+        data: { type: 'FORUM_REPLY', id: `doubt-${req.params.id}`, route: `/forum?doubtId=${req.params.id}`, matchId: '' }
       });
-
-      // Emit global notification to doubt author if answered by someone else
-      if (doubtDoc.data().authorUid !== uid) {
-        const { broadcastToGlobal } = require('../services/chatService');
-        broadcastToGlobal(doubtDoc.data().authorUid, {
-          type: 'global_new_message', // Using same wrapper to trigger foreground FCM/toast
-          notification: {
-            title: 'Forum Activity',
-            body: `${authorName} answered your doubt: "${doubtDoc.data().title}"`,
-          },
-          data: {
-            type: 'FORUM_REPLY',
-            id: `doubt-${req.params.id}`,
-            route: `/forum?doubtId=${req.params.id}`,
-            matchId: '',
-          }
-        });
-      }
-
-      res.json({ success: true, data: answer });
-    } catch (err) {
-      next(err);
     }
-  },
-);
+    res.json({ success: true, data: answer });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
 
-// ── PATCH /api/doubt/:id/upvote — Upvote / un-upvote ─────────────────
 router.patch('/:id/upvote', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const uid = req.user.uid;
-    const doubtRef = db.collection(COLLECTION_DOUBTS).doc(req.params.id);
-    const doubtDoc = await doubtRef.get();
-
-    if (!doubtDoc.exists) {
-      return res.status(404).json({ success: false, error: 'Doubt not found' });
-    }
-
-    const data = doubtDoc.data();
-    const upvotedBy = data.upvotedBy || [];
-    const alreadyUpvoted = upvotedBy.includes(uid);
-
-    if (alreadyUpvoted) {
-      await doubtRef.update({
-        upvotes: Math.max(0, (data.upvotes || 0) - 1),
-        upvotedBy: upvotedBy.filter(id => id !== uid),
-      });
-      res.json({ success: true, upvoted: false, upvotes: Math.max(0, (data.upvotes || 0) - 1) });
+    const result = await session.executeRead(tx => tx.run(`MATCH (d:Doubt {id: $id}) RETURN d`, { id: req.params.id }));
+    if(result.records.length === 0) return res.status(404).json({ success: false, error: 'Doubt not found' });
+    
+    const dProp = result.records[0].get('d').properties;
+    let upvotedBy = dProp.upvotedBy ? JSON.parse(dProp.upvotedBy) : [];
+    const upvotes = toNumber(dProp.upvotes) || 0;
+    
+    if(upvotedBy.includes(uid)) {
+      upvotedBy = upvotedBy.filter(id => id !== uid);
+      const newUpvotes = Math.max(0, upvotes - 1);
+      await session.executeWrite(tx => tx.run(`MATCH (d:Doubt {id: $id}) SET d.upvotedBy = $upvotedBy, d.upvotes = $newUpvotes`, { id: req.params.id, upvotedBy: JSON.stringify(upvotedBy), newUpvotes }));
+      res.json({ success: true, upvoted: false, upvotes: newUpvotes });
     } else {
-      await doubtRef.update({
-        upvotes: (data.upvotes || 0) + 1,
-        upvotedBy: [...upvotedBy, uid],
-      });
-      res.json({ success: true, upvoted: true, upvotes: (data.upvotes || 0) + 1 });
+      upvotedBy.push(uid);
+      const newUpvotes = upvotes + 1;
+      await session.executeWrite(tx => tx.run(`MATCH (d:Doubt {id: $id}) SET d.upvotedBy = $upvotedBy, d.upvotes = $newUpvotes`, { id: req.params.id, upvotedBy: JSON.stringify(upvotedBy), newUpvotes }));
+      res.json({ success: true, upvoted: true, upvotes: newUpvotes });
     }
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── DELETE /api/doubt/:id — Resolve / delete a doubt (author only) ────
 router.delete('/:id', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const uid = req.user.uid;
-    const doubtRef = db.collection(COLLECTION_DOUBTS).doc(req.params.id);
-    const doubtDoc = await doubtRef.get();
-
-    if (!doubtDoc.exists) {
-      return res.status(404).json({ success: false, error: 'Doubt not found' });
-    }
-
-    const data = doubtDoc.data();
-    if (data.authorUid !== uid) {
-      return res.status(403).json({ success: false, error: 'Only the author can resolve this doubt' });
-    }
-
-    await doubtRef.delete();
-    res.json({ success: true, message: 'Doubt resolved and removed' });
-  } catch (err) {
-    next(err);
-  }
+    const result = await session.executeRead(tx => tx.run(`MATCH (d:Doubt {id: $id}) RETURN d`, { id: req.params.id }));
+    if(result.records.length === 0) return res.status(404).json({ success: false, error: 'Doubt not found' });
+    if(result.records[0].get('d').properties.authorUid !== uid) return res.status(403).json({ success: false, error: 'Only author can resolve' });
+    await session.executeWrite(tx => tx.run(`MATCH (d:Doubt {id: $id}) DETACH DELETE d`, { id: req.params.id }));
+    res.json({ success: true, message: 'Doubt resolved' });
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
 module.exports = router;

@@ -41,7 +41,6 @@ const authRoutes         = require('./src/routes/auth');
 
 // ── Services ─────────────────────────────────────────────────────────
 const { initWebSocketServer } = require('./src/services/chatService');
-const { startRealtimeSync }   = require('./src/services/neo4jSync');
 
 // ── Express app ──────────────────────────────────────────────────────
 const app  = express();
@@ -110,15 +109,7 @@ async function boot() {
   // 2. WebSocket server for real-time chat
   initWebSocketServer(httpServer);
 
-  // 3. Start Firestore → Neo4j realtime sync
-  let unsubSync = null;
-  if (neo4jConnected) {
-    try {
-      unsubSync = startRealtimeSync();
-    } catch (err) {
-      console.warn('⚠️  Realtime sync deferred:', err.message);
-    }
-  }
+  // 3. (Removed Firestore Sync)
 
   // 4. Start listening
   httpServer.listen(PORT, () => {
@@ -132,11 +123,6 @@ async function boot() {
   // ── Graceful shutdown ───────────────────────────────────────────
   const shutdown = async (signal) => {
     console.log(`\n⏹️  ${signal} received — shutting down gracefully…`);
-
-    if (unsubSync) {
-      unsubSync();
-      console.log('   ✔ Firestore sync listener stopped');
-    }
 
     httpServer.close(() => {
       console.log('   ✔ HTTP server closed');

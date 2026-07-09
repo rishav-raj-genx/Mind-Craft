@@ -1,254 +1,135 @@
-/**
- * match.js — Neo4j Graph-Based Tutor Matching Routes
- *
- * Exposes endpoints that traverse the Neo4j graph to find tutor matches,
- * and manages match request lifecycle via Firestore.
- *
- * Endpoints:
- *   GET  /api/match/:uid             — Graph-based tutor matches
- *   GET  /api/match/:uid/broad       — Broad matches (cross-college)
- *   POST /api/match/request          — Send a match request
- *   POST /api/match/accept           — Accept a match request
- *   POST /api/match/decline          — Decline a match request
- *   GET  /api/match/requests/:uid    — Pending incoming requests
- */
-
 const express = require('express');
 const { body } = require('express-validator');
 const router  = express.Router();
 
-const { db }                    = require('../config/firebase');
-const { verifyFirebaseToken }   = require('../middleware/auth');
+const { verifyFirebaseToken } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { findMatches, findBroadMatches, findAnyMatches } = require('../services/matchingEngine');
-const {
-  COLLECTION_USERS,
-  COLLECTION_MATCH_REQUESTS,
-  COLLECTION_MATCHES,
-  STATUS_PENDING,
-  STATUS_ACCEPTED,
-  STATUS_DECLINED,
-} = require('../utils/constants');
+const { getDriver } = require('../config/neo4j');
+const { v4: uuidv4 } = require('uuid');
 
-// ── GET /api/match/:uid ───────────────────────────────────────────────
-// Returns ranked tutor matches from Neo4j (same college, shared skills)
+const { STATUS_PENDING, STATUS_ACCEPTED, STATUS_DECLINED } = require('../utils/constants');
+const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
+
 router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
     const limit = parseInt(req.query.limit, 10) || 20;
     const skill = req.query.skill || null;
-
     const matches = await findMatches(uid, { limit, skillFilter: skill });
-
-    res.json({
-      success: true,
-      count:   matches.length,
-      data:    matches,
-    });
-  } catch (err) {
-    next(err);
-  }
+    res.json({ success: true, count: matches.length, data: matches });
+  } catch (err) { next(err); }
 });
 
-// ── GET /api/match/:uid/broad ─────────────────────────────────────────
-// Cross-college matching fallback
 router.get('/:uid/broad', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
     const limit = parseInt(req.query.limit, 10) || 20;
-
     let matches = await findBroadMatches(uid, limit);
-    if (matches.length === 0) {
-      matches = await findAnyMatches(uid, limit);
-    }
-
-    res.json({
-      success: true,
-      count:   matches.length,
-      data:    matches,
-    });
-  } catch (err) {
-    next(err);
-  }
+    if (matches.length === 0) matches = await findAnyMatches(uid, limit);
+    res.json({ success: true, count: matches.length, data: matches });
+  } catch (err) { next(err); }
 });
 
-// ── POST /api/match/request ───────────────────────────────────────────
-router.post(
-  '/request',
-  verifyFirebaseToken,
-  [
-    body('toUid').trim().notEmpty().withMessage('Recipient UID is required'),
-    body('sharedSkill').trim().notEmpty().withMessage('Shared skill is required'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const fromUid     = req.user.uid;
-      const { toUid, sharedSkill } = req.body;
-
-      if (fromUid === toUid) {
-        return res.status(400).json({ success: false, error: 'Cannot match with yourself' });
-      }
-
-      // Check for existing pending request
-      const existing = await db
-        .collection(COLLECTION_MATCH_REQUESTS)
-        .where('fromUid', '==', fromUid)
-        .where('toUid', '==', toUid)
-        .where('status', '==', STATUS_PENDING)
-        .get();
-
-      if (!existing.empty) {
-        return res.status(409).json({ success: false, error: 'Match request already pending' });
-      }
-
-      // Check if already matched
-      const matchCheck1 = await db.collection(COLLECTION_MATCHES)
-        .where('user1Uid', '==', fromUid).where('user2Uid', '==', toUid).get();
-      const matchCheck2 = await db.collection(COLLECTION_MATCHES)
-        .where('user1Uid', '==', toUid).where('user2Uid', '==', fromUid).get();
-
-      if (!matchCheck1.empty || !matchCheck2.empty) {
-        return res.status(409).json({ success: false, error: 'Already matched with this user' });
-      }
-
-      // Create the request
-      const requestRef = db.collection(COLLECTION_MATCH_REQUESTS).doc();
-      const request = {
-        requestId:   requestRef.id,
-        fromUid,
-        toUid,
-        sharedSkill,
-        status:      STATUS_PENDING,
-        createdAt:   Date.now(),
-      };
-
-      await requestRef.set(request);
-
-      res.status(201).json({ success: true, data: request });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// ── POST /api/match/accept ────────────────────────────────────────────
-router.post(
-  '/accept',
-  verifyFirebaseToken,
-  [body('requestId').trim().notEmpty().withMessage('Request ID is required')],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const { requestId } = req.body;
-      const requestRef = db.collection(COLLECTION_MATCH_REQUESTS).doc(requestId);
-      const requestDoc = await requestRef.get();
-
-      if (!requestDoc.exists) {
-        return res.status(404).json({ success: false, error: 'Match request not found' });
-      }
-
-      const requestData = requestDoc.data();
-
-      if (requestData.toUid !== req.user.uid) {
-        return res.status(403).json({ success: false, error: 'Only the recipient can accept' });
-      }
-
-      if (requestData.status !== STATUS_PENDING) {
-        return res.status(400).json({ success: false, error: `Request is already ${requestData.status}` });
-      }
-
-      // ── Update request + create match in a batch ────────────────
-      const matchRef = db.collection(COLLECTION_MATCHES).doc();
-
-      // Find shared skills between users
-      const [user1Doc, user2Doc] = await Promise.all([
-        db.collection(COLLECTION_USERS).doc(requestData.fromUid).get(),
-        db.collection(COLLECTION_USERS).doc(requestData.toUid).get(),
-      ]);
-
-      const user1 = user1Doc.data() || {};
-      const user2 = user2Doc.data() || {};
-
-      const sharedSkills = [
-        ...(user1.teaches || []).filter((s) => (user2.learns || []).includes(s)),
-        ...(user2.teaches || []).filter((s) => (user1.learns || []).includes(s)),
-      ].filter((v, i, a) => a.indexOf(v) === i); // deduplicate
-
-      const match = {
-        matchId:         matchRef.id,
-        user1Uid:        requestData.fromUid,
-        user2Uid:        requestData.toUid,
-        sharedSkills,
-        createdAt:       Date.now(),
-        lastMessage:     '',
-        lastMessageTime: 0,
-      };
-
-      const batch = db.batch();
-      batch.update(requestRef, { status: STATUS_ACCEPTED });
-      batch.set(matchRef, match);
-      await batch.commit();
-
-      res.json({ success: true, data: match });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// ── POST /api/match/decline ───────────────────────────────────────────
-router.post(
-  '/decline',
-  verifyFirebaseToken,
-  [body('requestId').trim().notEmpty().withMessage('Request ID is required')],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const { requestId } = req.body;
-      const requestRef = db.collection(COLLECTION_MATCH_REQUESTS).doc(requestId);
-      const requestDoc = await requestRef.get();
-
-      if (!requestDoc.exists) {
-        return res.status(404).json({ success: false, error: 'Match request not found' });
-      }
-
-      if (requestDoc.data().toUid !== req.user.uid) {
-        return res.status(403).json({ success: false, error: 'Only the recipient can decline' });
-      }
-
-      await requestRef.update({ status: STATUS_DECLINED });
-
-      res.json({ success: true, message: 'Match request declined' });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// ── GET /api/match/requests/:uid ──────────────────────────────────────
-router.get('/requests/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.post('/request', verifyFirebaseToken, [
+  body('toUid').trim().notEmpty(), body('sharedSkill').trim().notEmpty(),
+], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const uid = req.params.uid;
+    const errors = formatValidationErrors(req);
+    if (errors) return res.status(400).json(errors);
+    const fromUid = req.user.uid;
+    const { toUid, sharedSkill } = req.body;
+    if (fromUid === toUid) return res.status(400).json({ success: false, error: 'Cannot match with yourself' });
+    
+    const existing = await session.executeRead(tx => tx.run(`
+      MATCH (u1:User {uid: $fromUid})-[r:REQUESTS_MATCH {status: $status}]->(u2:User {uid: $toUid}) RETURN r
+    `, { fromUid, toUid, status: STATUS_PENDING }));
+    if(existing.records.length > 0) return res.status(409).json({ success: false, error: 'Match request already pending' });
+    
+    const matchCheck = await session.executeRead(tx => tx.run(`
+      MATCH (u1:User {uid: $fromUid})-[:PARTICIPATES_IN]->(t:ChatThread)<-[:PARTICIPATES_IN]-(u2:User {uid: $toUid}) RETURN t
+    `, { fromUid, toUid }));
+    if(matchCheck.records.length > 0) return res.status(409).json({ success: false, error: 'Already matched with this user' });
+    
+    const requestId = uuidv4();
+    await session.executeWrite(tx => tx.run(`
+      MATCH (u1:User {uid: $fromUid}), (u2:User {uid: $toUid})
+      CREATE (u1)-[r:REQUESTS_MATCH {requestId: $requestId, sharedSkill: $sharedSkill, status: $status, createdAt: timestamp()}]->(u2)
+    `, { fromUid, toUid, requestId, sharedSkill, status: STATUS_PENDING }));
+    
+    res.status(201).json({ success: true, data: { requestId, fromUid, toUid, sharedSkill, status: STATUS_PENDING } });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
 
-    const snapshot = await db
-      .collection(COLLECTION_MATCH_REQUESTS)
-      .where('toUid', '==', uid)
-      .where('status', '==', STATUS_PENDING)
-      .get();
+router.post('/accept', verifyFirebaseToken, [body('requestId').trim().notEmpty()], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const errors = formatValidationErrors(req);
+    if (errors) return res.status(400).json(errors);
+    const { requestId } = req.body;
+    
+    const reqRes = await session.executeRead(tx => tx.run(`
+      MATCH (u1:User)-[r:REQUESTS_MATCH {requestId: $requestId}]->(u2:User {uid: $uid})
+      RETURN r, u1.uid AS fromUid
+    `, { requestId, uid: req.user.uid }));
+    if(reqRes.records.length === 0) return res.status(404).json({ success: false, error: 'Request not found or unauthorized' });
+    
+    const reqData = reqRes.records[0].get('r').properties;
+    const fromUid = reqRes.records[0].get('fromUid');
+    if(reqData.status !== STATUS_PENDING) return res.status(400).json({ success: false, error: 'Request not pending' });
+    
+    const matchId = uuidv4();
+    await session.executeWrite(tx => tx.run(`
+      MATCH (u1:User {uid: $fromUid})-[r:REQUESTS_MATCH {requestId: $requestId}]->(u2:User {uid: $toUid})
+      SET r.status = $status
+      WITH u1, u2
+      CREATE (t:ChatThread {id: $matchId, createdAt: timestamp(), lastMessage: '', lastMessageTime: 0, sharedSkills: []})
+      CREATE (u1)-[:PARTICIPATES_IN]->(t)
+      CREATE (u2)-[:PARTICIPATES_IN]->(t)
+    `, { fromUid, toUid: req.user.uid, requestId, status: STATUS_ACCEPTED, matchId }));
+    
+    res.json({ success: true, data: { matchId } });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
 
-    const requests = snapshot.docs.map((d) => d.data());
+router.post('/decline', verifyFirebaseToken, [body('requestId').trim().notEmpty()], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const errors = formatValidationErrors(req);
+    if (errors) return res.status(400).json(errors);
+    const { requestId } = req.body;
+    
+    const reqRes = await session.executeWrite(tx => tx.run(`
+      MATCH (u1:User)-[r:REQUESTS_MATCH {requestId: $requestId}]->(u2:User {uid: $uid})
+      SET r.status = $status RETURN r
+    `, { requestId, uid: req.user.uid, status: STATUS_DECLINED }));
+    if(reqRes.records.length === 0) return res.status(404).json({ success: false, error: 'Request not found or unauthorized' });
+    
+    res.json({ success: true, message: 'Match request declined' });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
 
+router.get('/requests/:uid', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.executeRead(tx => tx.run(`
+      MATCH (u1:User)-[r:REQUESTS_MATCH {status: $status}]->(u2:User {uid: $uid})
+      RETURN r, u1.uid AS fromUid
+    `, { uid: req.params.uid, status: STATUS_PENDING }));
+    const requests = result.records.map(r => {
+      const p = r.get('r').properties;
+      p.fromUid = r.get('fromUid');
+      p.toUid = req.params.uid;
+      p.createdAt = toNumber(p.createdAt);
+      return p;
+    });
     res.json({ success: true, count: requests.length, data: requests });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
 module.exports = router;

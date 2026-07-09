@@ -51,15 +51,6 @@ if (serviceAccount) {
 }
 
 // ── Export shared instances ───────────────────────────────────────────
-const db   = admin.firestore();
 const auth = admin.auth();
 
-// Realtime Database — used by the chat WebSocket fallback
-let rtdb = null;
-try {
-  rtdb = admin.database();
-} catch (_err) {
-  console.warn('⚠️  Realtime Database not available (missing databaseURL)');
-}
-
-module.exports = { admin, db, auth, rtdb };
+module.exports = { admin, auth };

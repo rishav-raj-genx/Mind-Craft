@@ -1,443 +1,248 @@
-/**
- * session.js — Session Management Routes
- *
- * Handles the tutoring session lifecycle: booking, completion, rating,
- * cancellation, and Google Calendar export.
- *
- * Endpoints:
- *   POST  /api/session/book                       — Book a new session
- *   GET   /api/session/:uid                       — Get sessions by status
- *   PATCH /api/session/:sessionId/complete         — Mark session complete
- *   POST  /api/session/:sessionId/rate             — Submit rating
- *   POST  /api/session/:sessionId/cancel           — Cancel session
- *   POST  /api/session/:sessionId/export-calendar  — Export to Google Calendar
- *   GET   /api/session/auth/google                 — Google OAuth URL
- *   GET   /api/session/auth/google/callback        — Google OAuth callback
- */
-
 const express  = require('express');
 const { body } = require('express-validator');
 const router   = express.Router();
-
-const { db, admin }             = require('../config/firebase');
 const { verifyFirebaseToken }   = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { completeSession, cancelSession } = require('../services/sessionRouter');
 const { awardSessionComplete }  = require('../services/tokenEconomy');
-const {
-  exportSessionToCalendar,
-  getAuthUrl,
-  exchangeCodeForTokens,
-} = require('../services/calendarExport');
-const {
-  COLLECTION_SESSIONS,
-  COLLECTION_MATCHES,
-  COLLECTION_MESSAGES,
-  COLLECTION_CHATS,
-  COLLECTION_USERS,
-  SESSION_PENDING,
-  SESSION_UPCOMING,
-  SESSION_COMPLETED,
-  SESSION_REJECTED,
-} = require('../utils/constants');
+const { exportSessionToCalendar, getAuthUrl } = require('../services/calendarExport');
+const { getDriver } = require('../config/neo4j');
+const { v4: uuidv4 } = require('uuid');
 
-// ── POST /api/session/book ────────────────────────────────────────────
-router.post(
-  '/book',
-  verifyFirebaseToken,
-  [
-    body('matchId').trim().notEmpty().withMessage('Match ID is required'),
-    body('teacherUid').trim().notEmpty().withMessage('Teacher UID is required'),
-    body('learnerUid').trim().notEmpty().withMessage('Learner UID is required'),
-    body('skill').trim().notEmpty().withMessage('Skill is required'),
-    body('scheduledAt').isNumeric().withMessage('Scheduled time (epoch ms) is required'),
-    body('duration').isNumeric().optional(),
-    body('mode').isIn(['Online', 'In-Person']).withMessage('Mode must be Online or In-Person'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
+const { SESSION_PENDING, SESSION_UPCOMING, SESSION_COMPLETED, SESSION_REJECTED } = require('../utils/constants');
 
-      const sessionRef = db.collection(COLLECTION_SESSIONS).doc();
-      const session = {
-        sessionId:   sessionRef.id,
-        matchId:     req.body.matchId,
-        teacherUid:  req.body.teacherUid,
-        learnerUid:  req.body.learnerUid,
-        skill:       req.body.skill,
-        scheduledAt: req.body.scheduledAt,
-        duration:    req.body.duration || 60,
-        endTime:     req.body.scheduledAt + (req.body.duration || 60) * 60000,
-        mode:        req.body.mode,
-        meetLink:    req.body.meetLink || '',
-        location:    req.body.location || '',
-        notes:       req.body.notes    || '',
-        status:      SESSION_PENDING,
-        rating:      0,
-        ratingComment: '',
-        createdAt:   Date.now(),
-      };
+const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 
-      await sessionRef.set(session);
-
-      // Instantly notify the teacher via Global WebSocket
-      const { broadcastToGlobal } = require('../services/chatService');
-      broadcastToGlobal(req.body.teacherUid, {
-        type: 'global_notification',
-        subType: 'session_booked',
-        data: {
-          message: `New session request for ${req.body.skill}`,
-          partnerName: req.user.name || 'a user'
-        },
-        sessionId: sessionRef.id,
-        timestamp: Date.now()
-      });
-
-      res.status(201).json({ success: true, data: session });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// ── GET /api/session/:uid ─────────────────────────────────────────────
-router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.post('/book', verifyFirebaseToken, [
+  body('matchId').trim().notEmpty(), body('teacherUid').trim().notEmpty(),
+  body('learnerUid').trim().notEmpty(), body('skill').trim().notEmpty(),
+  body('scheduledAt').isNumeric(), body('mode').isIn(['Online', 'In-Person']),
+], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const uid    = req.params.uid;
-    const status = req.query.status || null;
+    const errors = formatValidationErrors(req);
+    if (errors) return res.status(400).json(errors);
 
-    // Get sessions where user is teacher or learner
-    const queries = [];
-
-    const buildQuery = (field) => {
-      let q = db.collection(COLLECTION_SESSIONS).where(field, '==', uid);
-      if (status) q = q.where('status', '==', status);
-      return q.get();
+    const sessionId = uuidv4();
+    const sessObj = {
+      sessionId, matchId: req.body.matchId, teacherUid: req.body.teacherUid, learnerUid: req.body.learnerUid,
+      skill: req.body.skill, scheduledAt: req.body.scheduledAt, duration: req.body.duration || 60,
+      endTime: req.body.scheduledAt + (req.body.duration || 60) * 60000,
+      mode: req.body.mode, meetLink: req.body.meetLink || '', location: req.body.location || '',
+      notes: req.body.notes || '', status: SESSION_PENDING, rating: 0, ratingComment: '', createdAt: Date.now(),
     };
 
-    const [asTeacher, asLearner] = await Promise.all([
-      buildQuery('teacherUid'),
-      buildQuery('learnerUid'),
-    ]);
+    await session.executeWrite(tx => tx.run(`
+      MATCH (t:User {uid: $teacherUid})
+      MATCH (l:User {uid: $learnerUid})
+      CREATE (s:Session) SET s = $sessObj
+      CREATE (l)-[:ATTENDS]->(s)<-[:HOSTS]-(t)
+    `, { teacherUid: sessObj.teacherUid, learnerUid: sessObj.learnerUid, sessObj }));
 
-    let sessions = [
-      ...asTeacher.docs.map((d) => d.data()),
-      ...asLearner.docs.map((d) => d.data()),
-    ].sort((a, b) => a.scheduledAt - b.scheduledAt);
+    const { broadcastToGlobal } = require('../services/chatService');
+    broadcastToGlobal(req.body.teacherUid, {
+      type: 'global_notification', subType: 'session_booked',
+      data: { message: `New session request for ${req.body.skill}`, partnerName: req.user.name || 'a user' },
+      sessionId, timestamp: Date.now()
+    });
 
-    // Auto-complete past UPCOMING sessions and fetch peer info
-    const now = Date.now();
-    let updated = false;
+    res.status(201).json({ success: true, data: sessObj });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
+
+router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const { uid } = req.params;
+    const { status } = req.query;
     
-    // We fetch user names to attach to the session response
-    sessions = await Promise.all(sessions.map(async (s) => {
-      // 1. Auto-completion logic
+    let query = `
+      MATCH (s:Session)
+      WHERE s.teacherUid = $uid OR s.learnerUid = $uid
+      RETURN s ORDER BY s.scheduledAt ASC
+    `;
+    let result = await session.executeRead(tx => tx.run(query, { uid }));
+    
+    const now = Date.now();
+    let sessions = [];
+    
+    for(const r of result.records) {
+      let s = r.get('s').properties;
+      s.scheduledAt = toNumber(s.scheduledAt);
+      s.endTime = toNumber(s.endTime);
+      s.duration = toNumber(s.duration);
+      s.createdAt = toNumber(s.createdAt);
+      s.rating = toNumber(s.rating);
+      
       const sEndTime = s.endTime || (s.scheduledAt + (s.duration || 60) * 60000);
       if (s.status === SESSION_UPCOMING && sEndTime < now) {
         s.status = SESSION_COMPLETED;
-        await db.collection(COLLECTION_SESSIONS).doc(s.sessionId).update({ status: SESSION_COMPLETED });
-        await awardSessionComplete(s.learnerUid, s.teacherUid);
-        updated = true;
+        await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.status = $status`, { id: s.sessionId, status: SESSION_COMPLETED }));
+        try { await awardSessionComplete(s.learnerUid, s.teacherUid); } catch(e){}
       }
       
-      // 2. Fetch peer info
-      try {
-        const isTeacher = s.teacherUid === uid;
-        const peerUid = isTeacher ? s.learnerUid : s.teacherUid;
-        const peerDoc = await db.collection(COLLECTION_USERS).doc(peerUid).get();
-        if (peerDoc.exists) {
-          s.peerName = peerDoc.data().name || 'Peer';
-        } else {
-          s.peerName = 'Unknown User';
-        }
-      } catch (err) {
-        s.peerName = 'Peer';
-      }
-      
-      return s;
-    }));
-    
-    if (status && updated) {
-      sessions = sessions.filter(s => s.status === status);
+      const peerUid = s.teacherUid === uid ? s.learnerUid : s.teacherUid;
+      const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u.name AS name`, { p: peerUid }));
+      s.peerName = pRes.records.length > 0 ? (pRes.records[0].get('name') || 'Peer') : 'Unknown User';
+      sessions.push(s);
     }
-
-    res.json({
-      success: true,
-      count:   sessions.length,
-      data:    sessions,
-    });
-  } catch (err) {
-    next(err);
-  }
+    
+    if(status) sessions = sessions.filter(s => s.status === status);
+    res.json({ success: true, count: sessions.length, data: sessions });
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── PATCH /api/session/:sessionId/accept ──────────────────────────────
 router.patch('/:sessionId/accept', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const { sessionId } = req.params;
     const { googleTokens } = req.body;
-    const sessionRef = db.collection(COLLECTION_SESSIONS).doc(sessionId);
-    const sessionDoc = await sessionRef.get();
+    const result = await session.executeRead(tx => tx.run(`MATCH (s:Session {sessionId: $id}) RETURN s`, { id: sessionId }));
+    if(result.records.length === 0) return res.status(404).json({ success: false, error: 'Session not found' });
     
-    if (!sessionDoc.exists) return res.status(404).json({ success: false, error: 'Session not found' });
+    let sessionData = result.records[0].get('s').properties;
     
-    let sessionData = sessionDoc.data();
-    
-    // Check if googleTokens provided to export to calendar automatically
     if (googleTokens) {
       try {
-        const peerDoc = await db.collection(COLLECTION_USERS).doc(sessionData.learnerUid).get();
-        const peerData = peerDoc.data() || {};
-        
-        // Export to calendar (will generate meet link if online)
+        const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: sessionData.learnerUid }));
+        const peerData = pRes.records.length > 0 ? pRes.records[0].get('u').properties : {};
         const calendarRes = await exportSessionToCalendar(sessionData, googleTokens, peerData.name || 'Peer', peerData.email);
-        
-        if (calendarRes && calendarRes.meetLink) {
-          sessionData.meetLink = calendarRes.meetLink;
-        }
-      } catch (calErr) {
-        console.error('Calendar export error during accept:', calErr);
-        // Continue even if calendar export fails
-      }
+        if (calendarRes && calendarRes.meetLink) sessionData.meetLink = calendarRes.meetLink;
+      } catch (calErr) {}
     }
 
-    // Fallback to Jitsi if no meet link was generated (e.g. no google calendar connected or it failed)
     if (sessionData.mode === 'Online' && !sessionData.meetLink) {
       sessionData.meetLink = `https://meet.jit.si/MindCraft-${sessionId}`;
     }
 
-    await sessionRef.update({
-      status: SESSION_UPCOMING,
-      meetLink: sessionData.meetLink || '',
-    });
+    await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.status = $status, s.meetLink = $meetLink`, { id: sessionId, status: SESSION_UPCOMING, meetLink: sessionData.meetLink || '' }));
 
-    // Automatically send a chat message with the meet link
     if (sessionData.meetLink && sessionData.matchId) {
-      const chatRef = db.collection(COLLECTION_MESSAGES).doc(sessionData.matchId).collection(COLLECTION_CHATS);
-      const messageId = chatRef.doc().id;
+      const messageId = uuidv4();
       const timestamp = Date.now();
       const text = `I've accepted the session! Here is the meeting link: ${sessionData.meetLink}`;
-      
-      await chatRef.doc(messageId).set({
-        messageId,
-        senderUid: req.user.uid,
-        text,
-        timestamp,
-        read: false,
-      });
-
-      await db.collection(COLLECTION_MATCHES).doc(sessionData.matchId).update({
-        lastMessage: text,
-        lastMessageTime: timestamp,
-        lastMessageSender: req.user.uid,
-        unread: true,
-      });
+      await session.executeWrite(tx => tx.run(`
+        MATCH (t:ChatThread {id: $matchId})
+        MATCH (u:User {uid: $uid})
+        CREATE (m:Message { messageId: $messageId, text: $text, timestamp: $timestamp, read: false })
+        CREATE (u)-[:SENT]->(m)-[:IN_THREAD]->(t)
+        SET t.lastMessage = $text, t.lastMessageTime = $timestamp, t.lastMessageSender = $uid, t.unread = true
+      `, { matchId: sessionData.matchId, uid: req.user.uid, messageId, text, timestamp }));
     }
 
-    // Notify learner about session acceptance
     const { broadcastToGlobal } = require('../services/chatService');
     broadcastToGlobal(sessionData.learnerUid, {
       type: 'global_new_message',
-      notification: {
-        title: 'Session Accepted! ✅',
-        body: `Your session request for ${sessionData.skill || 'tutoring'} was accepted.`,
-      },
-      data: {
-        type: 'session_booked',
-        id: `session-${sessionId}-accept`,
-        route: '/sessions',
-        matchId: '',
-      }
+      notification: { title: 'Session Accepted! ✅', body: `Your session request for ${sessionData.skill || 'tutoring'} was accepted.` },
+      data: { type: 'session_booked', id: `session-${sessionId}-accept`, route: '/sessions', matchId: '' }
     });
 
     res.json({ success: true, message: 'Session accepted', meetLink: sessionData.meetLink });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── PATCH /api/session/:sessionId/reject ──────────────────────────────
 router.patch('/:sessionId/reject', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const { sessionId } = req.params;
-    const sessionRef = db.collection(COLLECTION_SESSIONS).doc(sessionId);
-    
-    await sessionRef.update({
-      status: SESSION_REJECTED,
-    });
-
+    await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.status = $status`, { id: req.params.sessionId, status: SESSION_REJECTED }));
     res.json({ success: true, message: 'Session rejected' });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── PATCH /api/session/:sessionId/complete ────────────────────────────
 router.patch('/:sessionId/complete', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const result = await completeSession(req.params.sessionId);
-
-    // Award tokens to both participants
-    const sessionDoc = await db.collection(COLLECTION_SESSIONS).doc(req.params.sessionId).get();
-    if (sessionDoc.exists) {
-      const session = sessionDoc.data();
-      try {
-        await awardSessionComplete(session.teacherUid, session.learnerUid, session.sessionId);
-      } catch (err) {
-        console.warn('⚠️  Token award deferred:', err.message);
-      }
+    const sRes = await session.executeRead(tx => tx.run(`MATCH (s:Session {sessionId: $id}) RETURN s`, { id: req.params.sessionId }));
+    if(sRes.records.length > 0) {
+      const sess = sRes.records[0].get('s').properties;
+      try { await awardSessionComplete(sess.teacherUid, sess.learnerUid, sess.sessionId); } catch(e){}
     }
-
     res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── POST /api/session/:sessionId/rate ─────────────────────────────────
-router.post(
-  '/:sessionId/rate',
-  verifyFirebaseToken,
-  [
-    body('rating').isFloat({ min: 1, max: 5 }).withMessage('Rating must be between 1 and 5'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const { sessionId } = req.params;
-      const { rating, comment } = req.body;
-
-      const sessionRef = db.collection(COLLECTION_SESSIONS).doc(sessionId);
-      const sessionDoc = await sessionRef.get();
-
-      if (!sessionDoc.exists) {
-        return res.status(404).json({ success: false, error: 'Session not found' });
-      }
-
-      const session = sessionDoc.data();
-
-      // Update session rating
-      await sessionRef.update({
-        rating:        parseFloat(rating),
-        ratingComment: comment || '',
-        status:        SESSION_COMPLETED,
-      });
-
-      // Recalculate teacher's average rating
-      const allSessions = await db
-        .collection(COLLECTION_SESSIONS)
-        .where('teacherUid', '==', session.teacherUid)
-        .where('status', '==', SESSION_COMPLETED)
-        .get();
-
-      const ratedSessions = allSessions.docs
-        .map((d) => d.data())
-        .filter((s) => s.rating > 0);
-
-      if (ratedSessions.length > 0) {
-        const avgRating = ratedSessions.reduce((sum, s) => sum + s.rating, 0) / ratedSessions.length;
-        await db.collection(COLLECTION_USERS).doc(session.teacherUid).update({
-          averageRating: parseFloat(avgRating.toFixed(2)),
-          totalSessions: ratedSessions.length,
-        });
-      }
-
-      // Notify the teacher about the new review
-      const { broadcastToGlobal } = require('../services/chatService');
-      broadcastToGlobal(session.teacherUid, {
-        type: 'global_new_message',
-        notification: {
-          title: 'New Review Received! ⭐',
-          body: `You received a ${rating}-star rating for your session.`,
-        },
-        data: {
-          type: 'new_review',
-          id: `review-${sessionId}`,
-          route: '/profile',
-          matchId: '',
-        }
-      });
-
-      res.json({ success: true, message: 'Rating submitted' });
-    } catch (err) {
-      next(err);
+router.post('/:sessionId/rate', verifyFirebaseToken, [
+  body('rating').isFloat({ min: 1, max: 5 })
+], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const errors = formatValidationErrors(req);
+    if(errors) return res.status(400).json(errors);
+    const { sessionId } = req.params;
+    const { rating, comment } = req.body;
+    
+    const sRes = await session.executeRead(tx => tx.run(`MATCH (s:Session {sessionId: $id}) RETURN s`, { id: sessionId }));
+    if(sRes.records.length === 0) return res.status(404).json({ success: false, error: 'Session not found' });
+    const sess = sRes.records[0].get('s').properties;
+    
+    await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.rating = $rating, s.ratingComment = $comment, s.status = $status`, 
+      { id: sessionId, rating: parseFloat(rating), comment: comment||'', status: SESSION_COMPLETED }));
+    
+    const allRes = await session.executeRead(tx => tx.run(`MATCH (s:Session) WHERE s.teacherUid = $tuid AND s.status = $status RETURN s`, { tuid: sess.teacherUid, status: SESSION_COMPLETED }));
+    const rated = allRes.records.map(r => r.get('s').properties).filter(s => toNumber(s.rating) > 0);
+    if(rated.length > 0) {
+      const avg = rated.reduce((sum, s) => sum + toNumber(s.rating), 0) / rated.length;
+      await session.executeWrite(tx => tx.run(`MATCH (u:User {uid: $tuid}) SET u.averageRating = $avg, u.totalSessions = $total`, { tuid: sess.teacherUid, avg: parseFloat(avg.toFixed(2)), total: rated.length }));
     }
-  },
-);
+    
+    const { broadcastToGlobal } = require('../services/chatService');
+    broadcastToGlobal(sess.teacherUid, {
+      type: 'global_new_message',
+      notification: { title: 'New Review Received! ⭐', body: `You received a ${rating}-star rating.` },
+      data: { type: 'new_review', id: `review-${sessionId}`, route: '/profile', matchId: '' }
+    });
+    res.json({ success: true, message: 'Rating submitted' });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
 
-// ── POST /api/session/:sessionId/cancel ───────────────────────────────
 router.post('/:sessionId/cancel', verifyFirebaseToken, async (req, res, next) => {
   try {
     const result = await cancelSession(req.params.sessionId);
     res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// ── POST /api/session/:sessionId/export-calendar ──────────────────────
 router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const { sessionId } = req.params;
-
-    // Fetch session data
-    const sessionDoc = await db.collection(COLLECTION_SESSIONS).doc(sessionId).get();
-    if (!sessionDoc.exists) {
-      return res.status(404).json({ success: false, error: 'Session not found' });
-    }
-
-    const session = sessionDoc.data();
-
-    const peerUid = session.learnerUid === req.user.uid ? session.teacherUid : session.learnerUid;
-    const peerDoc = await db.collection('users').doc(peerUid).get();
-    const peerData = peerDoc.exists ? peerDoc.data() : {};
+    const sRes = await session.executeRead(tx => tx.run(`MATCH (s:Session {sessionId: $id}) RETURN s`, { id: sessionId }));
+    if(sRes.records.length === 0) return res.status(404).json({ success: false, error: 'Session not found' });
+    const sess = sRes.records[0].get('s').properties;
+    
+    const peerUid = sess.learnerUid === req.user.uid ? sess.teacherUid : sess.learnerUid;
+    const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: peerUid }));
+    const peerData = pRes.records.length > 0 ? pRes.records[0].get('u').properties : {};
     const peerName = peerData.name || 'Peer';
     const peerEmail = peerData.email || '';
-
-    const start = new Date(session.scheduledAt);
-    const durationMins = session.duration || 60;
+    
+    const start = new Date(toNumber(sess.scheduledAt));
+    const durationMins = toNumber(sess.duration) || 60;
     const end = new Date(start.getTime() + durationMins * 60 * 1000);
-
     const pad = (n) => String(n).padStart(2, '0');
-    const fmt = (d) =>
-      `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
-
+    const fmt = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+    
     const params = new URLSearchParams({
-      action: 'TEMPLATE',
-      text: `MindCraft Session: ${session.skill || 'Tutoring'}`,
-      dates: `${fmt(start)}/${fmt(end)}`,
-      details: `MindCraft P2P Tutoring Session with ${peerName}\nSkill: ${session.skill || 'General'}\nMode: ${session.mode || 'Online'}${session.meetLink ? `\nJoin: ${session.meetLink}` : ''}`,
-      location: session.meetLink || session.location || 'MindCraft App',
+      action: 'TEMPLATE', text: `MindCraft Session: ${sess.skill || 'Tutoring'}`, dates: `${fmt(start)}/${fmt(end)}`,
+      details: `MindCraft P2P Tutoring Session with ${peerName}\nSkill: ${sess.skill || 'General'}\nMode: ${sess.mode || 'Online'}${sess.meetLink ? `\nJoin: ${sess.meetLink}` : ''}`,
+      location: sess.meetLink || sess.location || 'MindCraft App',
     });
-
-    if (peerEmail) {
-      params.append('add', peerEmail);
-    }
-
+    if (peerEmail) params.append('add', peerEmail);
     const url = `https://calendar.google.com/calendar/render?${params.toString()}`;
-
     res.json({ success: true, data: { htmlLink: url } });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── GET /api/session/auth/google ──────────────────────────────────────
 router.get('/auth/google', (_req, res) => {
-  try {
-    const url = getAuthUrl();
-    res.json({ success: true, data: { authUrl: url } });
-  } catch (err) {
-    res.status(503).json({
-      success: false,
-      error: 'Google Calendar API not configured.',
-    });
-  }
+  try { res.json({ success: true, data: { authUrl: getAuthUrl() } }); } catch (err) { res.status(503).json({ success: false, error: 'Google Calendar API not configured.' }); }
 });
-
-// Moved callback to auth.js
 
 module.exports = router;

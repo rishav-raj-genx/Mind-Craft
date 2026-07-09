@@ -1,175 +1,80 @@
-/**
- * sessionRouter.js — Session Lifecycle & FCM Push Notifications
- *
- * Manages tutoring session state transitions and triggers Firebase
- * Cloud Messaging notifications at key lifecycle events:
- *
- *   upcoming → completed → rated
- *                ↘ cancelled
- *
- * When a session transitions to "completed", the system pushes an FCM
- * notification to the learner prompting them to rate the session.
- */
+const { admin }  = require('../config/firebase');
+const { getDriver } = require('../config/neo4j');
+const { SESSION_COMPLETED, SESSION_CANCELLED } = require('../utils/constants');
 
-const { db, admin }  = require('../config/firebase');
-const {
-  COLLECTION_SESSIONS,
-  COLLECTION_USERS,
-  SESSION_COMPLETED,
-  SESSION_CANCELLED,
-} = require('../utils/constants');
-
-/**
- * Marks a session as completed and triggers a rating notification.
- *
- * @param {string} sessionId — The session document ID
- * @returns {Promise<{ success: boolean, notificationSent: boolean }>}
- */
 async function completeSession(sessionId) {
-  const sessionRef = db.collection(COLLECTION_SESSIONS).doc(sessionId);
-  const sessionDoc = await sessionRef.get();
-
-  if (!sessionDoc.exists) {
-    throw Object.assign(new Error('Session not found'), { statusCode: 404 });
-  }
-
-  const session = sessionDoc.data();
-
-  if (session.status === SESSION_COMPLETED) {
-    return { success: true, notificationSent: false, message: 'Session already completed' };
-  }
-
-  // ── Update session status ───────────────────────────────────────
-  await sessionRef.update({
-    status:      SESSION_COMPLETED,
-    completedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-
-  // ── Send FCM notification to the learner ────────────────────────
-  let notificationSent = false;
+  const driver = getDriver();
+  const session = driver.session();
+  let learnerUid, sessionData;
   try {
-    notificationSent = await sendRatingNotification(session.learnerUid, session);
-  } catch (err) {
-    console.warn('⚠️  Rating notification failed:', err.message);
-  }
-
-  console.log(`✅ Session ${sessionId} marked as completed`);
+    const res = await session.executeWrite(tx => tx.run(`
+      MATCH (s:Session {sessionId: $sessionId})
+      SET s.status = $status, s.completedAt = timestamp()
+      WITH s MATCH (u:User)-[:ATTENDS]->(s)
+      RETURN u.uid AS learnerUid, s
+    `, { sessionId, status: SESSION_COMPLETED }));
+    if(res.records.length === 0) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
+    
+    learnerUid = res.records[0].get('learnerUid');
+    sessionData = res.records[0].get('s').properties;
+    if (sessionData.status === SESSION_COMPLETED && !sessionData.completedAt) {
+      // already completed previously logic
+    }
+  } finally { await session.close(); }
+  
+  let notificationSent = false;
+  try { notificationSent = await sendRatingNotification(learnerUid, sessionData); } catch(err) {}
   return { success: true, notificationSent };
 }
 
-/**
- * Cancels a session.
- *
- * @param {string} sessionId
- * @returns {Promise<{ success: boolean }>}
- */
 async function cancelSession(sessionId) {
-  const sessionRef = db.collection(COLLECTION_SESSIONS).doc(sessionId);
-  const sessionDoc = await sessionRef.get();
-
-  if (!sessionDoc.exists) {
-    throw Object.assign(new Error('Session not found'), { statusCode: 404 });
-  }
-
-  await sessionRef.update({
-    status:      SESSION_CANCELLED,
-    cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-
-  console.log(`❌ Session ${sessionId} cancelled`);
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const res = await session.executeWrite(tx => tx.run(`
+      MATCH (s:Session {sessionId: $sessionId})
+      SET s.status = $status, s.cancelledAt = timestamp()
+      RETURN s
+    `, { sessionId, status: SESSION_CANCELLED }));
+    if(res.records.length === 0) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
+  } finally { await session.close(); }
   return { success: true };
 }
 
-/**
- * Sends an FCM push notification prompting the learner to rate
- * a completed session.
- *
- * @param {string} learnerUid — UID of the learner
- * @param {object} session    — Session document data
- * @returns {Promise<boolean>}
- */
-async function sendRatingNotification(learnerUid, session) {
-  // Look up the learner's FCM token
-  const userDoc = await db.collection(COLLECTION_USERS).doc(learnerUid).get();
-
-  if (!userDoc.exists) return false;
-
-  const fcmToken = userDoc.data().fcmToken;
-  if (!fcmToken) {
-    console.warn(`⚠️  No FCM token for user ${learnerUid}`);
-    return false;
-  }
-
-  // Look up the teacher's name for the notification body
-  let teacherName = 'your tutor';
+async function sendRatingNotification(learnerUid, sessionData) {
+  const driver = getDriver();
+  const session = driver.session();
+  let fcmToken, teacherName = 'your tutor';
   try {
-    const teacherDoc = await db.collection(COLLECTION_USERS).doc(session.teacherUid).get();
-    if (teacherDoc.exists) {
-      teacherName = teacherDoc.data().name || teacherName;
+    const res = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $learnerUid}) RETURN u.fcmToken AS token`, { learnerUid }));
+    if(res.records.length > 0) fcmToken = res.records[0].get('token');
+    
+    if(sessionData.teacherUid) {
+      const tRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $tUid}) RETURN u.name AS name`, { tUid: sessionData.teacherUid }));
+      if(tRes.records.length > 0) teacherName = tRes.records[0].get('name') || teacherName;
     }
-  } catch (_err) {
-    // Non-fatal: use default name
-  }
-
+  } finally { await session.close(); }
+  if(!fcmToken) return false;
+  
   const message = {
     token: fcmToken,
-    notification: {
-      title: '⭐ Rate Your Session',
-      body:  `How was your ${session.skill} session with ${teacherName}? Tap to leave a rating.`,
-    },
-    data: {
-      type:      'rate_session',
-      sessionId: session.sessionId || '',
-      matchId:   session.matchId   || '',
-    },
-    android: {
-      priority: 'high',
-      notification: {
-        channelId:       'mindcraft_sessions',
-        clickAction:     'OPEN_SESSION',
-        defaultSound:    true,
-        defaultVibrateTimings: true,
-      },
-    },
+    notification: { title: '⭐ Rate Your Session', body: `How was your ${sessionData.skill || ''} session with ${teacherName}? Tap to leave a rating.` },
+    data: { type: 'rate_session', sessionId: sessionData.sessionId || '', matchId: sessionData.matchId || '' },
+    android: { priority: 'high', notification: { channelId: 'mindcraft_sessions', clickAction: 'OPEN_SESSION', defaultSound: true, defaultVibrateTimings: true } }
   };
-
-  const response = await admin.messaging().send(message);
-  console.log(`📲 Rating notification sent to ${learnerUid}:`, response);
-  return true;
+  try { await admin.messaging().send(message); return true; } catch(err) { return false; }
 }
 
-/**
- * Sends a generic notification to a user.
- *
- * @param {string} uid    — Recipient's UID
- * @param {string} title  — Notification title
- * @param {string} body   — Notification body
- * @param {object} [data] — Optional data payload
- */
 async function sendNotification(uid, title, body, data = {}) {
-  const userDoc = await db.collection(COLLECTION_USERS).doc(uid).get();
-  if (!userDoc.exists) return false;
-
-  const fcmToken = userDoc.data().fcmToken;
-  if (!fcmToken) return false;
-
+  const driver = getDriver();
+  const session = driver.session();
+  let fcmToken;
   try {
-    await admin.messaging().send({
-      token: fcmToken,
-      notification: { title, body },
-      data,
-      android: { priority: 'high' },
-    });
-    return true;
-  } catch (err) {
-    console.warn(`⚠️  Notification to ${uid} failed:`, err.message);
-    return false;
-  }
+    const res = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $uid}) RETURN u.fcmToken AS token`, { uid }));
+    if(res.records.length > 0) fcmToken = res.records[0].get('token');
+  } finally { await session.close(); }
+  if(!fcmToken) return false;
+  try { await admin.messaging().send({ token: fcmToken, notification: { title, body }, data, android: { priority: 'high' } }); return true; } catch(err) { return false; }
 }
 
-module.exports = {
-  completeSession,
-  cancelSession,
-  sendRatingNotification,
-  sendNotification,
-};
+module.exports = { completeSession, cancelSession, sendRatingNotification, sendNotification };

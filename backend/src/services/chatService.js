@@ -1,43 +1,19 @@
 /**
  * chatService.js — Real-Time WebSocket Chat Service
  *
- * Native WebSocket implementation (no Socket.IO) for P2P chat between
- * matched peers. Messages are persisted to the same Firestore schema
- * used by the Android ChatRepository.
- *
- * Protocol:
- *   - Client connects: ws://host:port?token=<firebase-id-token>
- *   - Client sends:    { type: 'join', matchId: '...' }
- *   - Client sends:    { type: 'message', matchId: '...', text: '...' }
- *   - Client sends:    { type: 'typing', matchId: '...' }
- *   - Server pushes:   { type: 'message', ... } to all room members
- *   - Server pushes:   { type: 'typing', uid: '...', matchId: '...' }
+ * Native WebSocket implementation for P2P chat between matched peers.
+ * Messages are persisted to Neo4j AuraDB directly.
  */
 
 const { WebSocketServer } = require('ws');
 const url                  = require('url');
-const { auth, db }         = require('../config/firebase');
-const {
-  COLLECTION_MESSAGES,
-  COLLECTION_CHATS,
-  COLLECTION_MATCHES,
-} = require('../utils/constants');
+const { auth }             = require('../config/firebase');
+const { getDriver }        = require('../config/neo4j');
 
-// ── Room management ───────────────────────────────────────────────────
-// Map<matchId, Set<WebSocket>>
 const rooms = new Map();
-
-// Map<uid, Set<WebSocket>> for global notifications (WhatsApp style)
 const globalRooms = new Map();
-
-// Map<WebSocket, { uid, email, name }>
 const clients = new Map();
 
-/**
- * Initializes the WebSocket server by attaching to an existing HTTP server.
- *
- * @param {import('http').Server} httpServer — Express HTTP server
- */
 function initWebSocketServer(httpServer) {
   const wss = new WebSocketServer({
     server: httpServer,
@@ -45,7 +21,6 @@ function initWebSocketServer(httpServer) {
   });
 
   wss.on('connection', async (ws, req) => {
-    // ── Authenticate on connection ──────────────────────────────────
     const parsed = url.parse(req.url, true);
     const token  = parsed.query.token;
 
@@ -69,13 +44,11 @@ function initWebSocketServer(httpServer) {
 
     clients.set(ws, user);
     
-    // Add to global room
     if (!globalRooms.has(user.uid)) globalRooms.set(user.uid, new Set());
     globalRooms.get(user.uid).add(ws);
 
     console.log(`🔌 WS connected: ${user.name} (${user.uid})`);
 
-    // ── Handle incoming messages ────────────────────────────────────
     ws.on('message', async (raw) => {
       let data;
       try {
@@ -89,36 +62,28 @@ function initWebSocketServer(httpServer) {
         case 'join':
           handleJoin(ws, user, data.matchId);
           break;
-
         case 'message':
           await handleMessage(ws, user, data.matchId, data.text, data.localId);
           break;
-
         case 'typing':
           handleTyping(ws, user, data.matchId);
           break;
-
         case 'edit_message':
           await handleEditMessage(ws, user, data.matchId, data.messageId, data.text);
           break;
-
         case 'delete_message':
           await handleDeleteMessage(ws, user, data.matchId, data.messageId);
           break;
-
         case 'read':
           await handleRead(user, data.matchId);
           break;
-
         default:
           ws.send(JSON.stringify({ type: 'error', error: `Unknown type: ${data.type}` }));
       }
     });
 
-    // ── Cleanup on disconnect ───────────────────────────────────────
     ws.on('close', () => {
       clients.delete(ws);
-      // Remove from global rooms
       if (globalRooms.has(user.uid)) {
         globalRooms.get(user.uid).delete(ws);
         if (globalRooms.get(user.uid).size === 0) {
@@ -126,7 +91,6 @@ function initWebSocketServer(httpServer) {
         }
       }
       
-      // Remove from all rooms
       for (const [matchId, members] of rooms) {
         members.delete(ws);
         if (members.size === 0) rooms.delete(matchId);
@@ -144,18 +108,13 @@ function initWebSocketServer(httpServer) {
   return wss;
 }
 
-// ── Handler functions ─────────────────────────────────────────────────
-
 function handleJoin(ws, user, matchId) {
   if (!matchId) {
     ws.send(JSON.stringify({ type: 'error', error: 'matchId is required' }));
     return;
   }
-
   if (!rooms.has(matchId)) rooms.set(matchId, new Set());
   rooms.get(matchId).add(ws);
-
-  // Notify room of new presence
   broadcastToRoom(matchId, { type: 'presence', uid: user.uid, status: 'online' }, ws);
   ws.send(JSON.stringify({ type: 'joined', matchId }));
 }
@@ -166,49 +125,60 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
     return;
   }
 
-  // ── Persist to Firestore (same schema as Android ChatRepository) ──
-  const chatRef   = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS);
-  const messageId = chatRef.doc().id;
   const timestamp = Date.now();
-
-  const message = {
-    messageId,
-    senderUid: user.uid,
-    text,
-    timestamp,
-    read: false,
-  };
-
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    // Fetch match to get recipient
-    const matchDoc = await db.collection(COLLECTION_MATCHES).doc(matchId).get();
-    let recipientUid = null;
-    if (matchDoc.exists) {
-      const matchData = matchDoc.data();
-      if (matchData.user1Uid && matchData.user2Uid) {
-        recipientUid = matchData.user1Uid === user.uid ? matchData.user2Uid : matchData.user1Uid;
-      } else {
-        recipientUid = matchData.teacherUid === user.uid ? matchData.learnerUid : matchData.teacherUid;
+    const res = await session.executeWrite(async (tx) => {
+      const messageId = require('crypto').randomUUID();
+      
+      // We ensure the ChatThread exists and link message.
+      await tx.run(
+        `MERGE (t:ChatThread {id: $matchId})
+         WITH t
+         MATCH (u:User {uid: $uid})
+         CREATE (m:Message {
+           messageId: $messageId,
+           text: $text,
+           timestamp: $timestamp,
+           read: false,
+           isEdited: false
+         })
+         CREATE (u)-[:SENT]->(m)-[:IN_THREAD]->(t)
+         SET t.lastMessage = $text,
+             t.lastMessageTime = $timestamp,
+             t.lastMessageSender = $uid,
+             t.unread = true
+         RETURN m.messageId AS msgId
+        `,
+        { matchId, uid: user.uid, text, timestamp, messageId }
+      );
+      
+      // Find the recipient (the other user in the thread)
+      // Usually matching is handled in matches, we can look up participants
+      const participantsRes = await tx.run(`
+         MATCH (u:User)-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
+         WHERE u.uid <> $uid
+         RETURN u.uid AS recipientUid, u.fcmToken AS fcmToken
+      `, { matchId, uid: user.uid });
+      
+      let recipientUid = null;
+      let fcmToken = null;
+      if (participantsRes.records.length > 0) {
+        recipientUid = participantsRes.records[0].get('recipientUid');
+        fcmToken = participantsRes.records[0].get('fcmToken');
       }
-    }
+      
+      return { messageId, recipientUid, fcmToken };
+    });
+    
+    const { messageId, recipientUid, fcmToken } = res;
 
-    // Write message and update match's last message in parallel
-    await Promise.all([
-      chatRef.doc(messageId).set(message),
-      db.collection(COLLECTION_MATCHES).doc(matchId).update({
-        lastMessage:     text,
-        lastMessageTime: timestamp,
-        lastMessageSender: user.uid,
-        unread: true,
-      }),
-    ]);
-
-    // ── Broadcast to all room members ─────────────────────────────
     const outgoing = {
       type: 'message',
       matchId,
       messageId,
-      localId, // Used by sender for flawless optimistic UI mapping
+      localId,
       senderUid: user.uid,
       senderName: user.name,
       text,
@@ -217,48 +187,32 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
 
     broadcastToRoom(matchId, outgoing, ws);
 
-    // ── Broadcast to recipient's global room ──────────────────────
     if (recipientUid) {
       broadcastToGlobal(recipientUid, {
         type: 'global_new_message',
-        matchId,
-        messageId,
-        senderUid: user.uid,
-        senderName: user.name,
-        text,
-        timestamp,
+        ...outgoing
       });
 
-      // ── Send FCM push notification ────────────────────────────────
-      try {
-        const { admin } = require('../config/firebase');
-        const recipientDoc = await db.collection('users').doc(recipientUid).get();
-        if (recipientDoc.exists) {
-          const fcmToken = recipientDoc.data().fcmToken;
-          if (fcmToken) {
-            await admin.messaging().send({
-              token: fcmToken,
-              notification: {
-                title: user.name,
-                body: text,
-              },
-              data: {
-                type: 'chat',
-                matchId: matchId,
-                url: `/chat/${matchId}`
-              }
-            });
-            console.log(`✅ FCM push sent to ${recipientUid}`);
-          }
+      if (fcmToken) {
+        try {
+          const { admin } = require('../config/firebase');
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: { title: user.name, body: text },
+            data: { type: 'chat', matchId, url: `/chat/${matchId}` }
+          });
+          console.log(`✅ FCM push sent to ${recipientUid}`);
+        } catch (err) {
+          console.warn('⚠️  FCM push failed:', err.message);
         }
-      } catch (err) {
-        console.warn('⚠️  FCM push failed:', err.message);
       }
     }
 
   } catch (err) {
     console.error('❌ Chat message persist error:', err.message);
     ws.send(JSON.stringify({ type: 'error', error: 'Failed to send message' }));
+  } finally {
+    await session.close();
   }
 }
 
@@ -269,91 +223,80 @@ function handleTyping(ws, user, matchId) {
 
 async function handleRead(user, matchId) {
   if (!matchId) return;
-
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const snapshot = await db
-      .collection(COLLECTION_MESSAGES)
-      .doc(matchId)
-      .collection(COLLECTION_CHATS)
-      .where('read', '==', false)
-      .get();
-
-    const batch = db.batch();
-    for (const doc of snapshot.docs) {
-      const msg = doc.data();
-      if (msg.senderUid !== user.uid) {
-        batch.update(doc.ref, { read: true });
-      }
-    }
-    batch.update(db.collection(COLLECTION_MATCHES).doc(matchId), { unread: false });
-    await batch.commit();
+    await session.executeWrite(tx => tx.run(`
+      MATCH (m:Message)-[:IN_THREAD]->(t:ChatThread {id: $matchId})
+      WHERE NOT (m)<-[:SENT]-(:User {uid: $uid}) AND m.read = false
+      SET m.read = true
+      WITH t
+      SET t.unread = false
+    `, { matchId, uid: user.uid }));
   } catch (err) {
     console.error('❌ Mark read error:', err.message);
+  } finally {
+    await session.close();
   }
 }
-
-// ── Broadcast helper ──────────────────────────────────────────────────
 
 function broadcastToRoom(matchId, payload, excludeWs = null) {
   const members = rooms.get(matchId);
   if (!members) return;
-
   const msgStr = JSON.stringify(payload);
   for (const client of members) {
-    if (client !== excludeWs && client.readyState === 1) { // 1 = OPEN
-      client.send(msgStr);
-    }
+    if (client !== excludeWs && client.readyState === 1) client.send(msgStr);
   }
 }
 
 function broadcastToGlobal(uid, payload) {
   const members = globalRooms.get(uid);
   if (!members) return;
-
   const msgStr = JSON.stringify(payload);
   for (const client of members) {
-    if (client.readyState === 1) {
-      client.send(msgStr);
-    }
+    if (client.readyState === 1) client.send(msgStr);
   }
 }
 
 async function handleEditMessage(ws, user, matchId, messageId, text) {
   if (!matchId || !messageId || !text) return;
-  const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
-  
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const doc = await chatRef.get();
-    if (doc.exists && doc.data().senderUid === user.uid) {
-      await chatRef.update({ text, isEdited: true });
-      broadcastToRoom(matchId, {
-        type: 'message_edited',
-        messageId,
-        text,
-        matchId
-      });
+    const res = await session.executeWrite(tx => tx.run(`
+      MATCH (u:User {uid: $uid})-[:SENT]->(m:Message {messageId: $messageId})-[:IN_THREAD]->(t:ChatThread {id: $matchId})
+      SET m.text = $text, m.isEdited = true
+      RETURN m
+    `, { uid: user.uid, messageId, matchId, text }));
+    
+    if (res.records.length > 0) {
+      broadcastToRoom(matchId, { type: 'message_edited', messageId, text, matchId });
     }
   } catch (err) {
     console.error('Error editing message:', err);
+  } finally {
+    await session.close();
   }
 }
 
 async function handleDeleteMessage(ws, user, matchId, messageId) {
   if (!matchId || !messageId) return;
-  const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
-  
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const doc = await chatRef.get();
-    if (doc.exists && doc.data().senderUid === user.uid) {
-      await chatRef.delete();
-      broadcastToRoom(matchId, {
-        type: 'message_deleted',
-        messageId,
-        matchId
-      });
+    const res = await session.executeWrite(tx => tx.run(`
+      MATCH (u:User {uid: $uid})-[:SENT]->(m:Message {messageId: $messageId})-[:IN_THREAD]->(t:ChatThread {id: $matchId})
+      DETACH DELETE m
+      RETURN 1
+    `, { uid: user.uid, messageId, matchId }));
+    
+    if (res.records.length > 0) {
+      broadcastToRoom(matchId, { type: 'message_deleted', messageId, matchId });
     }
   } catch (err) {
     console.error('Error deleting message:', err);
+  } finally {
+    await session.close();
   }
 }
 

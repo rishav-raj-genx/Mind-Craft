@@ -1,8 +1,8 @@
 /**
  * user.js — User Management Routes
  *
- * CRUD operations for user profiles, syncing with both Firestore and
- * the Neo4j graph. All routes require Firebase authentication.
+ * CRUD operations for user profiles, syncing directly with the Neo4j graph.
+ * All routes require Firebase authentication (for token validation).
  *
  * Endpoints:
  *   POST   /api/user/register       — Create user profile
@@ -17,18 +17,18 @@ const express = require('express');
 const { body } = require('express-validator');
 const router  = express.Router();
 
-const { db }                    = require('../config/firebase');
 const { verifyFirebaseToken }   = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
-const { syncUserToGraph }       = require('../services/neo4jSync');
+const { getDriver }             = require('../config/neo4j');
 const { getUserSkillGraph }     = require('../services/matchingEngine');
 const { getBalance, getTransactionHistory } = require('../services/tokenEconomy');
 const { calculateStreak }       = require('../services/streakCalculator');
 const {
-  COLLECTION_USERS,
-  COLLECTION_SESSIONS,
   SESSION_COMPLETED,
 } = require('../utils/constants');
+
+// Helper to handle neo4j integer conversion
+const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 
 // ── POST /api/user/register ───────────────────────────────────────────
 router.post(
@@ -57,8 +57,6 @@ router.post(
         collegeLocation:   req.body.collegeLocation || '',
         department:        req.body.department,
         year:              req.body.year,
-        teaches:           req.body.teaches,
-        learns:            req.body.learns,
         fcmToken:          req.body.fcmToken || '',
         latitude:          req.body.latitude  || 0,
         longitude:         req.body.longitude || 0,
@@ -66,6 +64,7 @@ router.post(
         averageRating:     0,
         totalSessions:     0,
         tokenBalance:      0,
+        mind_tokens:       0, // Using mind_tokens for AuraDB schema as requested
         linkedinUsername:   req.body.linkedinUsername   || '',
         githubUsername:     req.body.githubUsername     || '',
         leetcodeUsername:   req.body.leetcodeUsername   || '',
@@ -74,17 +73,59 @@ router.post(
         createdAt:         Date.now(),
       };
 
-      // Write to Firestore
-      await db.collection(COLLECTION_USERS).doc(uid).set(userData);
-
-      // Sync to Neo4j graph
+      const driver = getDriver();
+      const session = driver.session();
+      
       try {
-        await syncUserToGraph(userData);
-      } catch (err) {
-        console.warn('⚠️  Neo4j sync deferred:', err.message);
-      }
+        await session.executeWrite(async (tx) => {
+          // 1. Create User
+          await tx.run(
+            `CREATE (u:User { uid: $uid })
+             SET u += $props`,
+            { uid, props: userData }
+          );
 
-      res.status(201).json({ success: true, data: userData });
+          // 2. College
+          if (userData.college) {
+            await tx.run(
+              `MERGE (c:College { name: $college })
+               WITH c MATCH (u:User {uid: $uid})
+               MERGE (u)-[:BELONGS_TO]->(c)`,
+              { college: userData.college, uid }
+            );
+          }
+
+          // 3. Teaches
+          const teaches = req.body.teaches || [];
+          if (teaches.length > 0) {
+            await tx.run(
+              `MATCH (u:User {uid: $uid})
+               UNWIND $skills AS skillName
+               MERGE (s:Skill {name: skillName})
+               MERGE (u)-[:TEACHES]->(s)`,
+              { uid, skills: teaches }
+            );
+          }
+
+          // 4. Learns
+          const learns = req.body.learns || [];
+          if (learns.length > 0) {
+            await tx.run(
+              `MATCH (u:User {uid: $uid})
+               UNWIND $skills AS skillName
+               MERGE (s:Skill {name: skillName})
+               MERGE (u)-[:LEARNS]->(s)`,
+              { uid, skills: learns }
+            );
+          }
+        });
+        
+        userData.teaches = req.body.teaches;
+        userData.learns = req.body.learns;
+        res.status(201).json({ success: true, data: userData });
+      } finally {
+        await session.close();
+      }
     } catch (err) {
       next(err);
     }
@@ -92,120 +133,184 @@ router.post(
 );
 
 // ── GET /api/user/metadata/options ────────────────────────────────────
-// Returns all unique colleges and departments registered on the platform
 router.get('/metadata/options', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const snapshot = await db.collection(COLLECTION_USERS).get();
-    const colleges = new Set();
-    const departments = new Set();
-    snapshot.docs.forEach(doc => {
-      const d = doc.data();
-      if (d.college) colleges.add(d.college);
-      if (d.department) departments.add(d.department);
+    const result = await session.executeRead(async (tx) => {
+      const collegesRes = await tx.run(`MATCH (c:College) RETURN c.name AS name`);
+      const deptsRes = await tx.run(`MATCH (u:User) WHERE u.department IS NOT NULL RETURN DISTINCT u.department AS name`);
+      return {
+        colleges: collegesRes.records.map(r => r.get('name')).sort(),
+        departments: deptsRes.records.map(r => r.get('name')).sort()
+      };
     });
-    res.json({
-      success: true,
-      data: {
-        colleges: [...colleges].sort(),
-        departments: [...departments].sort(),
-      },
-    });
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
+  } finally {
+    await session.close();
   }
 });
 
 // ── GET /api/user/search ──────────────────────────────────────────────
 router.get('/search', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const q = (req.query.q || '').trim().toLowerCase();
-    const snapshot = await db.collection(COLLECTION_USERS).get();
     
-    let users = snapshot.docs
-      .map(doc => ({ uid: doc.id, ...doc.data() }))
-      .filter((u) => u.uid !== req.user.uid);
+    // Using a broad MATCH and filtering in Cypher
+    const query = `
+      MATCH (u:User)
+      WHERE u.uid <> $currentUid
+      OPTIONAL MATCH (u)-[:TEACHES]->(ts:Skill)
+      OPTIONAL MATCH (u)-[:LEARNS]->(ls:Skill)
+      WITH u, collect(DISTINCT ts.name) AS teaches, collect(DISTINCT ls.name) AS learns
+      WHERE $q = "" OR 
+            toLower(u.name) CONTAINS $q OR 
+            toLower(u.email) CONTAINS $q OR 
+            toLower(u.college) CONTAINS $q OR 
+            toLower(u.department) CONTAINS $q OR
+            any(s IN teaches WHERE toLower(s) CONTAINS $q) OR
+            any(s IN learns WHERE toLower(s) CONTAINS $q)
+      RETURN u, teaches, learns
+    `;
     
-    if (q) {
-      users = users.filter((u) => {
-        const skills = [...(u.teaches || []), ...(u.learns || [])];
-        return [
-          u.name,
-          u.email,
-          u.college,
-          u.department,
-          u.year,
-          ...skills,
-        ].some((value) => String(value || '').toLowerCase().includes(q));
-      });
-    }
+    const result = await session.executeRead(tx => tx.run(query, { currentUid: req.user.uid, q }));
+    
+    const users = result.records.map(record => {
+      const u = record.get('u').properties;
+      u.teaches = record.get('teaches');
+      u.learns = record.get('learns');
+      // Normalize neo4j ints
+      if (u.mind_tokens) u.mind_tokens = toNumber(u.mind_tokens);
+      if (u.tokenBalance) u.tokenBalance = toNumber(u.tokenBalance);
+      if (u.totalSessions) u.totalSessions = toNumber(u.totalSessions);
+      if (u.averageRating) u.averageRating = toNumber(u.averageRating);
+      return u;
+    });
     
     res.json({ success: true, count: users.length, data: users });
   } catch (err) {
     next(err);
+  } finally {
+    await session.close();
   }
 });
 
 // ── GET /api/user/:uid ────────────────────────────────────────────────
 router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const doc = await db.collection(COLLECTION_USERS).doc(req.params.uid).get();
+    const result = await session.executeRead(tx => 
+      tx.run(`
+        MATCH (u:User {uid: $uid}) 
+        OPTIONAL MATCH (u)-[:TEACHES]->(ts:Skill)
+        OPTIONAL MATCH (u)-[:LEARNS]->(ls:Skill)
+        RETURN u, collect(DISTINCT ts.name) AS teaches, collect(DISTINCT ls.name) AS learns
+      `, { uid: req.params.uid })
+    );
 
-    if (!doc.exists) {
+    if (result.records.length === 0) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    res.json({ success: true, data: doc.data() });
+    const u = result.records[0].get('u').properties;
+    u.teaches = result.records[0].get('teaches');
+    u.learns = result.records[0].get('learns');
+    if (u.mind_tokens) u.mind_tokens = toNumber(u.mind_tokens);
+    if (u.tokenBalance) u.tokenBalance = toNumber(u.tokenBalance);
+    if (u.totalSessions) u.totalSessions = toNumber(u.totalSessions);
+    if (u.averageRating) u.averageRating = toNumber(u.averageRating);
+
+    res.json({ success: true, data: u });
   } catch (err) {
     next(err);
+  } finally {
+    await session.close();
   }
 });
 
 // ── PATCH /api/user/:uid ──────────────────────────────────────────────
 router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
+  if (req.user.uid !== req.params.uid) {
+    return res.status(403).json({ success: false, error: 'Cannot update another user\'s profile' });
+  }
+
+  const uid = req.params.uid;
+  const allowedFields = [
+    'name', 'college', 'collegeLocation', 'department', 'year', 'teaches', 'learns',
+    'fcmToken', 'latitude', 'longitude', 'photoUrl', 'bannerUrl',
+    'linkedinUsername', 'githubUsername', 'leetcodeUsername', 'codeforcesUsername', 'codechefUsername',
+  ];
+
+  const updates = {};
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined) {
+      updates[field] = req.body[field];
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ success: false, error: 'No valid fields to update' });
+  }
+
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    // Only allow users to update their own profile
-    if (req.user.uid !== req.params.uid) {
-      return res.status(403).json({ success: false, error: 'Cannot update another user\'s profile' });
-    }
-
-    const uid = req.params.uid;
-
-    // Whitelist updateable fields
-    const allowedFields = [
-      'name', 'college', 'collegeLocation', 'department', 'year', 'teaches', 'learns',
-      'fcmToken', 'latitude', 'longitude', 'photoUrl', 'bannerUrl',
-      'linkedinUsername', 'githubUsername', 'leetcodeUsername', 'codeforcesUsername', 'codechefUsername',
-    ];
-
-    const updates = {};
-    for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
+    await session.executeWrite(async (tx) => {
+      // Basic fields
+      const basicUpdates = { ...updates };
+      delete basicUpdates.teaches;
+      delete basicUpdates.learns;
+      
+      if (Object.keys(basicUpdates).length > 0) {
+        await tx.run(
+          `MATCH (u:User {uid: $uid}) SET u += $updates`,
+          { uid, updates: basicUpdates }
+        );
       }
-    }
+      
+      if (updates.college) {
+        await tx.run(
+          `MATCH (u:User {uid: $uid})-[r:BELONGS_TO]->() DELETE r`
+        );
+        await tx.run(
+          `MERGE (c:College { name: $college })
+           WITH c MATCH (u:User {uid: $uid})
+           MERGE (u)-[:BELONGS_TO]->(c)`,
+          { college: updates.college, uid }
+        );
+      }
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ success: false, error: 'No valid fields to update' });
-    }
-
-    // Update Firestore
-    await db.collection(COLLECTION_USERS).doc(uid).update(updates);
-
-    // Re-sync Neo4j if graph-facing profile fields changed. Keep this off
-    // the response path so profile edits feel instant in the app.
-    const graphFields = ['teaches', 'learns', 'college', 'collegeLocation', 'department', 'name'];
-    const needsGraphSync = graphFields.some((f) => updates[f] !== undefined);
-
-    if (needsGraphSync) {
-      setImmediate(async () => {
-        try {
-          const updatedDoc = await db.collection(COLLECTION_USERS).doc(uid).get();
-          await syncUserToGraph({ uid, ...updatedDoc.data() });
-        } catch (err) {
-          console.warn('⚠️  Neo4j re-sync deferred:', err.message);
+      if (updates.teaches) {
+        await tx.run(`MATCH (u:User {uid: $uid})-[r:TEACHES]->() DELETE r`, { uid });
+        if (updates.teaches.length > 0) {
+          await tx.run(
+            `MATCH (u:User {uid: $uid})
+             UNWIND $skills AS skillName
+             MERGE (s:Skill {name: skillName})
+             MERGE (u)-[:TEACHES]->(s)`,
+            { uid, skills: updates.teaches }
+          );
         }
-      });
-    }
+      }
+
+      if (updates.learns) {
+        await tx.run(`MATCH (u:User {uid: $uid})-[r:LEARNS]->() DELETE r`, { uid });
+        if (updates.learns.length > 0) {
+          await tx.run(
+            `MATCH (u:User {uid: $uid})
+             UNWIND $skills AS skillName
+             MERGE (s:Skill {name: skillName})
+             MERGE (u)-[:LEARNS]->(s)`,
+            { uid, skills: updates.learns }
+          );
+        }
+      }
+    });
 
     res.json({
       success: true,
@@ -215,21 +320,38 @@ router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  } finally {
+    await session.close();
   }
 });
 
 // ── GET /api/user/:uid/profile ────────────────────────────────────────
-// Full profile: user data + token balance + streak + skill graph + reviews
 router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const uid = req.params.uid;
-    const doc = await db.collection(COLLECTION_USERS).doc(uid).get();
+    const result = await session.executeRead(tx => 
+      tx.run(`
+        MATCH (u:User {uid: $uid}) 
+        OPTIONAL MATCH (u)-[:TEACHES]->(ts:Skill)
+        OPTIONAL MATCH (u)-[:LEARNS]->(ls:Skill)
+        RETURN u, collect(DISTINCT ts.name) AS teaches, collect(DISTINCT ls.name) AS learns
+      `, { uid })
+    );
 
-    if (!doc.exists) {
+    if (result.records.length === 0) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // Fetch all profile facets in parallel
+    const u = result.records[0].get('u').properties;
+    u.teaches = result.records[0].get('teaches');
+    u.learns = result.records[0].get('learns');
+    if (u.mind_tokens) u.mind_tokens = toNumber(u.mind_tokens);
+    if (u.tokenBalance) u.tokenBalance = toNumber(u.tokenBalance);
+    if (u.totalSessions) u.totalSessions = toNumber(u.totalSessions);
+    if (u.averageRating) u.averageRating = toNumber(u.averageRating);
+
     const [tokenBalance, transactions, streak, skillGraph, sessionData] = await Promise.all([
       getBalance(uid).catch(() => 0),
       getTransactionHistory(uid, 10).catch(() => []),
@@ -243,13 +365,12 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
       getReviews(uid),
     ]);
     
-    // sessionData contains both stats and reviews array
     const { reviews, stats } = sessionData;
 
     res.json({
       success: true,
       data: {
-        user:         doc.data(),
+        user:         u,
         tokenBalance,
         recentTransactions: transactions,
         streak,
@@ -260,6 +381,8 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  } finally {
+    await session.close();
   }
 });
 
@@ -268,21 +391,33 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
  * plus aggregated stats for all completed sessions (as teacher or learner).
  */
 async function getReviews(uid) {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const teacherSnapshot = await db
-      .collection(COLLECTION_SESSIONS)
-      .where('teacherUid', '==', uid)
-      .where('status', '==', SESSION_COMPLETED)
-      .get();
-      
-    const learnerSnapshot = await db
-      .collection(COLLECTION_SESSIONS)
-      .where('learnerUid', '==', uid)
-      .where('status', '==', SESSION_COMPLETED)
-      .get();
+    // Both hosts and attends are mapped to sessions
+    const query = `
+      MATCH (u:User {uid: $uid})
+      OPTIONAL MATCH (u)-[r:HOSTS|ATTENDS]->(s:Session {status: $status})
+      RETURN s, type(r) AS role
+    `;
+    const result = await session.executeRead(tx => tx.run(query, { uid, status: SESSION_COMPLETED }));
+    
+    let teacherSessions = [];
+    let learnerSessions = [];
+    
+    result.records.forEach(r => {
+      const sNode = r.get('s');
+      if (sNode) {
+        const s = sNode.properties;
+        // normalize ints
+        s.rating = toNumber(s.rating) || 0;
+        s.duration = toNumber(s.duration) || 60;
+        
+        if (r.get('role') === 'HOSTS') teacherSessions.push(s);
+        if (r.get('role') === 'ATTENDS') learnerSessions.push(s);
+      }
+    });
 
-    const teacherSessions = teacherSnapshot.docs.map((d) => d.data());
-    const learnerSessions = learnerSnapshot.docs.map((d) => d.data());
     const allSessions = [...teacherSessions, ...learnerSessions];
 
     const completedSessionsCount = allSessions.length;
@@ -300,7 +435,7 @@ async function getReviews(uid) {
       skill:         s.skill,
       rating:        s.rating,
       ratingComment: s.ratingComment || '',
-      learnerUid:    s.learnerUid,
+      learnerUid:    s.learnerUid, // Assuming learnerUid is on Session for easy access, or fetch via graph
       scheduledAt:   s.scheduledAt,
     }));
 
@@ -308,13 +443,18 @@ async function getReviews(uid) {
       reviews, 
       stats: { completedSessionsCount, totalStudyHours, averageRating: avgRating }
     };
-  } catch (_err) {
+  } catch (err) {
+    console.error('getReviews error', err);
     return { reviews: [], stats: { completedSessionsCount: 0, totalStudyHours: 0, averageRating: 0 } };
+  } finally {
+    await session.close();
   }
 }
 
 // ── POST /api/user/:uid/follow ────────────────────────────────────────
 router.post('/:uid/follow', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const followerUid = req.user.uid;
     const targetUid = req.params.uid;
@@ -322,52 +462,49 @@ router.post('/:uid/follow', verifyFirebaseToken, async (req, res, next) => {
     if (followerUid === targetUid) {
       return res.status(400).json({ success: false, error: 'Cannot follow yourself' });
     }
-
-    const { admin } = require('../config/firebase');
-    const followerRef = db.collection(COLLECTION_USERS).doc(followerUid);
     
-    await followerRef.update({
-      following: admin.firestore.FieldValue.arrayUnion(targetUid)
-    });
+    await session.executeWrite(tx => tx.run(
+      `MATCH (u1:User {uid: $followerUid}), (u2:User {uid: $targetUid})
+       MERGE (u1)-[:FOLLOWS]->(u2)`,
+      { followerUid, targetUid }
+    ));
 
     res.json({ success: true, message: 'Successfully followed user' });
   } catch (err) {
     next(err);
+  } finally {
+    await session.close();
   }
 });
 
 // ── GET /api/user/:uid/following ──────────────────────────────────────
 router.get('/:uid/following', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const doc = await db.collection(COLLECTION_USERS).doc(req.params.uid).get();
-    if (!doc.exists) return res.status(404).json({ success: false, error: 'User not found' });
+    const result = await session.executeRead(tx => tx.run(
+      `MATCH (u:User {uid: $uid})-[:FOLLOWS]->(f:User)
+       RETURN f`,
+      { uid: req.params.uid }
+    ));
     
-    const followingUids = doc.data().following || [];
-    if (followingUids.length === 0) return res.json({ success: true, data: [] });
-
-    // Fetch basic profiles for all followed users
-    const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
-    const chunks = chunkArray(followingUids, 10);
-    
-    let followedUsers = [];
-    for (const chunk of chunks) {
-      const snap = await db.collection(COLLECTION_USERS).where('uid', 'in', chunk).get();
-      snap.docs.forEach(d => {
-        const u = d.data();
-        followedUsers.push({
-          uid: u.uid,
-          name: u.name,
-          photoUrl: u.photoUrl,
-          college: u.college,
-          department: u.department,
-          averageRating: u.averageRating
-        });
-      });
-    }
+    const followedUsers = result.records.map(r => {
+      const u = r.get('f').properties;
+      return {
+        uid: u.uid,
+        name: u.name,
+        photoUrl: u.photoUrl,
+        college: u.college,
+        department: u.department,
+        averageRating: toNumber(u.averageRating) || 0
+      };
+    });
 
     res.json({ success: true, data: followedUsers });
   } catch (err) {
     next(err);
+  } finally {
+    await session.close();
   }
 });
 

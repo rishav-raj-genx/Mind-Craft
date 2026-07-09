@@ -1,357 +1,178 @@
-/**
- * chat.js — Chat REST Endpoints (WebSocket fallback)
- *
- * Provides REST endpoints for chat operations when the WebSocket
- * connection is unavailable. Mirrors the Firestore schema used by
- * both the Android ChatRepository and the WebSocket chatService.
- *
- * Endpoints:
- *   GET    /api/chat/:matchId/history — Paginated message history
- *   POST   /api/chat/:matchId/send    — REST fallback for sending
- *   PATCH  /api/chat/:matchId/message/:messageId — REST fallback for editing
- *   DELETE /api/chat/:matchId/message/:messageId — REST fallback for deleting
- *   GET    /api/chat/threads/:uid     — List all chat threads
- */
-
 const express = require('express');
 const { body } = require('express-validator');
 const router  = express.Router();
 
-const { db }                    = require('../config/firebase');
-const { verifyFirebaseToken }   = require('../middleware/auth');
+const { verifyFirebaseToken } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
-const {
-  COLLECTION_MESSAGES,
-  COLLECTION_CHATS,
-  COLLECTION_MATCHES,
-} = require('../utils/constants');
+const { getDriver } = require('../config/neo4j');
+const { v4: uuidv4 } = require('uuid');
+const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 
-// ── GET /api/chat/:matchId/history ────────────────────────────────────
 router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const { matchId } = req.params;
     const limit  = parseInt(req.query.limit, 10) || 50;
     const before = req.query.before ? parseInt(req.query.before, 10) : null;
-
-    let query = db
-      .collection(COLLECTION_MESSAGES)
-      .doc(matchId)
-      .collection(COLLECTION_CHATS)
-      .orderBy('timestamp', 'desc')
-      .limit(limit);
-
-    if (before) {
-      query = query.where('timestamp', '<', before);
-    }
-
-    const snapshot = await query.get();
-    const messages = snapshot.docs
-      .map((d) => d.data())
-      .reverse(); // Chronological order
-
-    res.json({
-      success: true,
-      count:   messages.length,
-      hasMore: messages.length === limit,
-      data:    messages,
-    });
-  } catch (err) {
-    next(err);
-  }
+    
+    let query = `MATCH (m:Message)-[:IN_THREAD]->(t:ChatThread {id: $matchId})`;
+    let params = { matchId };
+    if (before) { query += ` WHERE m.timestamp < $before`; params.before = before; }
+    query += ` RETURN m ORDER BY m.timestamp DESC LIMIT toInteger($limit)`;
+    params.limit = limit;
+    
+    const result = await session.executeRead(tx => tx.run(query, params));
+    const messages = result.records.map(r => {
+      const m = r.get('m').properties;
+      m.timestamp = toNumber(m.timestamp);
+      return m;
+    }).reverse();
+    
+    res.json({ success: true, count: messages.length, hasMore: messages.length === limit, data: messages });
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── POST /api/chat/:matchId/send ──────────────────────────────────────
-router.post(
-  '/:matchId/send',
-  verifyFirebaseToken,
-  [body('text').trim().notEmpty().withMessage('Message text is required')],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const { matchId } = req.params;
-      const { text }    = req.body;
-      const senderUid   = req.user.uid;
-
-      const chatRef   = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS);
-      const messageId = chatRef.doc().id;
-      const timestamp = Date.now();
-
-      const message = {
-        messageId,
-        senderUid,
-        text,
-        timestamp,
-        read: false,
-      };
-
-      // Write message and update match in parallel
-      await Promise.all([
-        chatRef.doc(messageId).set(message),
-        db.collection(COLLECTION_MATCHES).doc(matchId).update({
-          lastMessage:     text,
-          lastMessageTime: timestamp,
-          lastMessageSender: senderUid,
-          unread: true,
-        }),
-      ]);
-
-      res.status(201).json({ success: true, data: message });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// ── PATCH /api/chat/:matchId/message/:messageId ──────────────────────────────
-router.patch(
-  '/:matchId/message/:messageId',
-  verifyFirebaseToken,
-  [body('text').trim().notEmpty().withMessage('Message text is required')],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const { matchId, messageId } = req.params;
-      const { text } = req.body;
-      const senderUid = req.user.uid;
-
-      const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
-      const doc = await chatRef.get();
-
-      if (!doc.exists) {
-        return res.status(404).json({ success: false, error: 'Message not found' });
-      }
-
-      const msg = doc.data();
-      if (msg.senderUid !== senderUid) {
-        return res.status(403).json({ success: false, error: 'Unauthorized to edit this message' });
-      }
-
-      await chatRef.update({
-        text,
-        isEdited: true,
-      });
-
-      // Update match preview if this is the last message
-      const matchRef = db.collection(COLLECTION_MATCHES).doc(matchId);
-      const matchDoc = await matchRef.get();
-      if (matchDoc.exists) {
-        const matchData = matchDoc.data();
-        if (matchData.lastMessageSender === senderUid && Math.abs(matchData.lastMessageTime - msg.timestamp) < 5000) {
-          await matchRef.update({ lastMessage: text });
-        }
-      }
-
-      res.json({ success: true });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-// ── DELETE /api/chat/:matchId/message/:messageId ─────────────────────────────
-router.delete('/:matchId/message/:messageId', verifyFirebaseToken, async (req, res, next) => {
+router.post('/:matchId/send', verifyFirebaseToken, [body('text').trim().notEmpty()], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
-    const { matchId, messageId } = req.params;
-    const senderUid = req.user.uid;
-
-    const chatRef = db.collection(COLLECTION_MESSAGES).doc(matchId).collection(COLLECTION_CHATS).doc(messageId);
-    const doc = await chatRef.get();
-
-    if (!doc.exists) {
-      return res.status(404).json({ success: false, error: 'Message not found' });
-    }
-
-    if (doc.data().senderUid !== senderUid) {
-      return res.status(403).json({ success: false, error: 'Unauthorized to delete this message' });
-    }
-
-    // Hard delete
-    await chatRef.delete();
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ── GET /api/chat/threads/:uid ────────────────────────────────────────
-router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
-  try {
-    const uid = req.params.uid;
-
-    // Get all matches where user is a participant
-    const [asUser1, asUser2, asTeacher, asLearner] = await Promise.all([
-      db.collection(COLLECTION_MATCHES).where('user1Uid', '==', uid).get(),
-      db.collection(COLLECTION_MATCHES).where('user2Uid', '==', uid).get(),
-      db.collection(COLLECTION_MATCHES).where('teacherUid', '==', uid).get(),
-      db.collection(COLLECTION_MATCHES).where('learnerUid', '==', uid).get(),
-    ]);
-
-    const allMatchesMap = new Map();
-    [...asUser1.docs, ...asUser2.docs, ...asTeacher.docs, ...asLearner.docs].forEach(d => {
-      allMatchesMap.set(d.id, { ...d.data(), matchId: d.id });
-    });
-
-    const allMatches = Array.from(allMatchesMap.values())
-      .sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
-
-    // Resolve partner profiles
-    const COLLECTION_USERS = 'users';
-    const threads = (await Promise.all(
-      allMatches.map(async (match) => {
-        let partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
-        if (!partnerUid && match.teacherUid && match.learnerUid) {
-          partnerUid = match.teacherUid === uid ? match.learnerUid : match.teacherUid;
-        }
-        // Skip matches where we can't determine the partner
-        if (!partnerUid) return null;
-        
-        let partner = { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
-        try {
-          const userDoc = await db.collection(COLLECTION_USERS).doc(partnerUid).get();
-          if (userDoc.exists) {
-            const u = userDoc.data();
-            partner = {
-              uid: partnerUid,
-              name: u.name || u.displayName || 'Study Partner',
-              photoUrl: u.photoUrl || u.photoURL || '',
-              college: u.college || '',
-              department: u.department || '',
-            };
-          }
-        } catch (_) { /* ignore */ }
-        return {
-          matchId: match.matchId,
-          partner,
-          lastMessage: match.lastMessage || '',
-          lastMessageTime: match.lastMessageTime || 0,
-          lastMessageSender: match.lastMessageSender || '',
-          unread: match.unread || false,
-        };
-      })
-    )).filter(Boolean);
-
-    res.json({
-      success: true,
-      count:   threads.length,
-      data:    threads,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ── GET /api/chat/:matchId/detail ─────────────────────────────────────
-router.get('/:matchId/detail', verifyFirebaseToken, async (req, res, next) => {
-  try {
+    const errors = formatValidationErrors(req);
+    if(errors) return res.status(400).json(errors);
     const { matchId } = req.params;
-    const uid = req.user.uid;
+    const { text } = req.body;
+    const senderUid = req.user.uid;
+    const messageId = uuidv4();
+    const timestamp = Date.now();
+    
+    await session.executeWrite(tx => tx.run(`
+      MERGE (t:ChatThread {id: $matchId})
+      WITH t MATCH (u:User {uid: $uid})
+      CREATE (m:Message {messageId: $messageId, senderUid: $uid, text: $text, timestamp: $timestamp, read: false, isEdited: false})
+      CREATE (u)-[:SENT]->(m)-[:IN_THREAD]->(t)
+      SET t.lastMessage = $text, t.lastMessageTime = $timestamp, t.lastMessageSender = $uid, t.unread = true
+    `, { matchId, uid: senderUid, text, messageId, timestamp }));
+    
+    res.status(201).json({ success: true, data: { messageId, senderUid, text, timestamp, read: false } });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
 
-    const matchDoc = await db.collection(COLLECTION_MATCHES).doc(matchId).get();
-    if (!matchDoc.exists) {
+router.patch('/:matchId/message/:messageId', verifyFirebaseToken, [body('text').trim().notEmpty()], async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const errors = formatValidationErrors(req);
+    if(errors) return res.status(400).json(errors);
+    const { matchId, messageId } = req.params;
+    const { text } = req.body;
+    const senderUid = req.user.uid;
+    
+    const result = await session.executeWrite(tx => tx.run(`
+      MATCH (u:User {uid: $uid})-[:SENT]->(m:Message {messageId: $messageId})-[:IN_THREAD]->(t:ChatThread {id: $matchId})
+      SET m.text = $text, m.isEdited = true
+      RETURN m, t
+    `, { uid: senderUid, messageId, matchId, text }));
+    if(result.records.length === 0) return res.status(403).json({ success: false, error: 'Unauthorized or not found' });
+    
+    const msg = result.records[0].get('m').properties;
+    const thread = result.records[0].get('t').properties;
+    
+    if(thread.lastMessageSender === senderUid && Math.abs(toNumber(thread.lastMessageTime) - toNumber(msg.timestamp)) < 5000) {
+      await session.executeWrite(tx => tx.run(`MATCH (t:ChatThread {id: $matchId}) SET t.lastMessage = $text`, { matchId, text }));
+    }
+    res.json({ success: true });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
+
+router.delete('/:matchId/message/:messageId', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.executeWrite(tx => tx.run(`
+      MATCH (u:User {uid: $uid})-[:SENT]->(m:Message {messageId: $messageId})-[:IN_THREAD]->(t:ChatThread {id: $matchId})
+      DETACH DELETE m RETURN m
+    `, { uid: req.user.uid, messageId: req.params.messageId, matchId: req.params.matchId }));
+    if(result.records.length === 0) return res.status(403).json({ success: false, error: 'Unauthorized or not found' });
+    res.json({ success: true });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
+
+router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.executeRead(tx => tx.run(`
+      MATCH (u:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread)<-[:PARTICIPATES_IN]-(p:User)
+      RETURN t, p ORDER BY t.lastMessageTime DESC
+    `, { uid: req.params.uid }));
+    const threads = result.records.map(r => {
+      const t = r.get('t').properties;
+      const p = r.get('p').properties;
+      return {
+        matchId: t.id,
+        partner: p,
+        lastMessage: t.lastMessage || '',
+        lastMessageTime: toNumber(t.lastMessageTime) || 0,
+        lastMessageSender: t.lastMessageSender || '',
+        unread: t.unread || false,
+      };
+    });
+    res.json({ success: true, count: threads.length, data: threads });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
+
+router.get('/:matchId/detail', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.executeRead(tx => tx.run(`
+      MATCH (t:ChatThread {id: $matchId})<-[:PARTICIPATES_IN]-(p:User)
+      WHERE p.uid <> $uid
+      RETURN t, p LIMIT 1
+    `, { matchId: req.params.matchId, uid: req.user.uid }));
+    
+    if(result.records.length === 0) {
+      // Fallback if thread exists but no partner or not fetched
       return res.status(404).json({ success: false, error: 'Thread not found' });
     }
-
-    const match = matchDoc.data();
-    let partnerUid = match.user1Uid === uid ? match.user2Uid : match.user1Uid;
-    if (!partnerUid && match.teacherUid && match.learnerUid) {
-      partnerUid = match.teacherUid === uid ? match.learnerUid : match.teacherUid;
-    }
-
-    let partner = { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
-    try {
-      const userDoc = await db.collection('users').doc(partnerUid).get();
-      if (userDoc.exists) {
-        const u = userDoc.data();
-        partner = {
-          uid: partnerUid,
-          name: u.name || u.displayName || 'Study Partner',
-          photoUrl: u.photoUrl || u.photoURL || '',
-          college: u.college || '',
-          department: u.department || '',
-          averageRating: u.averageRating || 0,
-        };
-      }
-    } catch (_) { /* ignore */ }
-
-    res.json({
-      success: true,
-      data: {
-        matchId: matchDoc.id,
-        partner,
-        lastMessage: match.lastMessage || '',
-        lastMessageTime: match.lastMessageTime || 0,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
+    const t = result.records[0].get('t').properties;
+    const p = result.records[0].get('p').properties;
+    res.json({ success: true, data: { matchId: t.id, partner: p, lastMessage: t.lastMessage || '', lastMessageTime: toNumber(t.lastMessageTime) || 0 } });
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
-// ── POST /api/chat/thread ──────────────────────────────────────────────
 router.post('/thread', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
     const fromUid = req.user.uid;
     const { partnerUid } = req.body;
+    if(!partnerUid) return res.status(400).json({ success: false, error: 'partnerUid is required' });
     
-    if (!partnerUid) {
-      return res.status(400).json({ success: false, error: 'partnerUid is required' });
-    }
-
-    // Check if match exists
-    const matchCheck1 = await db.collection(COLLECTION_MATCHES)
-      .where('user1Uid', '==', fromUid).where('user2Uid', '==', partnerUid).get();
-    const matchCheck2 = await db.collection(COLLECTION_MATCHES)
-      .where('user1Uid', '==', partnerUid).where('user2Uid', '==', fromUid).get();
-      
-    const existingDoc = !matchCheck1.empty ? matchCheck1.docs[0] : (!matchCheck2.empty ? matchCheck2.docs[0] : null);
-    if (existingDoc) {
-      const partnerDoc = await db.collection('users').doc(partnerUid).get();
-      const partner = partnerDoc.exists
-        ? { uid: partnerUid, ...partnerDoc.data() }
-        : { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
-
-      return res.json({
-        success: true,
-        matchId: existingDoc.id,
-        data: {
-          match: { matchId: existingDoc.id, ...existingDoc.data() },
-          partner,
-        },
-      });
+    const checkRes = await session.executeRead(tx => tx.run(`
+      MATCH (u1:User {uid: $fromUid})-[:PARTICIPATES_IN]->(t:ChatThread)<-[:PARTICIPATES_IN]-(u2:User {uid: $partnerUid})
+      RETURN t LIMIT 1
+    `, { fromUid, partnerUid }));
+    
+    if(checkRes.records.length > 0) {
+      const t = checkRes.records[0].get('t').properties;
+      const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: partnerUid }));
+      const p = pRes.records.length > 0 ? pRes.records[0].get('u').properties : { uid: partnerUid, name: 'Study Partner' };
+      return res.json({ success: true, matchId: t.id, data: { match: { matchId: t.id, ...t }, partner: p } });
     }
     
-    // Create new match if none exists
-    const matchRef = db.collection(COLLECTION_MATCHES).doc();
-    const match = {
-      matchId:         matchRef.id,
-      user1Uid:        fromUid,
-      user2Uid:        partnerUid,
-      sharedSkills:    [],
-      createdAt:       Date.now(),
-      lastMessage:     '',
-      lastMessageTime: 0,
-    };
-    await matchRef.set(match);
-    const partnerDoc = await db.collection('users').doc(partnerUid).get();
-    const partner = partnerDoc.exists
-      ? { uid: partnerUid, ...partnerDoc.data() }
-      : { uid: partnerUid, name: 'Study Partner', photoUrl: '' };
-
-    res.json({
-      success: true,
-      matchId: matchRef.id,
-      data: {
-        match,
-        partner,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
+    const matchId = uuidv4();
+    await session.executeWrite(tx => tx.run(`
+      MATCH (u1:User {uid: $fromUid}), (u2:User {uid: $partnerUid})
+      CREATE (t:ChatThread {id: $matchId, createdAt: timestamp(), lastMessage: '', lastMessageTime: 0})
+      CREATE (u1)-[:PARTICIPATES_IN]->(t)
+      CREATE (u2)-[:PARTICIPATES_IN]->(t)
+    `, { fromUid, partnerUid, matchId }));
+    
+    const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: partnerUid }));
+    const p = pRes.records.length > 0 ? pRes.records[0].get('u').properties : { uid: partnerUid, name: 'Study Partner' };
+    res.json({ success: true, matchId, data: { match: { matchId }, partner: p } });
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
 module.exports = router;
