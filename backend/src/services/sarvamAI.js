@@ -32,12 +32,56 @@ const extractChatContent = (data) => {
 };
 
 const createFallbackStudyHint = ({ title, content, tag }) => {
+  const source = `${title || ''} ${content || ''}`.toLowerCase();
   const topic = title || content || 'this concept';
   const subject = tag && tag !== '#Other' ? tag.replace(/^#/, '') : 'the topic';
+  const includes = (...terms) => terms.some(term => source.includes(term));
+
+  if (includes('closure')) {
+    return [
+      'English: A closure happens when an inner function remembers variables from its outer function even after the outer function has finished. Trace which variables are being captured.',
+      'Hindi: Closure में inner function, outer function के खत्म होने के बाद भी उसकी variables को याद रखता है। पहले देखें कौन-सी variables capture हो रही हैं।',
+    ].join('\n');
+  }
+
+  if (includes('base case', 'recursion', 'recursive')) {
+    return [
+      'English: In recursion, the base case is the stopping condition. Identify the smallest input where the answer is already known, then build the recursive step from there.',
+      'Hindi: Recursion में base case रोकने की शर्त होती है। सबसे छोटा input पहचानें जिसका answer सीधे पता हो, फिर recursive step बनाएं।',
+    ].join('\n');
+  }
+
+  if (includes('semantic tag', 'semantic html', 'html')) {
+    return [
+      'English: Semantic HTML tags describe meaning, not just layout. Think of tags like header, nav, main, article, section, and footer as labels for page structure.',
+      'Hindi: Semantic HTML tags layout नहीं, meaning बताते हैं। header, nav, main, article, section और footer page structure को साफ़ बनाते हैं।',
+    ].join('\n');
+  }
+
+  if (includes('balance', 'microeconomic', 'microeconomics', 'equilibrium', 'demand', 'supply')) {
+    return [
+      'English: In microeconomics, balance usually means equilibrium: the point where demand and supply are equal. Compare what buyers want with what sellers offer.',
+      'Hindi: Microeconomics में balance अक्सर equilibrium होता है, जहाँ demand और supply बराबर होती हैं। Buyers की demand और sellers की supply मिलाकर सोचें।',
+    ].join('\n');
+  }
+
+  if (includes('list', 'array', 'linked list')) {
+    return [
+      'English: A list stores items in order. Focus on how elements are added, accessed, removed, and whether positions/indexes matter in the problem.',
+      'Hindi: List items को order में store करती है। देखें elements कैसे add, access और remove होते हैं, और index/position क्यों important है।',
+    ].join('\n');
+  }
+
+  if (includes('fork', 'process', 'os', 'operating system')) {
+    return [
+      'English: Fork creates a new child process from an existing process. Track parent and child separately because both may continue executing after the fork call.',
+      'Hindi: Fork existing process से नया child process बनाता है। Parent और child को अलग-अलग trace करें क्योंकि दोनों आगे execute कर सकते हैं।',
+    ].join('\n');
+  }
 
   return [
-    `English: Start by identifying the core idea in ${subject}: ${topic}. Break the question into definitions, key variables, and one simple example before solving.`,
-    `Hindi: पहले ${subject} की मुख्य अवधारणा समझें: ${topic}. सवाल को परिभाषा, ज़रूरी बिंदुओं और एक सरल उदाहरण में बाँटकर आगे बढ़ें।`,
+    `English: For ${subject}, first restate "${topic}" in your own words. Then note the key definition, one example, and what the question is asking you to find.`,
+    `Hindi: ${subject} में पहले "${topic}" को अपने शब्दों में समझें। फिर मुख्य परिभाषा, एक example और question क्या पूछ रहा है, उसे अलग करें।`,
   ].join('\n');
 };
 

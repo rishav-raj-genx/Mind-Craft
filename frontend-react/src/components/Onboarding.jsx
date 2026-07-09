@@ -58,7 +58,7 @@ const Onboarding = ({ onComplete }) => {
   return (
     <div className="fixed inset-0 z-[200] bg-gray-50 dark:bg-background-deep flex flex-col items-center justify-center p-6 overflow-hidden">
       {/* Dynamic Background */}
-      <div className="absolute inset-0 pointer-events-none opacity-30 dark:opacity-20 flex items-center justify-center">
+      <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-20 flex items-center justify-center">
         <motion.div 
           key={`bg-${currentIndex}`}
           initial={{ opacity: 0, scale: 0.8 }}
@@ -76,7 +76,7 @@ const Onboarding = ({ onComplete }) => {
             animate={{ opacity: 1, rotateY: 0, scale: 1 }}
             exit={{ opacity: 0, rotateY: -90, scale: 0.8 }}
             transition={{ duration: 0.6, type: "spring", bounce: 0.3 }}
-            className="bg-white/80 dark:bg-surface-container/80 backdrop-blur-xl rounded-[40px] p-8 shadow-2xl border border-white/40 dark:border-surface-raised flex flex-col items-center text-center transform-style-3d"
+            className="bg-white/90 dark:bg-surface-container/80 backdrop-blur-xl rounded-[40px] p-8 shadow-2xl border border-slate-200 dark:border-surface-raised flex flex-col items-center text-center transform-style-3d"
           >
             {/* 3D Floating Icon Container */}
             <motion.div 
@@ -99,7 +99,7 @@ const Onboarding = ({ onComplete }) => {
             <h2 className="text-3xl font-black font-headline-lg text-gray-900 dark:text-white mb-4">
               {slides[currentIndex].title}
             </h2>
-            <p className="text-gray-600 dark:text-on-surface-variant font-body-lg text-lg leading-relaxed">
+            <p className="text-slate-600 dark:text-on-surface-variant font-body-lg text-lg leading-relaxed">
               {slides[currentIndex].description}
             </p>
           </motion.div>

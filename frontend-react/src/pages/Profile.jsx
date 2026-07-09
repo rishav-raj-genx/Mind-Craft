@@ -292,8 +292,8 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
 const GridCell = ({ level, title }) => {
   const bgColors = {
     '-1': 'bg-transparent',
-    0: 'bg-gray-100 dark:bg-[#2A2A3A]',
-    1: 'bg-purple-200 dark:bg-[#4C1D95]',
+    0: 'bg-slate-200 dark:bg-[#2A2A3A] border border-slate-300/70 dark:border-transparent',
+    1: 'bg-purple-300 dark:bg-[#4C1D95] border border-purple-400/40 dark:border-transparent',
     2: 'bg-[#7C3AED]',
     3: 'bg-[#DCFD8B] shadow-[0_0_6px_rgba(220,253,139,0.3)]',
   };
@@ -829,7 +829,7 @@ const Profile = () => {
       </section>
 
       {/* ── Consistency Graph ─────────────────────────────────────── */}
-      <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 shadow-sm dark:shadow-lg transition-colors overflow-hidden">
+      <section className="bg-white dark:bg-[#1C1C2E] border border-slate-200 dark:border-transparent rounded-[32px] p-6 shadow-sm dark:shadow-lg transition-colors overflow-hidden">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-2">
             <BarChart2 size={24} className="text-[#DCFD8B]" />
@@ -838,7 +838,7 @@ const Profile = () => {
           <span className="text-xs text-gray-500 dark:text-gray-400">Past year</span>
         </div>
 
-        <div className="w-full overflow-x-auto pb-4 hide-scrollbar" ref={graphScrollRef}>
+        <div className="w-full overflow-x-auto pb-4" ref={graphScrollRef}>
           <div className="flex flex-col min-w-max">
             {/* Grid */}
             <div className="flex gap-[3px]">
@@ -855,7 +855,7 @@ const Profile = () => {
               {gridData.monthLabels.map((ml, i) => (
                 <span 
                   key={i} 
-                  className="absolute text-[10px] text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap"
+                  className="absolute text-[10px] text-slate-600 dark:text-gray-400 font-semibold whitespace-nowrap"
                   style={{ left: `${ml.col * (14 + 3)}px` }}
                 >
                   {ml.label}
@@ -866,14 +866,14 @@ const Profile = () => {
         </div>
 
         <div className="flex justify-end items-center gap-2 mt-4">
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Less</span>
+          <span className="text-xs text-slate-600 dark:text-gray-400 font-semibold">Less</span>
           <div className="flex gap-[3px]">
-            <div className="w-3.5 h-3.5 rounded-sm bg-gray-200 dark:bg-[#2A2A3A]" />
-            <div className="w-3.5 h-3.5 rounded-sm bg-purple-200 dark:bg-[#4C1D95]" />
+            <div className="w-3.5 h-3.5 rounded-sm bg-slate-200 border border-slate-300/70 dark:bg-[#2A2A3A] dark:border-transparent" />
+            <div className="w-3.5 h-3.5 rounded-sm bg-purple-300 border border-purple-400/40 dark:bg-[#4C1D95] dark:border-transparent" />
             <div className="w-3.5 h-3.5 rounded-sm bg-[#7C3AED]" />
             <div className="w-3.5 h-3.5 rounded-sm bg-[#DCFD8B]" />
           </div>
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">More</span>
+          <span className="text-xs text-slate-600 dark:text-gray-400 font-semibold">More</span>
         </div>
       </section>
 

@@ -7,7 +7,7 @@ const LoadingScreen = () => {
     <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-gray-50 dark:bg-background-deep overflow-hidden">
       {/* Subtle Dot Pattern Background */}
       <div 
-        className="absolute inset-0 pointer-events-none opacity-[0.03] dark:opacity-[0.02]"
+        className="absolute inset-0 pointer-events-none opacity-[0.06] dark:opacity-[0.02]"
         style={{ backgroundImage: 'radial-gradient(circle, #000 1px, transparent 1px)', backgroundSize: '24px 24px' }}
       ></div>
 
@@ -34,7 +34,7 @@ const LoadingScreen = () => {
           <motion.div
              animate={{ y: [0, -6, 0] }}
              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-             className="relative z-10 bg-white dark:bg-surface-container shadow-sm border border-gray-100 dark:border-surface-raised p-5 rounded-3xl"
+             className="relative z-10 bg-white dark:bg-surface-container shadow-lg border border-slate-200 dark:border-surface-raised p-5 rounded-3xl"
           >
              <MindcraftLogo showIcon={false} className="w-12 h-12" />
           </motion.div>
@@ -46,7 +46,7 @@ const LoadingScreen = () => {
             Mind Craft
           </h1>
           
-          <div className="flex items-center gap-2 text-gray-500 dark:text-on-surface-variant font-medium">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-on-surface-variant font-semibold">
             <motion.div
               animate={{ rotate: [0, 10, -10, 0] }}
               transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}

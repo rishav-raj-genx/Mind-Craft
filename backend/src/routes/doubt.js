@@ -65,7 +65,7 @@ const attachSarvamStudyHint = async (req, _res, next) => {
 
 const hydrateMissingStudyHints = async (session, doubts) => {
   const missing = doubts
-    .filter(d => d.id && d.title && d.content && (!d.aiHint || d.aiAssistStatus === 'empty' || d.aiAssistStatus === 'failed'))
+    .filter(d => d.id && d.title && d.content && (!d.aiHint || ['empty', 'failed', 'fallback'].includes(d.aiAssistStatus)))
     .slice(0, 5);
 
   if (missing.length === 0) return doubts;
