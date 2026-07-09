@@ -29,6 +29,15 @@ const {
 
 // Helper to handle neo4j integer conversion
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
+const normalizeUserNumbers = (u) => {
+  u.mind_tokens = toNumber(u.mind_tokens) || 0;
+  u.tokenBalance = toNumber(u.tokenBalance) || 0;
+  u.totalSessions = toNumber(u.totalSessions) || 0;
+  u.averageRating = toNumber(u.averageRating) || 0;
+  u.latitude = toNumber(u.latitude) || 0;
+  u.longitude = toNumber(u.longitude) || 0;
+  return u;
+};
 
 // ── POST /api/user/register ───────────────────────────────────────────
 router.post(
@@ -78,9 +87,10 @@ router.post(
       
       try {
         await session.executeWrite(async (tx) => {
-          // 1. Create User
+          // 1. Create/update User idempotently
           await tx.run(
-            `CREATE (u:User { uid: $uid })
+            `MERGE (u:User { uid: $uid })
+             ON CREATE SET u.createdAt = $props.createdAt
              SET u += $props`,
             { uid, props: userData }
           );
@@ -88,7 +98,10 @@ router.post(
           // 2. College
           if (userData.college) {
             await tx.run(
-              `MERGE (c:College { name: $college })
+              `MATCH (u:User {uid: $uid})
+               OPTIONAL MATCH (u)-[old:BELONGS_TO]->(:College)
+               DELETE old
+               MERGE (c:College { name: $college })
                WITH c MATCH (u:User {uid: $uid})
                MERGE (u)-[:BELONGS_TO]->(c)`,
               { college: userData.college, uid }
@@ -97,6 +110,7 @@ router.post(
 
           // 3. Teaches
           const teaches = req.body.teaches || [];
+          await tx.run(`MATCH (u:User {uid: $uid})-[r:TEACHES]->() DELETE r`, { uid });
           if (teaches.length > 0) {
             await tx.run(
               `MATCH (u:User {uid: $uid})
@@ -109,6 +123,7 @@ router.post(
 
           // 4. Learns
           const learns = req.body.learns || [];
+          await tx.run(`MATCH (u:User {uid: $uid})-[r:LEARNS]->() DELETE r`, { uid });
           if (learns.length > 0) {
             await tx.run(
               `MATCH (u:User {uid: $uid})
@@ -175,6 +190,8 @@ router.get('/search', verifyFirebaseToken, async (req, res, next) => {
             any(s IN teaches WHERE toLower(s) CONTAINS $q) OR
             any(s IN learns WHERE toLower(s) CONTAINS $q)
       RETURN u, teaches, learns
+      ORDER BY u.name ASC
+      LIMIT 50
     `;
     
     const result = await session.executeRead(tx => tx.run(query, { currentUid: req.user.uid, q }));
@@ -184,11 +201,7 @@ router.get('/search', verifyFirebaseToken, async (req, res, next) => {
       u.teaches = record.get('teaches');
       u.learns = record.get('learns');
       // Normalize neo4j ints
-      if (u.mind_tokens) u.mind_tokens = toNumber(u.mind_tokens);
-      if (u.tokenBalance) u.tokenBalance = toNumber(u.tokenBalance);
-      if (u.totalSessions) u.totalSessions = toNumber(u.totalSessions);
-      if (u.averageRating) u.averageRating = toNumber(u.averageRating);
-      return u;
+      return normalizeUserNumbers(u);
     });
     
     res.json({ success: true, count: users.length, data: users });
@@ -220,10 +233,7 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
     const u = result.records[0].get('u').properties;
     u.teaches = result.records[0].get('teaches');
     u.learns = result.records[0].get('learns');
-    if (u.mind_tokens) u.mind_tokens = toNumber(u.mind_tokens);
-    if (u.tokenBalance) u.tokenBalance = toNumber(u.tokenBalance);
-    if (u.totalSessions) u.totalSessions = toNumber(u.totalSessions);
-    if (u.averageRating) u.averageRating = toNumber(u.averageRating);
+    normalizeUserNumbers(u);
 
     res.json({ success: true, data: u });
   } catch (err) {
@@ -275,7 +285,8 @@ router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
       
       if (updates.college) {
         await tx.run(
-          `MATCH (u:User {uid: $uid})-[r:BELONGS_TO]->() DELETE r`
+          `MATCH (u:User {uid: $uid})-[r:BELONGS_TO]->() DELETE r`,
+          { uid }
         );
         await tx.run(
           `MERGE (c:College { name: $college })
@@ -347,10 +358,7 @@ router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
     const u = result.records[0].get('u').properties;
     u.teaches = result.records[0].get('teaches');
     u.learns = result.records[0].get('learns');
-    if (u.mind_tokens) u.mind_tokens = toNumber(u.mind_tokens);
-    if (u.tokenBalance) u.tokenBalance = toNumber(u.tokenBalance);
-    if (u.totalSessions) u.totalSessions = toNumber(u.totalSessions);
-    if (u.averageRating) u.averageRating = toNumber(u.averageRating);
+    normalizeUserNumbers(u);
 
     const [tokenBalance, transactions, streak, skillGraph, sessionData] = await Promise.all([
       getBalance(uid).catch(() => 0),

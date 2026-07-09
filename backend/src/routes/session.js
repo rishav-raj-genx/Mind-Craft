@@ -13,6 +13,10 @@ const { SESSION_PENDING, SESSION_UPCOMING, SESSION_COMPLETED, SESSION_REJECTED }
 
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 
+router.get('/auth/google', (_req, res) => {
+  try { res.json({ success: true, data: { authUrl: getAuthUrl() } }); } catch (err) { res.status(503).json({ success: false, error: 'Google Calendar API not configured.' }); }
+});
+
 router.post('/book', verifyFirebaseToken, [
   body('matchId').trim().notEmpty(), body('teacherUid').trim().notEmpty(),
   body('learnerUid').trim().notEmpty(), body('skill').trim().notEmpty(),
@@ -23,6 +27,9 @@ router.post('/book', verifyFirebaseToken, [
   try {
     const errors = formatValidationErrors(req);
     if (errors) return res.status(400).json(errors);
+    if (![req.body.teacherUid, req.body.learnerUid].includes(req.user.uid)) {
+      return res.status(403).json({ success: false, error: 'Cannot book a session for unrelated users' });
+    }
 
     const sessionId = uuidv4();
     const sessObj = {
@@ -33,12 +40,18 @@ router.post('/book', verifyFirebaseToken, [
       notes: req.body.notes || '', status: SESSION_PENDING, rating: 0, ratingComment: '', createdAt: Date.now(),
     };
 
-    await session.executeWrite(tx => tx.run(`
+    const createRes = await session.executeWrite(tx => tx.run(`
       MATCH (t:User {uid: $teacherUid})
       MATCH (l:User {uid: $learnerUid})
+      MATCH (t)-[:PARTICIPATES_IN]->(:ChatThread {id: $matchId})<-[:PARTICIPATES_IN]-(l)
       CREATE (s:Session) SET s = $sessObj
       CREATE (l)-[:ATTENDS]->(s)<-[:HOSTS]-(t)
-    `, { teacherUid: sessObj.teacherUid, learnerUid: sessObj.learnerUid, sessObj }));
+      RETURN s
+    `, { teacherUid: sessObj.teacherUid, learnerUid: sessObj.learnerUid, matchId: sessObj.matchId, sessObj }));
+
+    if (createRes.records.length === 0) {
+      return res.status(404).json({ success: false, error: 'Matched users or chat thread not found' });
+    }
 
     const { broadcastToGlobal } = require('../services/chatService');
     broadcastToGlobal(req.body.teacherUid, {
@@ -58,10 +71,16 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
     const { uid } = req.params;
     const { status } = req.query;
     
+    if (uid !== req.user.uid) {
+      return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s sessions' });
+    }
+
     let query = `
-      MATCH (s:Session)
-      WHERE s.teacherUid = $uid OR s.learnerUid = $uid
-      RETURN s ORDER BY s.scheduledAt ASC
+      MATCH (me:User {uid: $uid})-[role:HOSTS|ATTENDS]->(s:Session)
+      OPTIONAL MATCH (peer:User)-[:HOSTS|ATTENDS]->(s)
+      WHERE peer.uid <> $uid
+      RETURN s, peer.name AS peerName
+      ORDER BY s.scheduledAt ASC
     `;
     let result = await session.executeRead(tx => tx.run(query, { uid }));
     
@@ -80,12 +99,10 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
       if (s.status === SESSION_UPCOMING && sEndTime < now) {
         s.status = SESSION_COMPLETED;
         await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.status = $status`, { id: s.sessionId, status: SESSION_COMPLETED }));
-        try { await awardSessionComplete(s.learnerUid, s.teacherUid); } catch(e){}
+        try { await awardSessionComplete(s.teacherUid, s.learnerUid, s.sessionId); } catch(e){}
       }
       
-      const peerUid = s.teacherUid === uid ? s.learnerUid : s.teacherUid;
-      const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u.name AS name`, { p: peerUid }));
-      s.peerName = pRes.records.length > 0 ? (pRes.records[0].get('name') || 'Peer') : 'Unknown User';
+      s.peerName = r.get('peerName') || 'Unknown User';
       sessions.push(s);
     }
     
@@ -118,7 +135,12 @@ router.patch('/:sessionId/accept', verifyFirebaseToken, async (req, res, next) =
       sessionData.meetLink = `https://meet.jit.si/MindCraft-${sessionId}`;
     }
 
-    await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.status = $status, s.meetLink = $meetLink`, { id: sessionId, status: SESSION_UPCOMING, meetLink: sessionData.meetLink || '' }));
+    const acceptRes = await session.executeWrite(tx => tx.run(`
+      MATCH (teacher:User {uid: $uid})-[:HOSTS]->(s:Session {sessionId: $id})
+      SET s.status = $status, s.meetLink = $meetLink
+      RETURN s
+    `, { id: sessionId, uid: req.user.uid, status: SESSION_UPCOMING, meetLink: sessionData.meetLink || '' }));
+    if (acceptRes.records.length === 0) return res.status(403).json({ success: false, error: 'Only the teacher can accept this session' });
 
     if (sessionData.meetLink && sessionData.matchId) {
       const messageId = uuidv4();
@@ -148,7 +170,12 @@ router.patch('/:sessionId/reject', verifyFirebaseToken, async (req, res, next) =
   const driver = getDriver();
   const session = driver.session();
   try {
-    await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.status = $status`, { id: req.params.sessionId, status: SESSION_REJECTED }));
+    const result = await session.executeWrite(tx => tx.run(`
+      MATCH (:User {uid: $uid})-[:HOSTS]->(s:Session {sessionId: $id})
+      SET s.status = $status
+      RETURN s
+    `, { id: req.params.sessionId, uid: req.user.uid, status: SESSION_REJECTED }));
+    if(result.records.length === 0) return res.status(403).json({ success: false, error: 'Only the teacher can reject this session' });
     res.json({ success: true, message: 'Session rejected' });
   } catch (err) { next(err); } finally { await session.close(); }
 });
@@ -157,11 +184,19 @@ router.patch('/:sessionId/complete', verifyFirebaseToken, async (req, res, next)
   const driver = getDriver();
   const session = driver.session();
   try {
+    const authRes = await session.executeRead(tx => tx.run(`
+      MATCH (:User {uid: $uid})-[:HOSTS|ATTENDS]->(:Session {sessionId: $id})
+      RETURN 1
+    `, { uid: req.user.uid, id: req.params.sessionId }));
+    if(authRes.records.length === 0) return res.status(403).json({ success: false, error: 'Not a participant in this session' });
+
     const result = await completeSession(req.params.sessionId);
     const sRes = await session.executeRead(tx => tx.run(`MATCH (s:Session {sessionId: $id}) RETURN s`, { id: req.params.sessionId }));
     if(sRes.records.length > 0) {
       const sess = sRes.records[0].get('s').properties;
-      try { await awardSessionComplete(sess.teacherUid, sess.learnerUid, sess.sessionId); } catch(e){}
+      if (!result.alreadyCompleted) {
+        try { await awardSessionComplete(sess.teacherUid, sess.learnerUid, sess.sessionId); } catch(e){}
+      }
     }
     res.json({ success: true, ...result });
   } catch (err) { next(err); } finally { await session.close(); }
@@ -182,8 +217,12 @@ router.post('/:sessionId/rate', verifyFirebaseToken, [
     if(sRes.records.length === 0) return res.status(404).json({ success: false, error: 'Session not found' });
     const sess = sRes.records[0].get('s').properties;
     
-    await session.executeWrite(tx => tx.run(`MATCH (s:Session {sessionId: $id}) SET s.rating = $rating, s.ratingComment = $comment, s.status = $status`, 
-      { id: sessionId, rating: parseFloat(rating), comment: comment||'', status: SESSION_COMPLETED }));
+    const rateRes = await session.executeWrite(tx => tx.run(`
+      MATCH (:User {uid: $uid})-[:ATTENDS]->(s:Session {sessionId: $id})
+      SET s.rating = $rating, s.ratingComment = $comment, s.status = $status
+      RETURN s
+    `, { id: sessionId, uid: req.user.uid, rating: parseFloat(rating), comment: comment||'', status: SESSION_COMPLETED }));
+    if(rateRes.records.length === 0) return res.status(403).json({ success: false, error: 'Only the learner can rate this session' });
     
     const allRes = await session.executeRead(tx => tx.run(`MATCH (s:Session) WHERE s.teacherUid = $tuid AND s.status = $status RETURN s`, { tuid: sess.teacherUid, status: SESSION_COMPLETED }));
     const rated = allRes.records.map(r => r.get('s').properties).filter(s => toNumber(s.rating) > 0);
@@ -203,10 +242,18 @@ router.post('/:sessionId/rate', verifyFirebaseToken, [
 });
 
 router.post('/:sessionId/cancel', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
   try {
+    const authRes = await session.executeRead(tx => tx.run(`
+      MATCH (:User {uid: $uid})-[:HOSTS|ATTENDS]->(:Session {sessionId: $id})
+      RETURN 1
+    `, { uid: req.user.uid, id: req.params.sessionId }));
+    if(authRes.records.length === 0) return res.status(403).json({ success: false, error: 'Not a participant in this session' });
+
     const result = await cancelSession(req.params.sessionId);
     res.json({ success: true, ...result });
-  } catch (err) { next(err); }
+  } catch (err) { next(err); } finally { await session.close(); }
 });
 
 router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res, next) => {
@@ -217,6 +264,9 @@ router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res,
     const sRes = await session.executeRead(tx => tx.run(`MATCH (s:Session {sessionId: $id}) RETURN s`, { id: sessionId }));
     if(sRes.records.length === 0) return res.status(404).json({ success: false, error: 'Session not found' });
     const sess = sRes.records[0].get('s').properties;
+    if (![sess.teacherUid, sess.learnerUid].includes(req.user.uid)) {
+      return res.status(403).json({ success: false, error: 'Not a participant in this session' });
+    }
     
     const peerUid = sess.learnerUid === req.user.uid ? sess.teacherUid : sess.learnerUid;
     const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: peerUid }));
@@ -239,10 +289,6 @@ router.post('/:sessionId/export-calendar', verifyFirebaseToken, async (req, res,
     const url = `https://calendar.google.com/calendar/render?${params.toString()}`;
     res.json({ success: true, data: { htmlLink: url } });
   } catch (err) { next(err); } finally { await session.close(); }
-});
-
-router.get('/auth/google', (_req, res) => {
-  try { res.json({ success: true, data: { authUrl: getAuthUrl() } }); } catch (err) { res.status(503).json({ success: false, error: 'Google Calendar API not configured.' }); }
 });
 
 module.exports = router;

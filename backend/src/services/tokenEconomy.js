@@ -21,6 +21,10 @@ const {
 } = require('../utils/constants');
 
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
+const toDateString = (date) => {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(date.getTime() + IST_OFFSET_MS).toISOString().split('T')[0];
+};
 
 /**
  * Awards tokens to a user using a Neo4j transaction.
@@ -37,6 +41,23 @@ async function awardTokens(uid, amount, reason, meta = {}) {
   const session = driver.session();
   try {
     const result = await session.executeWrite(async (tx) => {
+      const idempotencyKey = meta.sessionId || meta.questionId || null;
+      if (idempotencyKey) {
+        const existing = await tx.run(
+          `MATCH (u:User {uid: $uid})-[:HAS_TRANSACTION]->(t:Transaction {reason: $reason, idempotencyKey: $idempotencyKey})
+           RETURN u.mind_tokens AS balance, t.id AS transactionId`,
+          { uid, reason, idempotencyKey }
+        );
+
+        if (existing.records.length > 0) {
+          return {
+            newBalance: toNumber(existing.records[0].get('balance')) || 0,
+            transactionId: existing.records[0].get('transactionId'),
+            alreadyAwarded: true,
+          };
+        }
+      }
+
       // 1. Update Balance & Create Ledger Entry
       const txRes = await tx.run(
         `MATCH (u:User {uid: $uid})
@@ -45,13 +66,14 @@ async function awardTokens(uid, amount, reason, meta = {}) {
             amount: $amount,
             reason: $reason,
             meta: $metaStr,
+            idempotencyKey: $idempotencyKey,
             type: 'credit',
             timestamp: timestamp()
          })
          CREATE (u)-[:HAS_TRANSACTION]->(t)
          SET u.mind_tokens = coalesce(u.mind_tokens, 0) + $amount
          RETURN u.mind_tokens AS newBalance, t.id AS transactionId`,
-        { uid, amount, reason, metaStr: JSON.stringify(meta) }
+        { uid, amount, reason, metaStr: JSON.stringify(meta), idempotencyKey }
       );
       
       if (txRes.records.length === 0) {
@@ -59,23 +81,29 @@ async function awardTokens(uid, amount, reason, meta = {}) {
       }
 
       // 2. Activity Log for Streak Calculation
-      const dateStr = new Date().toISOString().split('T')[0];
+      const dateStr = toDateString(new Date());
       await tx.run(
         `MATCH (u:User {uid: $uid})
          MERGE (d:Date {date: $dateStr})
          MERGE (u)-[r:LOGGED_IN_ON]->(d)
          ON CREATE SET r.types = [$reason]
-         ON MATCH SET r.types = coalesce(r.types, []) + $reason`,
+         ON MATCH SET r.types = CASE
+           WHEN $reason IN coalesce(r.types, []) THEN r.types
+           ELSE coalesce(r.types, []) + $reason
+         END`,
         { uid, dateStr, reason }
       );
 
       return { 
         newBalance: toNumber(txRes.records[0].get('newBalance')), 
-        transactionId: txRes.records[0].get('transactionId') 
+        transactionId: txRes.records[0].get('transactionId'),
+        alreadyAwarded: false,
       };
     });
 
-    console.log(`🪙 Awarded ${amount} tokens to ${uid} (${reason})`);
+    if (!result.alreadyAwarded) {
+      console.log(`🪙 Awarded ${amount} tokens to ${uid} (${reason})`);
+    }
     return result;
   } finally {
     await session.close();

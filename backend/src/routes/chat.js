@@ -16,13 +16,23 @@ router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
     const limit  = parseInt(req.query.limit, 10) || 50;
     const before = req.query.before ? parseInt(req.query.before, 10) : null;
     
-    let query = `MATCH (m:Message)-[:IN_THREAD]->(t:ChatThread {id: $matchId})`;
-    let params = { matchId };
+    let query = `
+      MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
+      MATCH (m:Message)-[:IN_THREAD]->(t)
+    `;
+    let params = { matchId, uid: req.user.uid };
     if (before) { query += ` WHERE m.timestamp < $before`; params.before = before; }
     query += ` RETURN m ORDER BY m.timestamp DESC LIMIT toInteger($limit)`;
     params.limit = limit;
     
     const result = await session.executeRead(tx => tx.run(query, params));
+    if (result.records.length === 0) {
+      const access = await session.executeRead(tx => tx.run(`
+        MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(:ChatThread {id: $matchId})
+        RETURN 1
+      `, { uid: req.user.uid, matchId }));
+      if (access.records.length === 0) return res.status(403).json({ success: false, error: 'Not a participant in this chat thread' });
+    }
     const messages = result.records.map(r => {
       const m = r.get('m').properties;
       m.timestamp = toNumber(m.timestamp);
@@ -45,13 +55,14 @@ router.post('/:matchId/send', verifyFirebaseToken, [body('text').trim().notEmpty
     const messageId = uuidv4();
     const timestamp = Date.now();
     
-    await session.executeWrite(tx => tx.run(`
-      MERGE (t:ChatThread {id: $matchId})
-      WITH t MATCH (u:User {uid: $uid})
+    const sendResult = await session.executeWrite(tx => tx.run(`
+      MATCH (u:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
       CREATE (m:Message {messageId: $messageId, senderUid: $uid, text: $text, timestamp: $timestamp, read: false, isEdited: false})
       CREATE (u)-[:SENT]->(m)-[:IN_THREAD]->(t)
       SET t.lastMessage = $text, t.lastMessageTime = $timestamp, t.lastMessageSender = $uid, t.unread = true
+      RETURN m
     `, { matchId, uid: senderUid, text, messageId, timestamp }));
+    if (sendResult.records.length === 0) return res.status(403).json({ success: false, error: 'Not a participant in this chat thread' });
     
     res.status(201).json({ success: true, data: { messageId, senderUid, text, timestamp, read: false } });
   } catch (err) { next(err); } finally { await session.close(); }
@@ -101,6 +112,9 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
+    if (req.params.uid !== req.user.uid) {
+      return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s chat threads' });
+    }
     const result = await session.executeRead(tx => tx.run(`
       MATCH (u:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread)<-[:PARTICIPATES_IN]-(p:User)
       RETURN t, p ORDER BY t.lastMessageTime DESC
@@ -126,7 +140,8 @@ router.get('/:matchId/detail', verifyFirebaseToken, async (req, res, next) => {
   const session = driver.session();
   try {
     const result = await session.executeRead(tx => tx.run(`
-      MATCH (t:ChatThread {id: $matchId})<-[:PARTICIPATES_IN]-(p:User)
+      MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
+      MATCH (t)<-[:PARTICIPATES_IN]-(p:User)
       WHERE p.uid <> $uid
       RETURN t, p LIMIT 1
     `, { matchId: req.params.matchId, uid: req.user.uid }));
@@ -162,12 +177,14 @@ router.post('/thread', verifyFirebaseToken, async (req, res, next) => {
     }
     
     const matchId = uuidv4();
-    await session.executeWrite(tx => tx.run(`
+    const createRes = await session.executeWrite(tx => tx.run(`
       MATCH (u1:User {uid: $fromUid}), (u2:User {uid: $partnerUid})
       CREATE (t:ChatThread {id: $matchId, createdAt: timestamp(), lastMessage: '', lastMessageTime: 0})
       CREATE (u1)-[:PARTICIPATES_IN]->(t)
       CREATE (u2)-[:PARTICIPATES_IN]->(t)
+      RETURN t
     `, { fromUid, partnerUid, matchId }));
+    if (createRes.records.length === 0) return res.status(404).json({ success: false, error: 'Partner not found' });
     
     const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: partnerUid }));
     const p = pRes.records.length > 0 ? pRes.records[0].get('u').properties : { uid: partnerUid, name: 'Study Partner' };

@@ -9,22 +9,23 @@ async function completeSession(sessionId) {
   try {
     const res = await session.executeWrite(tx => tx.run(`
       MATCH (s:Session {sessionId: $sessionId})
+      WITH s, s.status AS previousStatus
       SET s.status = $status, s.completedAt = timestamp()
       WITH s MATCH (u:User)-[:ATTENDS]->(s)
-      RETURN u.uid AS learnerUid, s
+      RETURN u.uid AS learnerUid, s, previousStatus
     `, { sessionId, status: SESSION_COMPLETED }));
     if(res.records.length === 0) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
     
     learnerUid = res.records[0].get('learnerUid');
     sessionData = res.records[0].get('s').properties;
-    if (sessionData.status === SESSION_COMPLETED && !sessionData.completedAt) {
-      // already completed previously logic
-    }
+    sessionData.alreadyCompleted = res.records[0].get('previousStatus') === SESSION_COMPLETED;
   } finally { await session.close(); }
   
   let notificationSent = false;
-  try { notificationSent = await sendRatingNotification(learnerUid, sessionData); } catch(err) {}
-  return { success: true, notificationSent };
+  if (!sessionData.alreadyCompleted) {
+    try { notificationSent = await sendRatingNotification(learnerUid, sessionData); } catch(err) {}
+  }
+  return { success: true, notificationSent, alreadyCompleted: sessionData.alreadyCompleted };
 }
 
 async function cancelSession(sessionId) {

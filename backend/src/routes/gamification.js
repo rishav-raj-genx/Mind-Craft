@@ -32,6 +32,7 @@ const { calculateBadges, recordBadgeEarned } = require('../services/badgeCalcula
 router.get('/tokens/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
+    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s token wallet' });
     const limit = parseInt(req.query.limit, 10) || 20;
     const after = req.query.after || null;
 
@@ -57,13 +58,15 @@ router.get('/tokens/:uid', verifyFirebaseToken, async (req, res, next) => {
 router.post(
   '/tokens/award/forum',
   verifyFirebaseToken,
-  [body('uid').trim().notEmpty().withMessage('User UID is required')],
+  [],
   async (req, res, next) => {
     try {
       const errors = formatValidationErrors(req);
       if (errors) return res.status(400).json(errors);
 
-      const { uid, questionId } = req.body;
+      const { questionId } = req.body;
+      const uid = req.body.uid || req.user.uid;
+      if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot award forum tokens to another user' });
       const result = await awardForumAnswer(uid, questionId || '');
 
       // Check and award streak bonus
@@ -163,6 +166,7 @@ router.post('/streak/checkin', verifyFirebaseToken, async (req, res, next) => {
 router.get('/streak/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid    = req.params.uid;
+    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s streak' });
     const streak = await calculateStreak(uid);
 
     res.json({
@@ -186,6 +190,7 @@ router.get('/streak/:uid', verifyFirebaseToken, async (req, res, next) => {
 router.get('/badges/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid = req.params.uid;
+    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s badges' });
     const result = await calculateBadges(uid);
 
     // Record any newly earned badges in history

@@ -14,6 +14,7 @@ const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
+    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch matches for another user' });
     const limit = parseInt(req.query.limit, 10) || 20;
     const skill = req.query.skill || null;
     const matches = await findMatches(uid, { limit, skillFilter: skill });
@@ -24,6 +25,7 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
 router.get('/:uid/broad', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
+    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch matches for another user' });
     const limit = parseInt(req.query.limit, 10) || 20;
     let matches = await findBroadMatches(uid, limit);
     if (matches.length === 0) matches = await findAnyMatches(uid, limit);
@@ -86,10 +88,10 @@ router.post('/accept', verifyFirebaseToken, [body('requestId').trim().notEmpty()
       MATCH (u1:User {uid: $fromUid})-[r:REQUESTS_MATCH {requestId: $requestId}]->(u2:User {uid: $toUid})
       SET r.status = $status
       WITH u1, u2
-      CREATE (t:ChatThread {id: $matchId, createdAt: timestamp(), lastMessage: '', lastMessageTime: 0, sharedSkills: []})
+      CREATE (t:ChatThread {id: $matchId, createdAt: timestamp(), lastMessage: '', lastMessageTime: 0, sharedSkills: [$sharedSkill]})
       CREATE (u1)-[:PARTICIPATES_IN]->(t)
       CREATE (u2)-[:PARTICIPATES_IN]->(t)
-    `, { fromUid, toUid: req.user.uid, requestId, status: STATUS_ACCEPTED, matchId }));
+    `, { fromUid, toUid: req.user.uid, requestId, status: STATUS_ACCEPTED, matchId, sharedSkill: reqData.sharedSkill || '' }));
     
     res.json({ success: true, data: { matchId } });
   } catch (err) { next(err); } finally { await session.close(); }
@@ -117,6 +119,7 @@ router.get('/requests/:uid', verifyFirebaseToken, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
+    if (req.params.uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s requests' });
     const result = await session.executeRead(tx => tx.run(`
       MATCH (u1:User)-[r:REQUESTS_MATCH {status: $status}]->(u2:User {uid: $uid})
       RETURN r, u1.uid AS fromUid

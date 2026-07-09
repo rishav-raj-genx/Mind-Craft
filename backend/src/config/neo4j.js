@@ -68,6 +68,12 @@ async function ensureConstraints() {
     'CREATE CONSTRAINT thread_id_unique IF NOT EXISTS FOR (t:ChatThread) REQUIRE t.id IS UNIQUE',
     // Badge nodes — name must be unique
     'CREATE CONSTRAINT badge_name_unique IF NOT EXISTS FOR (b:Badge) REQUIRE b.name IS UNIQUE',
+    // Doubt nodes — id must be unique
+    'CREATE CONSTRAINT doubt_id_unique IF NOT EXISTS FOR (d:Doubt) REQUIRE d.id IS UNIQUE',
+    // Date nodes — date must be unique
+    'CREATE CONSTRAINT date_date_unique IF NOT EXISTS FOR (d:Date) REQUIRE d.date IS UNIQUE',
+    // Transaction nodes — id must be unique
+    'CREATE CONSTRAINT transaction_id_unique IF NOT EXISTS FOR (t:Transaction) REQUIRE t.id IS UNIQUE',
   ];
 
   try {

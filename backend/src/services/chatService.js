@@ -60,7 +60,7 @@ function initWebSocketServer(httpServer) {
 
       switch (data.type) {
         case 'join':
-          handleJoin(ws, user, data.matchId);
+          await handleJoin(ws, user, data.matchId);
           break;
         case 'message':
           await handleMessage(ws, user, data.matchId, data.text, data.localId);
@@ -108,9 +108,14 @@ function initWebSocketServer(httpServer) {
   return wss;
 }
 
-function handleJoin(ws, user, matchId) {
+async function handleJoin(ws, user, matchId) {
   if (!matchId) {
     ws.send(JSON.stringify({ type: 'error', error: 'matchId is required' }));
+    return;
+  }
+  const isParticipant = await userCanAccessThread(user.uid, matchId);
+  if (!isParticipant) {
+    ws.send(JSON.stringify({ type: 'error', error: 'Not a participant in this chat thread' }));
     return;
   }
   if (!rooms.has(matchId)) rooms.set(matchId, new Set());
@@ -132,13 +137,11 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
     const res = await session.executeWrite(async (tx) => {
       const messageId = require('crypto').randomUUID();
       
-      // We ensure the ChatThread exists and link message.
-      await tx.run(
-        `MERGE (t:ChatThread {id: $matchId})
-         WITH t
-         MATCH (u:User {uid: $uid})
+      const writeRes = await tx.run(
+        `MATCH (u:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
          CREATE (m:Message {
            messageId: $messageId,
+           senderUid: $uid,
            text: $text,
            timestamp: $timestamp,
            read: false,
@@ -153,6 +156,9 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
         `,
         { matchId, uid: user.uid, text, timestamp, messageId }
       );
+      if (writeRes.records.length === 0) {
+        throw Object.assign(new Error('Not a participant in this chat thread'), { statusCode: 403 });
+      }
       
       // Find the recipient (the other user in the thread)
       // Usually matching is handled in matches, we can look up participants
@@ -223,6 +229,8 @@ function handleTyping(ws, user, matchId) {
 
 async function handleRead(user, matchId) {
   if (!matchId) return;
+  const isParticipant = await userCanAccessThread(user.uid, matchId);
+  if (!isParticipant) return;
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -235,6 +243,23 @@ async function handleRead(user, matchId) {
     `, { matchId, uid: user.uid }));
   } catch (err) {
     console.error('❌ Mark read error:', err.message);
+  } finally {
+    await session.close();
+  }
+}
+
+async function userCanAccessThread(uid, matchId) {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const res = await session.executeRead(tx => tx.run(`
+      MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(:ChatThread {id: $matchId})
+      RETURN 1
+    `, { uid, matchId }));
+    return res.records.length > 0;
+  } catch (err) {
+    console.error('❌ Thread access check error:', err.message);
+    return false;
   } finally {
     await session.close();
   }

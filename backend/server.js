@@ -83,7 +83,6 @@ app.use('/api/chat',         chatRoutes);
 app.use('/api/session',      sessionRoutes);
 app.use('/api/doubt',        doubtRoutes);
 app.use('/api/auth',         authRoutes);
-app.use('/api/auth',         authRoutes);
 
 // ── 404 + error handling ─────────────────────────────────────────────
 app.use(notFoundHandler);

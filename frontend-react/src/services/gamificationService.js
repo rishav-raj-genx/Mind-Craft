@@ -29,8 +29,8 @@ export const gamificationService = {
     return response.data;
   },
 
-  awardForumTokens: async () => {
-    const response = await api.post('/tokens/award/forum');
+  awardForumTokens: async (questionId = '') => {
+    const response = await api.post('/tokens/award/forum', { questionId });
     return response.data;
   },
   

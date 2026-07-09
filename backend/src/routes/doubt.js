@@ -5,9 +5,20 @@ const router  = express.Router();
 const { verifyFirebaseToken }    = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { getDriver } = require('../config/neo4j');
+const { awardForumAnswer } = require('../services/tokenEconomy');
 const { v4: uuidv4 } = require('uuid');
 
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
+const parseJsonArray = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_err) {
+    return [];
+  }
+};
 
 router.get('/', verifyFirebaseToken, async (req, res, next) => {
   const driver = getDriver();
@@ -27,8 +38,8 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
       d.upvotes = toNumber(d.upvotes);
       d.answerCount = toNumber(d.answerCount);
       // Fetch answers and upvotes later or assume empty for list view
-      d.answers = d.answers ? JSON.parse(d.answers) : [];
-      d.upvotedBy = d.upvotedBy ? JSON.parse(d.upvotedBy) : [];
+      d.answers = parseJsonArray(d.answers);
+      d.upvotedBy = parseJsonArray(d.upvotedBy);
       return d;
     });
     res.json({ success: true, data: doubts });
@@ -114,14 +125,22 @@ router.post('/:id/answer', verifyFirebaseToken, [
     if(result.records.length === 0) return res.status(404).json({ success: false, error: 'Doubt not found' });
     
     const dProp = result.records[0].get('d').properties;
-    const answers = dProp.answers ? JSON.parse(dProp.answers) : [];
+    const answers = parseJsonArray(dProp.answers);
     answers.push(answer);
     
     await session.executeWrite(tx => tx.run(`
       MATCH (d:Doubt {id: $id})
-      SET d.answers = $answers, d.answerCount = d.answerCount + 1
+      MATCH (u:User {uid: $uid})
+      MERGE (u)-[:ANSWERED]->(d)
+      SET d.answers = $answers, d.answerCount = coalesce(d.answerCount, 0) + 1
       RETURN d.authorUid AS authorUid, d.title AS title
-    `, { id: req.params.id, answers: JSON.stringify(answers) }));
+    `, { id: req.params.id, answers: JSON.stringify(answers), uid }));
+
+    try {
+      await awardForumAnswer(uid, req.params.id);
+    } catch (awardErr) {
+      console.warn('Forum token award skipped:', awardErr.message);
+    }
     
     const authorUid = dProp.authorUid;
     if(authorUid !== uid) {
@@ -145,7 +164,7 @@ router.patch('/:id/upvote', verifyFirebaseToken, async (req, res, next) => {
     if(result.records.length === 0) return res.status(404).json({ success: false, error: 'Doubt not found' });
     
     const dProp = result.records[0].get('d').properties;
-    let upvotedBy = dProp.upvotedBy ? JSON.parse(dProp.upvotedBy) : [];
+    let upvotedBy = parseJsonArray(dProp.upvotedBy);
     const upvotes = toNumber(dProp.upvotes) || 0;
     
     if(upvotedBy.includes(uid)) {

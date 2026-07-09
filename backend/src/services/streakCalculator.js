@@ -17,6 +17,7 @@ const BADGE_MILESTONES = [
 
 async function recordCheckIn(uid) {
   const todayStr = toDateString(new Date());
+  const now = Date.now();
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -24,13 +25,15 @@ async function recordCheckIn(uid) {
       MATCH (u:User {uid: $uid})
       MERGE (d:Date {date: $todayStr})
       MERGE (u)-[r:LOGGED_IN_ON]->(d)
-      ON CREATE SET r.types = ['app_open']
-      RETURN u
-    `, { uid, todayStr }));
-    // If it didn't create, we consider it already checked in if relationships exist, 
-    // but the query doesn't explicitly return true/false for creation easily without more cypher.
-    // We'll just return { alreadyCheckedIn: false } as a simplification since it's idempotent.
-    return { alreadyCheckedIn: false };
+      ON CREATE SET r.types = ['app_open'], r.createdAt = $now
+      ON MATCH SET r.types = CASE
+        WHEN 'app_open' IN coalesce(r.types, []) THEN r.types
+        ELSE coalesce(r.types, []) + 'app_open'
+      END
+      RETURN r.createdAt = $now AS created
+    `, { uid, todayStr, now }));
+    const created = res.records.length > 0 && res.records[0].get('created') === true;
+    return { alreadyCheckedIn: !created };
   } finally {
     await session.close();
   }
