@@ -355,7 +355,7 @@ async function recordBadgeEarned(uid, badgeId, badgeName, level) {
     .doc(`${badgeId}_level${level}`);
 
   const existing = await ref.get();
-  if (existing.exists) return; // Already recorded
+  if (existing.exists) return false; // Already recorded
 
   await ref.set({
     badgeId,
@@ -363,6 +363,7 @@ async function recordBadgeEarned(uid, badgeId, badgeName, level) {
     level,
     earnedAt: require('../config/firebase').admin.firestore.FieldValue.serverTimestamp(),
   });
+  return true;
 }
 
 module.exports = { calculateBadges, recordBadgeEarned, BADGE_DEFINITIONS };

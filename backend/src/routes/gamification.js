@@ -126,8 +126,24 @@ router.post('/streak/checkin', verifyFirebaseToken, async (req, res, next) => {
 
     // Check and award streak bonus at milestones
     let streakBonus = null;
-    if ([5, 10, 30].includes(streak.currentStreak) && !checkInResult.alreadyCheckedIn) {
-      streakBonus = await awardStreakBonus(uid, streak.currentStreak);
+    if (!checkInResult.alreadyCheckedIn && streak.currentStreak > 0) {
+      if ([5, 10, 30].includes(streak.currentStreak)) {
+        streakBonus = await awardStreakBonus(uid, streak.currentStreak);
+      }
+      const { broadcastToGlobal } = require('../services/chatService');
+      broadcastToGlobal(uid, {
+        type: 'global_new_message',
+        notification: {
+          title: 'Streak Increased! 🔥',
+          body: `You're now on a ${streak.currentStreak} day streak! Keep going!`,
+        },
+        data: {
+          type: 'streak_update',
+          id: `streak-${streak.currentStreak}`,
+          route: '/streak',
+          matchId: '',
+        }
+      });
     }
 
     res.json({
@@ -173,10 +189,26 @@ router.get('/badges/:uid', verifyFirebaseToken, async (req, res, next) => {
     const result = await calculateBadges(uid);
 
     // Record any newly earned badges in history
+    const { broadcastToGlobal } = require('../services/chatService');
     for (const badge of result.badges) {
       if (badge.level > 0) {
         try {
-          await recordBadgeEarned(uid, badge.id, badge.name, badge.level);
+          const isNew = await recordBadgeEarned(uid, badge.id, badge.name, badge.level);
+          if (isNew) {
+            broadcastToGlobal(uid, {
+              type: 'global_new_message',
+              notification: {
+                title: 'Badge Unlocked! 🏅',
+                body: `You unlocked the Level ${badge.level} ${badge.name} badge!`,
+              },
+              data: {
+                type: 'badge_unlocked',
+                id: `badge-${badge.id}-${badge.level}`,
+                route: '/badges',
+                matchId: '',
+              }
+            });
+          }
         } catch (_) { /* non-critical */ }
       }
     }

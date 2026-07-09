@@ -235,6 +235,22 @@ router.patch('/:sessionId/accept', verifyFirebaseToken, async (req, res, next) =
       });
     }
 
+    // Notify learner about session acceptance
+    const { broadcastToGlobal } = require('../services/chatService');
+    broadcastToGlobal(sessionData.learnerUid, {
+      type: 'global_new_message',
+      notification: {
+        title: 'Session Accepted! ✅',
+        body: `Your session request for ${sessionData.skill || 'tutoring'} was accepted.`,
+      },
+      data: {
+        type: 'session_booked',
+        id: `session-${sessionId}-accept`,
+        route: '/sessions',
+        matchId: '',
+      }
+    });
+
     res.json({ success: true, message: 'Session accepted', meetLink: sessionData.meetLink });
   } catch (err) {
     next(err);
@@ -328,6 +344,22 @@ router.post(
           totalSessions: ratedSessions.length,
         });
       }
+
+      // Notify the teacher about the new review
+      const { broadcastToGlobal } = require('../services/chatService');
+      broadcastToGlobal(session.teacherUid, {
+        type: 'global_new_message',
+        notification: {
+          title: 'New Review Received! ⭐',
+          body: `You received a ${rating}-star rating for your session.`,
+        },
+        data: {
+          type: 'new_review',
+          id: `review-${sessionId}`,
+          route: '/profile',
+          matchId: '',
+        }
+      });
 
       res.json({ success: true, message: 'Rating submitted' });
     } catch (err) {
