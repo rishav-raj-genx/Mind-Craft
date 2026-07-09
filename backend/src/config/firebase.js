@@ -1,45 +1,51 @@
 /**
  * firebase.js — Firebase Admin SDK Initialization
  *
- * Initializes the Admin SDK using a local service account key file.
- * Exports Firestore, Auth, and Realtime Database instances for use
- * across all backend services.
- *
- * The Firebase project (mind-craft-4f16c) is shared with the existing
- * Kotlin Android app, so all Firestore collections are fully compatible.
+ * Initializes the Admin SDK for token verification.
+ * Supports either FIREBASE_SERVICE_ACCOUNT_JSON on hosted environments
+ * or FIREBASE_SERVICE_ACCOUNT_PATH for local development.
  */
 
 const admin = require('firebase-admin');
 const path  = require('path');
 const fs    = require('fs');
 
-// ── Resolve the service account key path ──────────────────────────────
-const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-  ? path.resolve(__dirname, '../../', process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
-  : path.resolve(__dirname, '../../serviceAccountKey.json');
-
 let serviceAccount = null;
 
-if (fs.existsSync(keyPath)) {
-  serviceAccount = require(keyPath);
+if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (err) {
+    console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON:', err.message);
+  }
 } else {
-  console.warn(
-    '⚠️  Firebase service account key not found at:',
-    keyPath,
-    '\n   → Download from Firebase Console → Project Settings → Service Accounts',
-    '\n   → The server will start but Firebase operations will fail.',
-  );
+  const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+    ? path.resolve(__dirname, '../../', process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
+    : path.resolve(__dirname, '../../serviceAccountKey.json');
+
+  if (fs.existsSync(keyPath)) {
+    serviceAccount = require(keyPath);
+  } else {
+    console.warn(
+      '⚠️  Firebase service account key not found at:',
+      keyPath,
+      '\n   → Set FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_PATH for auth.',
+    );
+  }
 }
 
 // ── Initialize the Admin app ──────────────────────────────────────────
 if (serviceAccount) {
   const projectId = serviceAccount.project_id || 'mind-craft-5191e';
-  admin.initializeApp({
+  const appConfig = {
     credential: admin.credential.cert(serviceAccount),
-    databaseURL:
-      process.env.FIREBASE_DATABASE_URL ||
-      `https://${projectId}-default-rtdb.firebaseio.com`,
-  });
+  };
+
+  if (process.env.FIREBASE_DATABASE_URL) {
+    appConfig.databaseURL = process.env.FIREBASE_DATABASE_URL;
+  }
+
+  admin.initializeApp(appConfig);
   console.log(`✅ Firebase Admin SDK initialized (project: ${projectId})`);
 } else {
   // Initialize without credentials so the app can still start
