@@ -240,8 +240,10 @@ const Chat = () => {
         console.log("HISTORY FETCHED:", history);
         const historyMessages = Array.isArray(history) ? history : (history.data || history.messages || []);
         console.log("HISTORY MESSAGES SETTING:", historyMessages);
-        setMessages(historyMessages);
-        writeCache(historyCacheKey, historyMessages);
+        if (historyMessages.length > 0 || cachedMessages.length === 0) {
+          setMessages(historyMessages);
+          writeCache(historyCacheKey, historyMessages);
+        }
 
         const detail = await chatService.getThreadDetail(matchId).catch(() => null);
         if (detail?.data?.partner) {

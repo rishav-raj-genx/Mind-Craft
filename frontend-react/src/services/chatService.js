@@ -27,6 +27,11 @@ export const chatService = {
     return response.data;
   },
 
+  markRead: async (matchId) => {
+    const response = await api.patch(`/chat/${matchId}/read`);
+    return response.data;
+  },
+
   editMessage: async (matchId, messageId, text) => {
     const response = await api.patch(`/chat/${matchId}/message/${messageId}`, { text });
     return response.data;

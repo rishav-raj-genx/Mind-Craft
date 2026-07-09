@@ -195,8 +195,8 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
 
     if (recipientUid) {
       broadcastToGlobal(recipientUid, {
+        ...outgoing,
         type: 'global_new_message',
-        ...outgoing
       });
 
       if (fcmToken) {
@@ -205,7 +205,14 @@ async function handleMessage(ws, user, matchId, text, localId = null) {
           await admin.messaging().send({
             token: fcmToken,
             notification: { title: user.name, body: text },
-            data: { type: 'chat', matchId, url: `/chat/${matchId}` }
+            data: {
+              type: 'chat',
+              matchId,
+              messageId,
+              senderUid: user.uid,
+              timestamp: String(timestamp),
+              url: `/chat/${matchId}`,
+            }
           });
           console.log(`✅ FCM push sent to ${recipientUid}`);
         } catch (err) {
@@ -241,6 +248,7 @@ async function handleRead(user, matchId) {
       WITH t
       SET t.unread = false
     `, { matchId, uid: user.uid }));
+    broadcastToRoom(matchId, { type: 'read_receipt', matchId, readerUid: user.uid });
   } catch (err) {
     console.error('❌ Mark read error:', err.message);
   } finally {

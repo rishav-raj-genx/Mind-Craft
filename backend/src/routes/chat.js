@@ -60,11 +60,75 @@ router.post('/:matchId/send', verifyFirebaseToken, [body('text').trim().notEmpty
       CREATE (m:Message {messageId: $messageId, senderUid: $uid, text: $text, timestamp: $timestamp, read: false, isEdited: false})
       CREATE (u)-[:SENT]->(m)-[:IN_THREAD]->(t)
       SET t.lastMessage = $text, t.lastMessageTime = $timestamp, t.lastMessageSender = $uid, t.unread = true
-      RETURN m
+      WITH m, t, u
+      OPTIONAL MATCH (p:User)-[:PARTICIPATES_IN]->(t)
+      WHERE p.uid <> $uid
+      RETURN m, p.uid AS recipientUid, p.fcmToken AS fcmToken, coalesce(u.name, u.email, 'Study Partner') AS senderName
     `, { matchId, uid: senderUid, text, messageId, timestamp }));
     if (sendResult.records.length === 0) return res.status(403).json({ success: false, error: 'Not a participant in this chat thread' });
+
+    const recipientUid = sendResult.records[0].get('recipientUid');
+    const fcmToken = sendResult.records[0].get('fcmToken');
+    const senderName = sendResult.records[0].get('senderName');
+    if (recipientUid) {
+      const { broadcastToGlobal } = require('../services/chatService');
+      broadcastToGlobal(recipientUid, {
+        type: 'global_new_message',
+        matchId,
+        messageId,
+        senderUid,
+        senderName,
+        text,
+        timestamp,
+      });
+
+      if (fcmToken) {
+        try {
+          const { admin } = require('../config/firebase');
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: { title: senderName, body: text },
+            data: {
+              type: 'chat',
+              matchId,
+              messageId,
+              senderUid,
+              timestamp: String(timestamp),
+              url: `/chat/${matchId}`,
+            },
+          });
+        } catch (pushErr) {
+          console.warn('Chat REST FCM push skipped:', pushErr.message);
+        }
+      }
+    }
     
     res.status(201).json({ success: true, data: { messageId, senderUid, text, timestamp, read: false } });
+  } catch (err) { next(err); } finally { await session.close(); }
+});
+
+router.patch('/:matchId/read', verifyFirebaseToken, async (req, res, next) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const { matchId } = req.params;
+    const uid = req.user.uid;
+
+    const result = await session.executeWrite(tx => tx.run(`
+      MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
+      OPTIONAL MATCH (m:Message)-[:IN_THREAD]->(t)
+      WHERE NOT (m)<-[:SENT]-(:User {uid: $uid}) AND coalesce(m.read, false) = false
+      SET m.read = true
+      WITH t
+      SET t.unread = false
+      RETURN t.id AS matchId
+    `, { matchId, uid }));
+
+    if (result.records.length === 0) {
+      return res.status(403).json({ success: false, error: 'Not a participant in this chat thread' });
+    }
+
+    res.json({ success: true });
   } catch (err) { next(err); } finally { await session.close(); }
 });
 

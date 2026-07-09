@@ -9,7 +9,7 @@ const Layout = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const { hasUnreadNotifications, clearUnreadNotifications, unreadChatCount } = useNotifications();
+  const { hasUnreadNotifications, clearUnreadNotifications, unreadChatCount, unreadForumCount } = useNotifications();
 
   const navItems = [
     { path: '/', icon: Grid, label: 'Home', match: (p) => p === '/' },
@@ -46,7 +46,7 @@ const Layout = () => {
             >
               <Bell size={20} />
               {hasUnreadNotifications && (
-                <div className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse"></div>
+                <div className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-success-lime rounded-full shadow-[0_0_8px_rgba(220,253,139,0.8)] animate-pulse"></div>
               )}
             </button>
           </div>
@@ -75,6 +75,9 @@ const Layout = () => {
               <div className="relative">
                 <Icon size={24} />
                 {item.label === 'Chat' && unreadChatCount > 0 && (
+                  <div className="absolute -top-1 -right-1.5 w-2.5 h-2.5 bg-success-lime rounded-full shadow-[0_0_8px_rgba(220,253,139,0.8)] border border-white dark:border-surface-container-low animate-pulse"></div>
+                )}
+                {item.label === 'Forum' && unreadForumCount > 0 && (
                   <div className="absolute -top-1 -right-1.5 w-2.5 h-2.5 bg-success-lime rounded-full shadow-[0_0_8px_rgba(220,253,139,0.8)] border border-white dark:border-surface-container-low animate-pulse"></div>
                 )}
               </div>

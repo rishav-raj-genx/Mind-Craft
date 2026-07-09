@@ -18,6 +18,7 @@ const CATEGORIES = {
   GAMIFICATION: 'gamification',
   SOCIAL: 'social',
   REVIEW: 'review',
+  FORUM: 'forum',
 };
 
 // ── Helper: Sort threads by lastMessageTime descending ───────────────
@@ -32,6 +33,7 @@ export const NotificationProvider = ({ children }) => {
   // ── Chat State ─────────────────────────────────────────────────────
   const [threads, setThreads] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({}); // Map<matchId, number>
+  const [unreadForumIds, setUnreadForumIds] = useState(new Set());
   const [toastMessage, setToastMessage] = useState(null);
   
   // ── Unified Notifications State ────────────────────────────────────
@@ -40,24 +42,58 @@ export const NotificationProvider = ({ children }) => {
   const wsRef = useRef(null);
   const chatListeners = useRef(new Map()); // matchId -> callback
   const fcmInitialized = useRef(false);
+  const pathRef = useRef(location.pathname);
+
+  useEffect(() => {
+    pathRef.current = location.pathname;
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setUnreadForumIds(new Set());
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(`mindcraft_unread_forum:${currentUser.uid}`);
+      setUnreadForumIds(new Set(raw ? JSON.parse(raw) : []));
+    } catch {
+      setUnreadForumIds(new Set());
+    }
+  }, [currentUser]);
 
   // ── Computed values ────────────────────────────────────────────────
   const unreadChatCount = useMemo(
     () => Object.values(unreadCounts).reduce((sum, c) => sum + c, 0),
     [unreadCounts]
   );
+  const unreadForumCount = unreadForumIds.size;
 
   // Derive hasUnreadNotifications from actual state (single source of truth)
   const hasUnreadNotifications = useMemo(
-    () => notifications.some(n => !n.read) || unreadChatCount > 0,
-    [notifications, unreadChatCount]
+    () => notifications.some(n => !n.read),
+    [notifications]
   );
+
+  const updateUnreadForumIds = useCallback((updater) => {
+    setUnreadForumIds(prev => {
+      const next = updater(prev);
+      if (currentUser) {
+        localStorage.setItem(`mindcraft_unread_forum:${currentUser.uid}`, JSON.stringify([...next]));
+      }
+      return next;
+    });
+  }, [currentUser]);
 
   // ── Add a notification to the unified list ─────────────────────────
   const pushNotification = useCallback((notif) => {
     setNotifications(prev => {
-      // Deduplicate by id
-      if (prev.find(n => n.id === notif.id)) return prev;
+      const existingIdx = prev.findIndex(n => n.id === notif.id);
+      if (existingIdx !== -1) {
+        const updated = [...prev];
+        updated[existingIdx] = { ...updated[existingIdx], ...notif };
+        return updated;
+      }
       return [notif, ...prev];
     });
   }, []);
@@ -76,13 +112,24 @@ export const NotificationProvider = ({ children }) => {
       data.forEach(t => {
         if (t.unread && t.lastMessageSender !== currentUser.uid) {
           counts[t.matchId] = (counts[t.matchId] || 0) + 1;
+          pushNotification({
+            id: `msg-${t.matchId}-${t.lastMessageTime || Date.now()}`,
+            category: CATEGORIES.MESSAGE,
+            type: 'UNREAD_CHAT',
+            title: 'New Message',
+            message: `You have an unread message from ${t.partner?.name || 'a study partner'}.`,
+            timestamp: t.lastMessageTime || Date.now(),
+            read: false,
+            route: `/chat/${t.matchId}`,
+            matchId: t.matchId,
+          });
         }
       });
       setUnreadCounts(counts);
     } catch (err) {
       console.error('Error fetching initial notification data', err);
     }
-  }, [currentUser]);
+  }, [currentUser, pushNotification]);
 
   // ── FCM Token Setup ────────────────────────────────────────────────
   const initFCM = async () => {
@@ -102,14 +149,58 @@ export const NotificationProvider = ({ children }) => {
         console.log('📱 Foreground FCM message:', payload);
         const title = payload.notification?.title || payload.data?.title || 'Mindcraft';
         const body = payload.notification?.body || payload.data?.body || '';
+        const data = payload.data || {};
+
+        if ((data.type === 'chat' || data.type === 'forum_doubt') && wsRef.current?.readyState === WebSocket.OPEN) {
+          return;
+        }
         
         setToastMessage({
           senderName: title,
           text: body,
-          matchId: payload.data?.matchId,
+          matchId: data.matchId,
+          route: data.route || data.url,
           timestamp: Date.now(),
         });
         setTimeout(() => setToastMessage(null), 4000);
+
+        if (data.type === 'chat' && data.matchId) {
+          const notificationTs = Number(data.timestamp || Date.now());
+          const currentMatchId = pathRef.current.split('/chat/')[1];
+          if (currentMatchId !== data.matchId) {
+            setUnreadCounts(prev => ({
+              ...prev,
+              [data.matchId]: (prev[data.matchId] || 0) + 1,
+            }));
+          }
+          pushNotification({
+            id: `msg-${data.matchId}-${data.messageId || notificationTs}`,
+            category: CATEGORIES.MESSAGE,
+            title: 'New Message',
+            message: body || 'You have a new message.',
+            timestamp: notificationTs,
+            read: false,
+            route: `/chat/${data.matchId}`,
+            matchId: data.matchId,
+          });
+        }
+
+        if (data.type === 'forum_doubt' && data.doubtId) {
+          if (pathRef.current !== '/forum') {
+            updateUnreadForumIds(prev => new Set(prev).add(data.doubtId));
+          }
+          pushNotification({
+            id: `forum-${data.doubtId}`,
+            category: CATEGORIES.FORUM,
+            type: 'NEW_DOUBT',
+            title: 'New Doubt',
+            message: body || 'A new doubt was posted.',
+            timestamp: Date.now(),
+            read: false,
+            route: data.route || `/forum?doubtId=${data.doubtId}`,
+            doubtId: data.doubtId,
+          });
+        }
       });
     } catch (err) {
       console.warn('FCM init skipped:', err.message);
@@ -123,6 +214,11 @@ export const NotificationProvider = ({ children }) => {
         wsRef.current.close();
         wsRef.current = null;
       }
+      fcmInitialized.current = false;
+      setThreads([]);
+      setUnreadCounts({});
+      setNotifications([]);
+      chatListeners.current.clear();
       return;
     }
 
@@ -135,7 +231,12 @@ export const NotificationProvider = ({ children }) => {
       const ws = new WebSocket(`${wsBaseUrl}/ws?token=${encodeURIComponent(token)}`);
       wsRef.current = ws;
 
-      ws.onopen = () => console.log('🌍 Unified WebSocket connected');
+      ws.onopen = () => {
+        console.log('🌍 Unified WebSocket connected');
+        chatListeners.current.forEach((_callback, matchId) => {
+          ws.send(JSON.stringify({ type: 'join', matchId }));
+        });
+      };
 
       ws.onmessage = (event) => {
         try {
@@ -216,7 +317,38 @@ export const NotificationProvider = ({ children }) => {
 
         // 2. Global Chat Notification (background)
         if (data.type === 'global_new_message') {
-          const currentMatchId = location.pathname.split('/chat/')[1];
+          if (!data.matchId) {
+            const notification = data.notification || {};
+            const nested = data.data || {};
+            const route = nested.route || '/notifications';
+            const isForum = nested.type === 'FORUM_REPLY';
+
+            const audio = new Audio('/notification.mp3');
+            audio.volume = 0.5;
+            audio.play().catch(() => {});
+
+            setToastMessage({
+              senderName: notification.title || 'Mindcraft',
+              text: notification.body || 'You have a new notification',
+              route,
+              timestamp: Date.now(),
+            });
+            setTimeout(() => setToastMessage(null), 4000);
+
+            pushNotification({
+              id: nested.id || `notif-${Date.now()}`,
+              category: isForum ? CATEGORIES.FORUM : CATEGORIES.SESSION,
+              type: nested.type || 'GENERAL',
+              title: notification.title || 'Notification',
+              message: notification.body || 'You have a new notification',
+              timestamp: Date.now(),
+              read: false,
+              route,
+            });
+            return;
+          }
+
+          const currentMatchId = pathRef.current.split('/chat/')[1];
           const isCurrentlyInChat = currentMatchId === data.matchId;
 
           // Update Threads instantly in-memory + sort
@@ -258,7 +390,7 @@ export const NotificationProvider = ({ children }) => {
             
             // Push into unified notifications
             pushNotification({
-              id: `msg-${data.matchId}`,  // use matchId so duplicates get deduped
+              id: `msg-${data.matchId}-${data.messageId || data.timestamp || Date.now()}`,
               category: CATEGORIES.MESSAGE,
               title: 'New Message',
               message: `New message from ${data.senderName || 'Study Partner'}`,
@@ -271,7 +403,44 @@ export const NotificationProvider = ({ children }) => {
           return;
         }
 
-        // 3. Room-specific Chat Events (Route to Chat.jsx listeners)
+        // 3. Global Forum Notification
+        if (data.type === 'global_forum_doubt') {
+          const doubt = data.data || {};
+          if (!doubt.doubtId || doubt.authorUid === currentUser.uid) return;
+
+          const isInForum = pathRef.current === '/forum';
+          if (!isInForum) {
+            updateUnreadForumIds(prev => new Set(prev).add(doubt.doubtId));
+          }
+
+          const audio = new Audio('/notification.mp3');
+          audio.volume = 0.5;
+          audio.play().catch(() => {});
+
+          const route = doubt.route || `/forum?doubtId=${doubt.doubtId}`;
+          setToastMessage({
+            senderName: doubt.authorName || 'Forum',
+            text: `New doubt: ${doubt.title || 'Open forum'}`,
+            route,
+            timestamp: doubt.createdAt || Date.now(),
+          });
+          setTimeout(() => setToastMessage(null), 4000);
+
+          pushNotification({
+            id: `forum-${doubt.doubtId}`,
+            category: CATEGORIES.FORUM,
+            type: 'NEW_DOUBT',
+            title: 'New Doubt',
+            message: `${doubt.authorName || 'Someone'} asked: "${doubt.title || 'a new doubt'}"`,
+            timestamp: doubt.createdAt || Date.now(),
+            read: false,
+            route,
+            doubtId: doubt.doubtId,
+          });
+          return;
+        }
+
+        // 4. Room-specific Chat Events (Route to Chat.jsx listeners)
         if (data.matchId) {
           const listener = chatListeners.current.get(data.matchId);
           if (listener) {
@@ -347,6 +516,7 @@ export const NotificationProvider = ({ children }) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'read', matchId }));
     }
+    chatService.markRead(matchId).catch(() => {});
     
     // Clear unread count for this thread
     setThreads(prev => prev.map(t => t.matchId === matchId ? { ...t, unread: false } : t));
@@ -365,6 +535,15 @@ export const NotificationProvider = ({ children }) => {
     }));
   };
 
+  const markForumVisited = useCallback(() => {
+    updateUnreadForumIds(() => new Set());
+    setNotifications(prev => prev.map(n => (
+      n.category === CATEGORIES.FORUM || n.type === 'NEW_DOUBT'
+        ? { ...n, read: true }
+        : n
+    )));
+  }, [updateUnreadForumIds]);
+
   const editMessage = (matchId, messageId, text) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'edit_message', matchId, messageId, text }));
@@ -379,7 +558,7 @@ export const NotificationProvider = ({ children }) => {
 
   // ── Notification Management ────────────────────────────────────────
   const clearUnreadNotifications = () => {
-    // No-op: hasUnreadNotifications is now derived from actual state
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
   const markNotificationRead = useCallback((id) => {
@@ -388,21 +567,20 @@ export const NotificationProvider = ({ children }) => {
 
   const markAllNotificationsRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    // Also clear all unread chat counts since user explicitly wants everything read
-    setUnreadCounts({});
-    setThreads(prev => prev.map(t => ({ ...t, unread: false })));
   }, []);
 
   return (
     <NotificationContext.Provider value={{
       // Chat
       unreadChatCount,
+      unreadForumCount,
       unreadCounts,
       threads,
       subscribeToChat,
       sendMessage,
       sendTyping,
       markRead,
+      markForumVisited,
       editMessage,
       deleteMessage,
       toastMessage,
@@ -419,7 +597,7 @@ export const NotificationProvider = ({ children }) => {
       {/* Global Toast for incoming messages */}
       {toastMessage && (
         <div className="fixed top-24 sm:top-8 left-1/2 -translate-x-1/2 z-[10000] bg-white dark:bg-surface-container shadow-2xl rounded-2xl p-4 flex items-center gap-3 animate-in slide-in-from-top-12 fade-in duration-300 border-2 border-success-lime dark:border-[#DCFD8B]/50 w-[90%] sm:w-96 cursor-pointer"
-             onClick={() => { setToastMessage(null); navigate(`/chat/${toastMessage.matchId}`); }}>
+             onClick={() => { setToastMessage(null); navigate(toastMessage.route || `/chat/${toastMessage.matchId}`); }}>
           <div className="w-12 h-12 rounded-full bg-success-lime flex items-center justify-center text-gray-900 font-bold text-xl shrink-0">
             {toastMessage.senderName?.[0]?.toUpperCase() || '?'}
           </div>

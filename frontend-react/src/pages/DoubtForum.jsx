@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 import { doubtService } from '../services/doubtService';
 import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles } from 'lucide-react';
 
@@ -34,8 +35,14 @@ const tagColor = (tag) => {
   return map[tag] || 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700';
 };
 
-const AIAssistHint = ({ hint }) => {
-  if (!hint) return null;
+const AIAssistHint = ({ hint, status, error }) => {
+  if (!hint && !status && !error) return null;
+
+  const message = hint || (
+    status === 'failed'
+      ? 'AI Assist could not generate a Sarvam study hint for this doubt yet.'
+      : 'AI Assist is waiting for the Sarvam study hint.'
+  );
 
   return (
     <div className="mt-3 rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50 dark:bg-cyan-950/30 px-3 py-2.5">
@@ -43,7 +50,7 @@ const AIAssistHint = ({ hint }) => {
         <Sparkles size={13} />
         AI Assist
       </div>
-      <p className="text-sm leading-relaxed whitespace-pre-line text-gray-700 dark:text-gray-300">{hint}</p>
+      <p className="text-sm leading-relaxed whitespace-pre-line text-gray-700 dark:text-gray-300">{message}</p>
     </div>
   );
 };
@@ -255,7 +262,7 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner }) => {
              </div>
              <h3 className="font-bold text-gray-900 dark:text-white mb-1">{post.title}</h3>
              <p className="text-sm text-gray-600 dark:text-gray-400">{post.content}</p>
-             <AIAssistHint hint={post.aiHint} />
+             <AIAssistHint hint={post.aiHint} status={post.aiAssistStatus} error={post.aiAssistError} />
           </div>
 
           <h4 className="font-bold text-sm text-gray-700 dark:text-gray-300 mb-4">{post.answers?.length || 0} Answers</h4>
@@ -353,6 +360,7 @@ const ResolveConfirmModal = ({ post, onClose, onConfirm, loading }) => {
 // ── Main DoubtForum Component ─────────────────────────────────────────
 const DoubtForum = () => {
   const { currentUser } = useAuth();
+  const { markForumVisited } = useNotifications();
   const [searchParams] = useSearchParams();
   const [posts, setPosts] = useState([]);
   const [activeFilter, setActiveFilter] = useState('All Doubts');
@@ -366,6 +374,7 @@ const DoubtForum = () => {
   const [fetchError, setFetchError] = useState('');
   const [upvotedIds, setUpvotedIds] = useState(new Set());
   const [successMsg, setSuccessMsg] = useState('');
+  const aiHintRetryRef = useRef(false);
 
   const fetchDoubts = async (filter = activeFilter) => {
     setLoading(true);
@@ -376,6 +385,12 @@ const DoubtForum = () => {
       const res = await doubtService.getAllDoubts(fetchFilter);
       const data = res.data || [];
       setPosts(data);
+
+      const hasMissingHints = data.some(d => d.id && (!d.aiHint || d.aiAssistStatus === 'empty' || d.aiAssistStatus === 'failed'));
+      if (hasMissingHints && !aiHintRetryRef.current) {
+        aiHintRetryRef.current = true;
+        setTimeout(() => fetchDoubts(filter), 2500);
+      }
       
       const doubtId = searchParams.get('doubtId');
       if (doubtId && data.length > 0) {
@@ -393,14 +408,19 @@ const DoubtForum = () => {
   };
 
   useEffect(() => {
+    aiHintRetryRef.current = false;
+    markForumVisited?.();
     fetchDoubts(activeFilter);
-  }, [activeFilter]);
+  }, [activeFilter, markForumVisited]);
 
   const handleAddDoubt = async ({ title, content, tag }) => {
     setSubmitting(true);
     try {
       const res = await doubtService.createDoubt({ title, content, tag });
       setPosts(prev => [res.data, ...prev]);
+      if (!res.data?.aiHint) {
+        setTimeout(() => fetchDoubts(activeFilter), 2500);
+      }
       setShowModal(false);
       setSuccessMsg('Your doubt was posted! 🎉');
       setTimeout(() => setSuccessMsg(''), 3000);
@@ -588,7 +608,7 @@ const DoubtForum = () => {
                 <div className="mb-4">
                   <h2 className="font-bold text-base text-gray-900 dark:text-white mb-1">{post.title}</h2>
                   <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed">{post.content}</p>
-                  <AIAssistHint hint={post.aiHint} />
+                  <AIAssistHint hint={post.aiHint} status={post.aiAssistStatus} error={post.aiAssistError} />
                 </div>
 
                 {/* Actions */}

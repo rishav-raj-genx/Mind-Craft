@@ -34,7 +34,7 @@ const attachSarvamStudyHint = async (req, _res, next) => {
     const errors = formatValidationErrors(req);
     if (errors) return next();
 
-    const { hint, model, usage } = await generateStudyHint({
+    const { hint, model, usage, fallback, warning } = await generateStudyHint({
       title: req.body.title,
       content: req.body.content,
       tag: req.body.tag,
@@ -44,7 +44,9 @@ const attachSarvamStudyHint = async (req, _res, next) => {
       hint,
       provider: 'sarvam-ai',
       model,
+      status: hint ? (fallback ? 'fallback' : 'generated') : 'empty',
       usage,
+      error: warning || '',
       generatedAt: Date.now(),
     };
   } catch (err) {
@@ -52,12 +54,123 @@ const attachSarvamStudyHint = async (req, _res, next) => {
     req.aiAssist = {
       hint: '',
       provider: 'sarvam-ai',
+      status: 'failed',
       error: err.message,
       generatedAt: Date.now(),
     };
   }
 
   next();
+};
+
+const hydrateMissingStudyHints = async (session, doubts) => {
+  const missing = doubts
+    .filter(d => d.id && d.title && d.content && (!d.aiHint || d.aiAssistStatus === 'empty' || d.aiAssistStatus === 'failed'))
+    .slice(0, 5);
+
+  if (missing.length === 0) return doubts;
+
+  await Promise.all(missing.map(async (d) => {
+    try {
+      const { hint, model, usage, fallback, warning } = await generateStudyHint({
+        title: d.title,
+        content: d.content,
+        tag: d.tag,
+      });
+
+      if (!hint) return;
+
+      d.aiHint = hint;
+      d.aiAssistProvider = 'sarvam-ai';
+      d.aiAssistModel = model || '';
+      d.aiAssistStatus = fallback ? 'fallback' : 'generated';
+      d.aiAssistUsage = usage || null;
+      d.aiAssistGeneratedAt = Date.now();
+      d.aiAssistError = warning || '';
+
+      await session.executeWrite(tx => tx.run(`
+        MATCH (d:Doubt {id: $id})
+        SET d.aiHint = $hint,
+            d.aiAssistProvider = 'sarvam-ai',
+            d.aiAssistModel = $model,
+            d.aiAssistStatus = $status,
+            d.aiAssistUsage = $usage,
+            d.aiAssistGeneratedAt = $generatedAt,
+            d.aiAssistError = $error
+      `, {
+        id: d.id,
+        hint,
+        model: d.aiAssistModel,
+        status: d.aiAssistStatus,
+        usage: usage ? JSON.stringify(usage) : '',
+        generatedAt: d.aiAssistGeneratedAt,
+        error: d.aiAssistError,
+      }));
+    } catch (err) {
+      console.warn(`Sarvam AI backfill skipped for doubt ${d.id}:`, err.message);
+    }
+  }));
+
+  return doubts;
+};
+
+const broadcastNewDoubt = async (doubt) => {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.executeRead(tx => tx.run(`
+      MATCH (u:User)
+      WHERE u.uid <> $authorUid
+      RETURN u.uid AS uid, u.fcmToken AS fcmToken
+    `, { authorUid: doubt.authorUid }));
+
+    const { broadcastToGlobal } = require('../services/chatService');
+    const payload = {
+      type: 'global_forum_doubt',
+      subType: 'new_doubt',
+      notification: {
+        title: 'New Doubt Posted',
+        body: `${doubt.authorName} asked: "${doubt.title}"`,
+      },
+      data: {
+        doubtId: doubt.id,
+        authorUid: doubt.authorUid,
+        authorName: doubt.authorName,
+        title: doubt.title,
+        content: doubt.content,
+        tag: doubt.tag,
+        createdAt: doubt.createdAt,
+        route: `/forum?doubtId=${doubt.id}`,
+      },
+    };
+
+    for (const record of result.records) {
+      const uid = record.get('uid');
+      const fcmToken = record.get('fcmToken');
+      broadcastToGlobal(uid, payload);
+
+      if (fcmToken) {
+        try {
+          const { admin } = require('../config/firebase');
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: payload.notification,
+            data: {
+              type: 'forum_doubt',
+              doubtId: doubt.id,
+              route: `/forum?doubtId=${doubt.id}`,
+            },
+          });
+        } catch (err) {
+          console.warn('Forum FCM push skipped:', err.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Forum broadcast skipped:', err.message);
+  } finally {
+    await session.close();
+  }
 };
 
 router.get('/', verifyFirebaseToken, async (req, res, next) => {
@@ -72,7 +185,7 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
       params = { tag };
     }
     const result = await session.executeRead(tx => tx.run(query, params));
-    const doubts = result.records.map(r => {
+    let doubts = result.records.map(r => {
       const d = r.get('d').properties;
       d.createdAt = toNumber(d.createdAt);
       d.upvotes = toNumber(d.upvotes);
@@ -83,6 +196,7 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
       d.aiAssistUsage = parseJsonValue(d.aiAssistUsage, null);
       return d;
     });
+    doubts = await hydrateMissingStudyHints(session, doubts);
     res.json({ success: true, data: doubts });
   } catch (err) { next(err); } finally { await session.close(); }
 });
@@ -132,12 +246,14 @@ router.post('/', verifyFirebaseToken, [
       aiHint: req.aiAssist?.hint || '',
       aiAssistProvider: req.aiAssist?.provider || 'sarvam-ai',
       aiAssistModel: req.aiAssist?.model || '',
+      aiAssistStatus: req.aiAssist?.status || 'skipped',
       aiAssistUsage: req.aiAssist?.usage ? JSON.stringify(req.aiAssist.usage) : '',
       aiAssistGeneratedAt: req.aiAssist?.generatedAt || Date.now(),
       aiAssistError: req.aiAssist?.error || ''
     };
 
     await session.executeWrite(tx => tx.run(`CREATE (d:Doubt) SET d = $doubt`, { doubt }));
+    broadcastNewDoubt(doubt);
     
     const ret = {...doubt, answers: [], upvotedBy: [], aiAssistUsage: parseJsonValue(doubt.aiAssistUsage, null)};
     res.status(201).json({ success: true, data: ret });

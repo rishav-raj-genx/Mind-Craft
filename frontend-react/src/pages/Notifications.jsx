@@ -16,7 +16,8 @@ const Notifications = () => {
     markNotificationRead, 
     markAllNotificationsRead,
     unreadCounts,
-    markRead: markChatRead
+    markRead: markChatRead,
+    clearUnreadNotifications
   } = useNotifications();
   
   const [restNotifications, setRestNotifications] = useState([]);
@@ -32,10 +33,11 @@ const Notifications = () => {
   const [actionLoading, setActionLoading] = useState({});
   const [activeTab, setActiveTab] = useState('All');
 
-  const tabs = ['All', 'Messages', 'Sessions', 'Gamification', 'Social'];
+  const tabs = ['All', 'Messages', 'Forum', 'Sessions', 'Gamification', 'Social'];
 
   useEffect(() => {
     if (!currentUser) return;
+    clearUnreadNotifications?.();
     buildNotifications();
   }, [currentUser]);
 
@@ -147,6 +149,22 @@ const Notifications = () => {
     try {
       const doubtsRes = await doubtService.getAllDoubts('All Doubts');
       const doubts = doubtsRes.data || [];
+      const otherDoubts = doubts.filter(d => d.authorUid !== currentUser.uid);
+      otherDoubts.slice(0, 5).forEach(d => {
+        notifs.push({
+          id: `forum-${d.id}`,
+          category: 'forum',
+          type: 'NEW_DOUBT',
+          title: 'New Doubt',
+          message: `${d.authorName || 'Someone'} asked: "${d.title}"`,
+          timestamp: d.createdAt,
+          read: false,
+          actionable: false,
+          route: `/forum?doubtId=${d.id}`,
+          doubtId: d.id
+        });
+      });
+
       const myDoubts = doubts.filter(d => d.authorUid === currentUser.uid && d.answerCount > 0);
       myDoubts.slice(0, 3).forEach(d => {
         notifs.push({
@@ -169,7 +187,7 @@ const Notifications = () => {
       threads.forEach(t => {
         if (t.unread && t.lastMessageSender !== currentUser.uid) {
           notifs.push({
-            id: `msg-${t.matchId}`,
+            id: `msg-${t.matchId}-${t.lastMessageTime || Date.now()}`,
             category: 'message',
             type: 'UNREAD_CHAT',
             title: 'New Message',
@@ -247,13 +265,8 @@ const Notifications = () => {
     
     let result = Array.from(map.values());
     
-    // Sort: unread first, then by timestamp descending
-    result.sort((a, b) => {
-      if (a.read === b.read) {
-        return (b.timestamp || 0) - (a.timestamp || 0);
-      }
-      return a.read ? 1 : -1;
-    });
+    // Sort newest first across all categories.
+    result.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
     // Filter by tab
     if (activeTab !== 'All') {
@@ -333,7 +346,7 @@ const Notifications = () => {
 
   const getIcon = (type, category) => {
     if (category === 'session' || type?.includes('SESSION')) return <Calendar size={18} className="text-blue-500" />;
-    if (type === 'FORUM_REPLY' || category === 'social') return <MessageCircle size={18} className="text-[#7C3AED]" />;
+    if (type === 'FORUM_REPLY' || type === 'NEW_DOUBT' || category === 'forum' || category === 'social') return <MessageCircle size={18} className="text-[#7C3AED]" />;
     if (category === 'gamification') return <Flame size={18} className="text-orange-500" />;
     if (category === 'message' || type === 'UNREAD_CHAT') return <MessageSquare size={18} className="text-teal-500" />;
     return <Bell size={18} />;
@@ -342,6 +355,7 @@ const Notifications = () => {
   const getTagColor = (type, category) => {
     if (category === 'session' || type?.includes('SESSION')) return 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700';
     if (category === 'gamification') return 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-700';
+    if (category === 'forum') return 'bg-lime-50 dark:bg-lime-900/20 text-lime-700 dark:text-lime-300 border-lime-200 dark:border-lime-700';
     if (category === 'social') return 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700';
     if (category === 'message') return 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-700';
     return 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700';
