@@ -1,9 +1,26 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LOW_MEMORY_LIST_PROPS } from '@/constants/list';
 import { palette, radii } from '@/constants/theme';
 import { fallbackDoubts, fetchDoubts, type Doubt } from '@/services/mindcraft';
+
+const DoubtCard = memo(function DoubtCard({ doubt, onAnswer }: { doubt: Doubt; onAnswer: (doubt: Doubt) => void }) {
+  return (
+    <View style={styles.doubtCard}>
+      <Text style={styles.tag}>{doubt.tag}</Text>
+      <Text style={styles.doubtTitle}>{doubt.title}</Text>
+      <View style={styles.aiAssist}>
+        <Text style={styles.aiLabel}>AI Assist</Text>
+        <Text style={styles.aiHint}>{doubt.hint}</Text>
+      </View>
+      <TouchableOpacity onPress={() => onAnswer(doubt)} style={styles.answerButton} activeOpacity={0.82}>
+        <Text style={styles.answerText}>Answer</Text>
+      </TouchableOpacity>
+    </View>
+  );
+});
 
 export default function ForumScreen() {
   const [doubts, setDoubts] = useState<Doubt[]>(fallbackDoubts);
@@ -11,49 +28,65 @@ export default function ForumScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    fetchDoubts()
-      .then((items) => {
-        if (isMounted) setDoubts(items.length ? items : fallbackDoubts);
-      })
-      .catch(() => {
-        if (isMounted) setDoubts(fallbackDoubts);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchDoubts()
+        .then((items) => {
+          if (isMounted) setDoubts(items.length ? items : fallbackDoubts);
+        })
+        .catch(() => {
+          if (isMounted) {
+            setDoubts(fallbackDoubts);
+            Alert.alert('Network issue', 'Could not refresh doubts. Showing cached examples for now.');
+          }
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    });
 
     return () => {
       isMounted = false;
+      task.cancel();
     };
   }, []);
 
+  const sortedDoubts = useMemo(() => doubts, [doubts]);
+  const keyExtractor = useCallback((doubt: Doubt) => doubt.id, []);
+  const handleAsk = useCallback(() => {
+    Alert.alert('Post a doubt', 'Doubt creation screen will open here.');
+  }, []);
+  const handleAnswer = useCallback((doubt: Doubt) => {
+    Alert.alert('Answer doubt', `Reply to: ${doubt.title}`);
+  }, []);
+  const renderDoubt = useCallback(({ item }: { item: Doubt }) => (
+    <DoubtCard doubt={item} onAnswer={handleAnswer} />
+  ), [handleAnswer]);
+
+  const header = useMemo(() => (
+    <>
+      <View style={styles.header}>
+        <Text style={styles.kicker}>Doubt Forum</Text>
+        <Text style={styles.title}>Ask fast. Learn together.</Text>
+        <Text style={styles.status}>{isLoading ? 'Loading latest doubts...' : `${doubts.length} doubts loaded`}</Text>
+      </View>
+
+      <TouchableOpacity onPress={handleAsk} style={styles.askButton} activeOpacity={0.82}>
+        <Text style={styles.askButtonText}>Post a doubt</Text>
+      </TouchableOpacity>
+    </>
+  ), [doubts.length, handleAsk, isLoading]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.kicker}>Doubt Forum</Text>
-          <Text style={styles.title}>Ask fast. Learn together.</Text>
-          <Text style={styles.status}>{isLoading ? 'Loading latest doubts...' : `${doubts.length} doubts loaded`}</Text>
-        </View>
-
-        <TouchableOpacity style={styles.askButton} activeOpacity={0.82}>
-          <Text style={styles.askButtonText}>Post a doubt</Text>
-        </TouchableOpacity>
-
-        {doubts.map((doubt) => (
-          <View key={doubt.id} style={styles.doubtCard}>
-            <Text style={styles.tag}>{doubt.tag}</Text>
-            <Text style={styles.doubtTitle}>{doubt.title}</Text>
-            <View style={styles.aiAssist}>
-              <Text style={styles.aiLabel}>AI Assist</Text>
-              <Text style={styles.aiHint}>{doubt.hint}</Text>
-            </View>
-            <TouchableOpacity style={styles.answerButton} activeOpacity={0.82}>
-              <Text style={styles.answerText}>Answer</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-      </ScrollView>
+      <FlatList
+        data={sortedDoubts}
+        renderItem={renderDoubt}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={header}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        {...LOW_MEMORY_LIST_PROPS}
+      />
     </SafeAreaView>
   );
 }

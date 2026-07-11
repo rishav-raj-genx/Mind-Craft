@@ -18,6 +18,7 @@ function initWebSocketServer(httpServer) {
   const wss = new WebSocketServer({
     server: httpServer,
     path:   '/ws',
+    maxPayload: 64 * 1024,
   });
 
   wss.on('connection', async (ws, req) => {

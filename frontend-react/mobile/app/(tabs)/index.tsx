@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, InteractionManager, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { palette, radii } from '@/constants/theme';
@@ -11,27 +11,37 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    fetchProfileSummary()
-      .then((summary) => {
-        if (isMounted) setProfile(summary);
-      })
-      .catch(() => {
-        if (isMounted) setProfile(fallbackProfile);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchProfileSummary()
+        .then((summary) => {
+          if (isMounted) setProfile(summary);
+        })
+        .catch(() => {
+          if (isMounted) {
+            setProfile(fallbackProfile);
+            Alert.alert('Network issue', 'Could not refresh your dashboard. Showing saved summary for now.');
+          }
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    });
 
     return () => {
       isMounted = false;
+      task.cancel();
     };
   }, []);
 
-  const stats = [
+  const stats = useMemo(() => [
     { label: 'Mind Tokens', value: profile.tokens.toLocaleString('en-IN'), tint: palette.lime },
     { label: 'Study Streak', value: `${profile.streakDays} days`, tint: palette.peach },
     { label: 'Doubts Solved', value: String(profile.doubtsSolved), tint: palette.purpleSoft },
-  ];
+  ], [profile.doubtsSolved, profile.streakDays, profile.tokens]);
+
+  const handleStartToday = useCallback(() => {
+    Alert.alert('Ready', 'Open Find, Forum, or Profile from the tabs to continue.');
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -40,7 +50,7 @@ export default function HomeScreen() {
           <Text style={styles.kicker}>Mindcraft</Text>
           <Text style={styles.title}>Peer tutoring that feels like a study circle.</Text>
           <Text style={styles.subtitle}>Find mates, ask doubts, keep streaks alive, and earn tokens.</Text>
-          <TouchableOpacity style={styles.heroButton} activeOpacity={0.82}>
+          <TouchableOpacity onPress={handleStartToday} style={styles.heroButton} activeOpacity={0.82}>
             <Text style={styles.heroButtonText}>{isLoading ? 'Syncing...' : 'Start today'}</Text>
           </TouchableOpacity>
         </View>

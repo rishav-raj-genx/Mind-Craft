@@ -68,7 +68,7 @@ const hydrateMissingStudyHints = async (session, doubts) => {
   const missing = doubts
     .filter(d => d.id && d.title && d.content && (
       !d.aiHint ||
-      ['empty', 'failed', 'fallback'].includes(d.aiAssistStatus) ||
+      ['empty', 'failed'].includes(d.aiAssistStatus) ||
       isGenericStudyHint(d.aiHint, { title: d.title, content: d.content, tag: d.tag })
     ))
     .slice(0, 5);

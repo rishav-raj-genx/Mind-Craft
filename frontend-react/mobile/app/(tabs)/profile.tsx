@@ -1,60 +1,96 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image } from 'expo-image';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LOW_MEMORY_LIST_PROPS } from '@/constants/list';
 import { palette, radii } from '@/constants/theme';
 import { fallbackProfile, fetchProfileSummary, type ProfileSummary } from '@/services/mindcraft';
+
+const BadgeCard = memo(function BadgeCard({ badge, onPress }: { badge: string; onPress: (badge: string) => void }) {
+  return (
+    <TouchableOpacity onPress={() => onPress(badge)} style={styles.badgeCard} activeOpacity={0.82}>
+      <Text style={styles.badgeIcon}>★</Text>
+      <Text style={styles.badgeText}>{badge}</Text>
+    </TouchableOpacity>
+  );
+});
 
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<ProfileSummary>(fallbackProfile);
 
   useEffect(() => {
     let isMounted = true;
-    fetchProfileSummary()
-      .then((summary) => {
-        if (isMounted) setProfile(summary);
-      })
-      .catch(() => {
-        if (isMounted) setProfile(fallbackProfile);
-      });
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchProfileSummary()
+        .then((summary) => {
+          if (isMounted) setProfile(summary);
+        })
+        .catch(() => {
+          if (isMounted) {
+            setProfile(fallbackProfile);
+            Alert.alert('Network issue', 'Could not refresh profile. Showing saved summary for now.');
+          }
+        });
+    });
 
     return () => {
       isMounted = false;
+      task.cancel();
     };
   }, []);
 
+  const badges = useMemo(() => profile.badges, [profile.badges]);
+  const keyExtractor = useCallback((badge: string) => badge, []);
+  const handleBadgePress = useCallback((badge: string) => {
+    Alert.alert('Badge', badge);
+  }, []);
+  const renderBadge = useCallback(({ item }: { item: string }) => (
+    <BadgeCard badge={item} onPress={handleBadgePress} />
+  ), [handleBadgePress]);
+
+  const header = useMemo(() => (
+    <>
+      <View style={styles.profileCard}>
+        <Image
+          source={{ uri: profile.photoUrl }}
+          style={styles.avatar}
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          transition={120}
+        />
+        <Text style={styles.name}>{profile.name}</Text>
+        <Text style={styles.meta}>{profile.meta}</Text>
+      </View>
+
+      <View style={styles.walletRow}>
+        <View style={[styles.walletCard, { backgroundColor: palette.lime }]}>
+          <Text style={styles.walletValue}>{profile.tokens.toLocaleString('en-IN')}</Text>
+          <Text style={styles.walletLabel}>Mind Tokens</Text>
+        </View>
+        <View style={[styles.walletCard, { backgroundColor: palette.peach }]}>
+          <Text style={styles.walletValue}>{profile.streakDays}</Text>
+          <Text style={styles.walletLabel}>Streak Days</Text>
+        </View>
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Badges</Text>
+      </View>
+    </>
+  ), [profile]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{profile.name.slice(0, 1).toUpperCase()}</Text>
-          </View>
-          <Text style={styles.name}>{profile.name}</Text>
-          <Text style={styles.meta}>{profile.meta}</Text>
-        </View>
-
-        <View style={styles.walletRow}>
-          <View style={[styles.walletCard, { backgroundColor: palette.lime }]}>
-            <Text style={styles.walletValue}>{profile.tokens.toLocaleString('en-IN')}</Text>
-            <Text style={styles.walletLabel}>Mind Tokens</Text>
-          </View>
-          <View style={[styles.walletCard, { backgroundColor: palette.peach }]}>
-            <Text style={styles.walletValue}>{profile.streakDays}</Text>
-            <Text style={styles.walletLabel}>Streak Days</Text>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Badges</Text>
-          {profile.badges.map((badge) => (
-            <TouchableOpacity key={badge} style={styles.badgeCard} activeOpacity={0.82}>
-              <Text style={styles.badgeIcon}>★</Text>
-              <Text style={styles.badgeText}>{badge}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
+      <FlatList
+        data={badges}
+        renderItem={renderBadge}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={header}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        {...LOW_MEMORY_LIST_PROPS}
+      />
     </SafeAreaView>
   );
 }
@@ -82,13 +118,6 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 48,
     backgroundColor: palette.purple,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 38,
-    fontWeight: '900',
   },
   name: {
     color: palette.ink,
@@ -120,11 +149,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 4,
   },
-  section: {
+  sectionHeader: {
     backgroundColor: palette.ink,
-    borderRadius: 32,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     padding: 18,
-    gap: 12,
+    marginTop: 4,
   },
   sectionTitle: {
     color: '#FFFFFF',
@@ -138,6 +168,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#302842',
     borderRadius: radii.xl,
     padding: 16,
+    marginHorizontal: 18,
+    marginBottom: 12,
   },
   badgeIcon: {
     color: palette.lime,

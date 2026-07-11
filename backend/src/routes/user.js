@@ -404,50 +404,43 @@ async function getReviews(uid) {
   const driver = getDriver();
   const session = driver.session();
   try {
-    // Both hosts and attends are mapped to sessions
-    const query = `
-      MATCH (u:User {uid: $uid})
-      OPTIONAL MATCH (u)-[r:HOSTS|ATTENDS]->(s:Session {status: $status})
-      RETURN s, type(r) AS role
-    `;
-    const result = await session.executeRead(tx => tx.run(query, { uid, status: SESSION_COMPLETED }));
-    
-    let teacherSessions = [];
-    let learnerSessions = [];
-    
-    result.records.forEach(r => {
-      const sNode = r.get('s');
-      if (sNode) {
-        const s = sNode.properties;
-        // normalize ints
-        s.rating = toNumber(s.rating) || 0;
-        s.duration = toNumber(s.duration) || 60;
-        
-        if (r.get('role') === 'HOSTS') teacherSessions.push(s);
-        if (r.get('role') === 'ATTENDS') learnerSessions.push(s);
-      }
+    const [statsResult, reviewsResult] = await session.executeRead(async (tx) => {
+      const stats = await tx.run(`
+        MATCH (u:User {uid: $uid})-[r:HOSTS|ATTENDS]->(s:Session {status: $status})
+        RETURN
+          count(s) AS completedSessionsCount,
+          coalesce(sum(coalesce(s.duration, 60)), 0) AS totalStudyMins,
+          coalesce(avg(CASE WHEN type(r) = 'HOSTS' AND coalesce(s.rating, 0) > 0 THEN s.rating ELSE null END), 0) AS averageRating
+      `, { uid, status: SESSION_COMPLETED });
+
+      const reviewsRes = await tx.run(`
+        MATCH (u:User {uid: $uid})-[:HOSTS]->(s:Session {status: $status})
+        WHERE coalesce(s.rating, 0) > 0
+        RETURN s
+        ORDER BY s.scheduledAt DESC
+        LIMIT 20
+      `, { uid, status: SESSION_COMPLETED });
+
+      return [stats, reviewsRes];
     });
 
-    const allSessions = [...teacherSessions, ...learnerSessions];
-
-    const completedSessionsCount = allSessions.length;
-    let totalStudyMins = 0;
-    allSessions.forEach(s => totalStudyMins += (s.duration || 60));
+    const statsRecord = statsResult.records[0];
+    const completedSessionsCount = toNumber(statsRecord?.get('completedSessionsCount')) || 0;
+    const totalStudyMins = toNumber(statsRecord?.get('totalStudyMins')) || 0;
     const totalStudyHours = +(totalStudyMins / 60).toFixed(1);
+    const avgRating = +(toNumber(statsRecord?.get('averageRating')) || 0).toFixed(1);
 
-    const ratedTeacherSessions = teacherSessions.filter((s) => s.rating > 0);
-    const avgRating = ratedTeacherSessions.length
-      ? +(ratedTeacherSessions.reduce((sum, s) => sum + s.rating, 0) / ratedTeacherSessions.length).toFixed(1)
-      : 0;
-
-    const reviews = ratedTeacherSessions.map((s) => ({
-      sessionId:     s.sessionId,
-      skill:         s.skill,
-      rating:        s.rating,
-      ratingComment: s.ratingComment || '',
-      learnerUid:    s.learnerUid, // Assuming learnerUid is on Session for easy access, or fetch via graph
-      scheduledAt:   s.scheduledAt,
-    }));
+    const reviews = reviewsResult.records.map((r) => {
+      const s = r.get('s').properties;
+      return {
+        sessionId:     s.sessionId,
+        skill:         s.skill,
+        rating:        toNumber(s.rating) || 0,
+        ratingComment: s.ratingComment || '',
+        learnerUid:    s.learnerUid,
+        scheduledAt:   toNumber(s.scheduledAt) || 0,
+      };
+    });
 
     return { 
       reviews, 

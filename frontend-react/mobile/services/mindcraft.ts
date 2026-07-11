@@ -1,5 +1,8 @@
 import { api, getStoredUserId } from './api';
 
+const avatarFor = (name: string, background = 'D9FF7A', color = '201A2E') =>
+  `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=${background}&color=${color}`;
+
 export type Mate = {
   id: string;
   name: string;
@@ -7,6 +10,7 @@ export type Mate = {
   coordinate: { latitude: number; longitude: number };
   college?: string;
   matchReason: string;
+  photoUrl?: string;
 };
 
 export type Doubt = {
@@ -23,12 +27,13 @@ export type ProfileSummary = {
   streakDays: number;
   doubtsSolved: number;
   badges: string[];
+  photoUrl?: string;
 };
 
 export const fallbackMates: Mate[] = [
-  { id: '1', name: 'Rishav', skill: 'JavaScript', coordinate: { latitude: 28.6139, longitude: 77.209 }, college: 'MIRAI School', matchReason: 'Shared Web Dev topic' },
-  { id: '2', name: 'Anya', skill: 'Organic Chem', coordinate: { latitude: 28.62, longitude: 77.23 }, college: 'Campus North', matchReason: 'Teaches what you learn' },
-  { id: '3', name: 'Raja', skill: 'DSA', coordinate: { latitude: 28.602, longitude: 77.19 }, college: 'Tech Block', matchReason: 'Strong DSA overlap' },
+  { id: '1', name: 'Rishav', skill: 'JavaScript', coordinate: { latitude: 28.6139, longitude: 77.209 }, college: 'MIRAI School', matchReason: 'Shared Web Dev topic', photoUrl: avatarFor('Rishav') },
+  { id: '2', name: 'Anya', skill: 'Organic Chem', coordinate: { latitude: 28.62, longitude: 77.23 }, college: 'Campus North', matchReason: 'Teaches what you learn', photoUrl: avatarFor('Anya', 'FFD2B8') },
+  { id: '3', name: 'Raja', skill: 'DSA', coordinate: { latitude: 28.602, longitude: 77.19 }, college: 'Tech Block', matchReason: 'Strong DSA overlap', photoUrl: avatarFor('Raja', '9B7BFF', 'FFFFFF') },
 ];
 
 export const fallbackDoubts: Doubt[] = [
@@ -44,6 +49,7 @@ export const fallbackProfile: ProfileSummary = {
   streakDays: 7,
   doubtsSolved: 18,
   badges: ['Weekly Warrior', 'Session Pro', 'Problem Solver'],
+  photoUrl: avatarFor('Mindcraft', '9B7BFF', 'FFFFFF'),
 };
 
 export async function fetchMates(): Promise<Mate[]> {
@@ -57,11 +63,13 @@ export async function fetchMates(): Promise<Mate[]> {
     const tutor = row.tutor || row.user || row;
     const sharedSkills = row.sharedSkills || tutor.sharedSkills || tutor.teaches || [];
     const skill = sharedSkills[0] || tutor.teaches?.[0] || 'Peer Study';
+    const name = tutor.name || 'Study Mate';
     return {
       id: tutor.uid || `${index}`,
-      name: tutor.name || 'Study Mate',
+      name,
       skill,
       college: tutor.college || tutor.department,
+      photoUrl: tutor.photoUrl || avatarFor(name, index % 2 ? 'FFD2B8' : 'D9FF7A'),
       coordinate: {
         latitude: Number(tutor.latitude) || 28.6139 + index * 0.006,
         longitude: Number(tutor.longitude) || 77.209 + index * 0.006,
@@ -93,6 +101,10 @@ export async function fetchProfileSummary(): Promise<ProfileSummary> {
     api.get(`/streak/${uid}`),
     api.get(`/badges/${uid}`),
   ]);
+  const results = [profileRes, tokensRes, streakRes, badgesRes];
+  if (results.every(result => result.status === 'rejected')) {
+    throw new Error('Unable to reach Mindcraft backend.');
+  }
 
   const profile = profileRes.status === 'fulfilled' ? profileRes.value.data?.data : null;
   const user = profile?.user || {};
@@ -112,5 +124,6 @@ export async function fetchProfileSummary(): Promise<ProfileSummary> {
     streakDays: Number(streakData?.currentStreak ?? fallbackProfile.streakDays),
     doubtsSolved: Number(profile?.stats?.doubtsAnswered ?? fallbackProfile.doubtsSolved),
     badges: badgeNames.length ? badgeNames.slice(0, 4) : fallbackProfile.badges,
+    photoUrl: user.photoUrl || avatarFor(user.name || fallbackProfile.name, '9B7BFF', 'FFFFFF'),
   };
 }

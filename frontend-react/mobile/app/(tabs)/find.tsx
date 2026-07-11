@@ -1,10 +1,31 @@
 import MapView, { Marker } from 'react-native-maps';
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image } from 'expo-image';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LOW_MEMORY_LIST_PROPS } from '@/constants/list';
 import { palette, radii } from '@/constants/theme';
 import { fallbackMates, fetchMates, type Mate } from '@/services/mindcraft';
+
+const MateCard = memo(function MateCard({ mate, onPress }: { mate: Mate; onPress: (mate: Mate) => void }) {
+  return (
+    <TouchableOpacity onPress={() => onPress(mate)} style={styles.mateCard} activeOpacity={0.82}>
+      <Image
+        source={{ uri: mate.photoUrl }}
+        style={styles.avatar}
+        cachePolicy="memory-disk"
+        contentFit="cover"
+        transition={120}
+      />
+      <View style={styles.mateInfo}>
+        <Text style={styles.mateName}>{mate.name}</Text>
+        <Text style={styles.mateSkill}>{mate.college || 'Nearby'} · {mate.skill}</Text>
+      </View>
+      <Text style={styles.matchBadge} numberOfLines={2}>{mate.matchReason}</Text>
+    </TouchableOpacity>
+  );
+});
 
 export default function FindScreen() {
   const [mates, setMates] = useState<Mate[]>(fallbackMates);
@@ -12,21 +33,42 @@ export default function FindScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    fetchMates()
-      .then((items) => {
-        if (isMounted) setMates(items.length ? items : fallbackMates);
-      })
-      .catch(() => {
-        if (isMounted) setMates(fallbackMates);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchMates()
+        .then((items) => {
+          if (isMounted) setMates(items.length ? items : fallbackMates);
+        })
+        .catch(() => {
+          if (isMounted) {
+            setMates(fallbackMates);
+            Alert.alert('Network issue', 'Could not refresh matches. Showing saved demo matches for now.');
+          }
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    });
 
     return () => {
       isMounted = false;
+      task.cancel();
     };
   }, []);
+
+  const mapRegion = useMemo(() => ({
+    latitude: mates[0]?.coordinate.latitude || 28.6139,
+    longitude: mates[0]?.coordinate.longitude || 77.209,
+    latitudeDelta: 0.08,
+    longitudeDelta: 0.08,
+  }), [mates]);
+
+  const keyExtractor = useCallback((mate: Mate) => mate.id, []);
+  const handleMatePress = useCallback((mate: Mate) => {
+    Alert.alert('Why matched?', mate.matchReason);
+  }, []);
+  const renderMate = useCallback(({ item }: { item: Mate }) => (
+    <MateCard mate={item} onPress={handleMatePress} />
+  ), [handleMatePress]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -39,12 +81,7 @@ export default function FindScreen() {
       <View style={styles.mapShell}>
         <MapView
           style={styles.map}
-          initialRegion={{
-            latitude: 28.6139,
-            longitude: 77.209,
-            latitudeDelta: 0.08,
-            longitudeDelta: 0.08,
-          }}>
+          initialRegion={mapRegion}>
           {mates.map((mate) => (
             <Marker
               key={mate.id}
@@ -59,18 +96,14 @@ export default function FindScreen() {
 
       <View style={styles.sheet}>
         <Text style={styles.sheetTitle}>Top matches</Text>
-        {mates.map((mate) => (
-          <TouchableOpacity key={mate.id} style={styles.mateCard} activeOpacity={0.82}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{mate.name.slice(0, 1)}</Text>
-            </View>
-            <View style={styles.mateInfo}>
-              <Text style={styles.mateName}>{mate.name}</Text>
-              <Text style={styles.mateSkill}>{mate.college || 'Nearby'} · {mate.skill}</Text>
-            </View>
-            <Text style={styles.matchBadge}>{mate.matchReason}</Text>
-          </TouchableOpacity>
-        ))}
+        <FlatList
+          data={mates}
+          renderItem={renderMate}
+          keyExtractor={keyExtractor}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          {...LOW_MEMORY_LIST_PROPS}
+        />
       </View>
     </SafeAreaView>
   );
@@ -141,14 +174,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: palette.lime,
-  },
-  avatarText: {
-    color: palette.ink,
-    fontWeight: '900',
-    fontSize: 18,
   },
   mateInfo: {
     flex: 1,
@@ -171,5 +197,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     fontWeight: '900',
     maxWidth: 120,
+  },
+  listContent: {
+    gap: 12,
+    paddingBottom: 96,
   },
 });

@@ -104,7 +104,7 @@ async function getBadgeHistory(uid) {
     const res = await session.executeRead(tx => tx.run(`
       MATCH (u:User {uid: $uid})-[r:EARNED_BADGE]->(b:Badge)
       RETURN b.name AS badgeId, b.name AS badgeName, r.level AS level, r.date AS earnedAt
-      ORDER BY r.date DESC LIMIT 50
+      ORDER BY r.date DESC LIMIT 20
     `, { uid }));
     return res.records.map(r => ({
       id: `${r.get('badgeId')}_level${r.get('level')}`,
