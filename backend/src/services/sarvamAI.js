@@ -31,6 +31,33 @@ const extractChatContent = (data) => {
   return '';
 };
 
+const normalizeHint = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+const isGenericStudyHint = (hint, { title, content, tag }) => {
+  const text = normalizeHint(hint);
+  if (!text) return true;
+
+  const genericMarkers = [
+    'start by identifying the core idea',
+    'break the question into definitions',
+    'key variables, and one simple example',
+    'पहले',
+    'मुख्य अवधारणा',
+    'परिभाषा, ज़रूरी बिंदुओं',
+  ];
+  const markerHits = genericMarkers.filter(marker => text.includes(normalizeHint(marker))).length;
+
+  const anchors = [title, content, tag]
+    .join(' ')
+    .split(/[^a-zA-Z0-9+#]+/)
+    .map(token => token.trim().toLowerCase())
+    .filter(token => token.length >= 4 && !['what', 'when', 'where', 'which', 'this', 'that', 'with', 'from'].includes(token));
+  const uniqueAnchors = Array.from(new Set(anchors)).slice(0, 8);
+  const anchorHits = uniqueAnchors.filter(token => text.includes(token.replace(/^#/, ''))).length;
+
+  return markerHits >= 2 && anchorHits <= 1;
+};
+
 const createFallbackStudyHint = ({ title, content, tag }) => {
   const source = `${title || ''} ${content || ''}`.toLowerCase();
   const topic = title || content || 'this concept';
@@ -80,8 +107,8 @@ const createFallbackStudyHint = ({ title, content, tag }) => {
   }
 
   return [
-    `English: For ${subject}, first restate "${topic}" in your own words. Then note the key definition, one example, and what the question is asking you to find.`,
-    `Hindi: ${subject} में पहले "${topic}" को अपने शब्दों में समझें। फिर मुख्य परिभाषा, एक example और question क्या पूछ रहा है, उसे अलग करें।`,
+    `English: For ${subject}, focus on "${topic}". Write the exact definition, connect it to the given question, and test it with one tiny example before answering.`,
+    `Hindi: ${subject} में "${topic}" पर ध्यान दें। पहले सही definition लिखें, उसे question से जोड़ें, फिर एक छोटा example बनाकर answer सोचें।`,
   ].join('\n');
 };
 
@@ -233,6 +260,8 @@ async function generateStudyHint(doubt, options = {}) {
             'Generate a brief conceptual study hint, not a full solution.',
             'Respond bilingually with English and Hindi in simple language.',
             'Keep it under 90 words total.',
+            'Make the hint specific to the exact title, details, and tag.',
+            'Do not use generic wording like "identify the core idea" unless you name the actual concept from the doubt.',
             'Use this exact format:',
             'English: <hint>',
             'Hindi: <hint in Devanagari>',
@@ -256,7 +285,7 @@ async function generateStudyHint(doubt, options = {}) {
         'api-subscription-key': API_KEY,
         'Content-Type': 'application/json',
       },
-      timeout: 20_000,
+      timeout: Number(process.env.SARVAM_CHAT_TIMEOUT_MS || 10_000),
     });
 
     const data = response.data;
@@ -277,13 +306,13 @@ async function generateStudyHint(doubt, options = {}) {
       result = await callSarvamChat('sarvam-105b');
     }
 
-    if (!result.hint) {
+    if (!result.hint || isGenericStudyHint(result.hint, { title, content, tag })) {
       return {
         hint: createFallbackStudyHint({ title, content, tag }),
         model: result.model || model,
         usage: result.usage || null,
         fallback: true,
-        warning: 'Sarvam AI returned an empty response.',
+        warning: result.hint ? 'Sarvam AI returned a generic repeated hint.' : 'Sarvam AI returned an empty response.',
       };
     }
 
@@ -335,4 +364,5 @@ module.exports = {
   generateStudyHint,
   transcribeAudio,
   SUPPORTED_LANGUAGES,
+  isGenericStudyHint,
 };

@@ -6,8 +6,9 @@ const { verifyFirebaseToken }    = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { getDriver } = require('../config/neo4j');
 const { awardForumAnswer } = require('../services/tokenEconomy');
-const { generateStudyHint } = require('../services/sarvamAI');
+const { generateStudyHint, isGenericStudyHint } = require('../services/sarvamAI');
 const { v4: uuidv4 } = require('uuid');
+const { getPagination } = require('../utils/pagination');
 
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 const parseJsonArray = (value) => {
@@ -65,7 +66,11 @@ const attachSarvamStudyHint = async (req, _res, next) => {
 
 const hydrateMissingStudyHints = async (session, doubts) => {
   const missing = doubts
-    .filter(d => d.id && d.title && d.content && (!d.aiHint || ['empty', 'failed', 'fallback'].includes(d.aiAssistStatus)))
+    .filter(d => d.id && d.title && d.content && (
+      !d.aiHint ||
+      ['empty', 'failed', 'fallback'].includes(d.aiAssistStatus) ||
+      isGenericStudyHint(d.aiHint, { title: d.title, content: d.content, tag: d.tag })
+    ))
     .slice(0, 5);
 
   if (missing.length === 0) return doubts;
@@ -178,11 +183,12 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
   const session = driver.session();
   try {
     const { tag } = req.query;
-    let query = `MATCH (d:Doubt) RETURN d ORDER BY d.createdAt DESC LIMIT 50`;
-    let params = {};
+    const { limit, offset } = getPagination(req.query);
+    let query = `MATCH (d:Doubt) RETURN d ORDER BY d.createdAt DESC SKIP toInteger($offset) LIMIT toInteger($limit)`;
+    let params = { limit, offset };
     if (tag && tag !== 'All Doubts') {
-      query = `MATCH (d:Doubt {tag: $tag}) RETURN d ORDER BY d.createdAt DESC LIMIT 50`;
-      params = { tag };
+      query = `MATCH (d:Doubt {tag: $tag}) RETURN d ORDER BY d.createdAt DESC SKIP toInteger($offset) LIMIT toInteger($limit)`;
+      params = { tag, limit, offset };
     }
     const result = await session.executeRead(tx => tx.run(query, params));
     let doubts = result.records.map(r => {
@@ -197,7 +203,7 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
       return d;
     });
     doubts = await hydrateMissingStudyHints(session, doubts);
-    res.json({ success: true, data: doubts });
+    res.json({ success: true, count: doubts.length, limit, offset, hasMore: doubts.length === limit, data: doubts });
   } catch (err) { next(err); } finally { await session.close(); }
 });
 

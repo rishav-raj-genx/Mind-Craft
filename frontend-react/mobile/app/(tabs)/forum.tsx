@@ -1,21 +1,39 @@
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { palette, radii } from '@/constants/theme';
-
-const doubts = [
-  { id: '1', tag: '#DSA', title: 'What is a base case?', hint: 'Think of the smallest input where recursion can stop.' },
-  { id: '2', tag: '#WebDev', title: 'What is closure in JS?', hint: 'A function remembers variables from its outer scope.' },
-  { id: '3', tag: '#Math', title: 'How do limits work?', hint: 'Watch what value the function approaches, not always reaches.' },
-];
+import { fallbackDoubts, fetchDoubts, type Doubt } from '@/services/mindcraft';
 
 export default function ForumScreen() {
+  const [doubts, setDoubts] = useState<Doubt[]>(fallbackDoubts);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchDoubts()
+      .then((items) => {
+        if (isMounted) setDoubts(items.length ? items : fallbackDoubts);
+      })
+      .catch(() => {
+        if (isMounted) setDoubts(fallbackDoubts);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.kicker}>Doubt Forum</Text>
           <Text style={styles.title}>Ask fast. Learn together.</Text>
+          <Text style={styles.status}>{isLoading ? 'Loading latest doubts...' : `${doubts.length} doubts loaded`}</Text>
         </View>
 
         <TouchableOpacity style={styles.askButton} activeOpacity={0.82}>
@@ -64,6 +82,11 @@ const styles = StyleSheet.create({
     color: palette.ink,
     fontWeight: '900',
     fontSize: 30,
+    marginTop: 8,
+  },
+  status: {
+    color: palette.muted,
+    fontWeight: '800',
     marginTop: 8,
   },
   askButton: {

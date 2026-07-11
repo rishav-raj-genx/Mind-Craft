@@ -1,21 +1,39 @@
 import MapView, { Marker } from 'react-native-maps';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { palette, radii } from '@/constants/theme';
-
-const mates = [
-  { id: '1', name: 'Rishav', skill: 'JavaScript', coordinate: { latitude: 28.6139, longitude: 77.209 } },
-  { id: '2', name: 'Anya', skill: 'Organic Chem', coordinate: { latitude: 28.62, longitude: 77.23 } },
-  { id: '3', name: 'Raja', skill: 'DSA', coordinate: { latitude: 28.602, longitude: 77.19 } },
-];
+import { fallbackMates, fetchMates, type Mate } from '@/services/mindcraft';
 
 export default function FindScreen() {
+  const [mates, setMates] = useState<Mate[]>(fallbackMates);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchMates()
+      .then((items) => {
+        if (isMounted) setMates(items.length ? items : fallbackMates);
+      })
+      .catch(() => {
+        if (isMounted) setMates(fallbackMates);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <Text style={styles.kicker}>Find My Mate</Text>
         <Text style={styles.title}>Study buddies near you</Text>
+        <Text style={styles.status}>{isLoading ? 'Checking backend matches...' : `${mates.length} matches ready`}</Text>
       </View>
 
       <View style={styles.mapShell}>
@@ -48,9 +66,9 @@ export default function FindScreen() {
             </View>
             <View style={styles.mateInfo}>
               <Text style={styles.mateName}>{mate.name}</Text>
-              <Text style={styles.mateSkill}>Wants to study {mate.skill}</Text>
+              <Text style={styles.mateSkill}>{mate.college || 'Nearby'} · {mate.skill}</Text>
             </View>
-            <Text style={styles.matchBadge}>Why?</Text>
+            <Text style={styles.matchBadge}>{mate.matchReason}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -78,6 +96,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 30,
     marginTop: 4,
+  },
+  status: {
+    color: palette.muted,
+    fontWeight: '800',
+    marginTop: 6,
   },
   mapShell: {
     marginHorizontal: 20,
@@ -147,5 +170,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     fontWeight: '900',
+    maxWidth: 120,
   },
 });

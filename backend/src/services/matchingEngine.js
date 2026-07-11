@@ -26,11 +26,12 @@ const { getDriver } = require('../config/neo4j');
  * @param {string} uid — The requesting student's Firebase UID
  * @param {object} [options]
  * @param {number} [options.limit=20]    — Max results to return
+ * @param {number} [options.offset=0]    — Offset for paged results
  * @param {string} [options.skillFilter] — Optional: match only this skill
  * @returns {Promise<Array<object>>} Ranked list of tutor matches
  */
 async function findMatches(uid, options = {}) {
-  const { limit = 20, skillFilter = null } = options;
+  const { limit = 20, offset = 0, skillFilter = null } = options;
   const driver  = getDriver();
   const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
 
@@ -56,10 +57,12 @@ async function findMatches(uid, options = {}) {
        sharedSkills,
        activityScore
        ORDER BY activityScore DESC, SIZE(sharedSkills) DESC, tutor.averageRating DESC
+       SKIP $offset
        LIMIT $limit`,
       {
         uid,
         limit: neo4jInt(limit),
+        offset: neo4jInt(offset),
         ...(skillFilter ? { skillFilter } : {}),
       },
     );
@@ -86,7 +89,7 @@ async function findMatches(uid, options = {}) {
  * @param {number} [limit=20]
  * @returns {Promise<Array<object>>}
  */
-async function findBroadMatches(uid, limit = 20) {
+async function findBroadMatches(uid, limit = 20, offset = 0) {
   const driver  = getDriver();
   const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
 
@@ -107,8 +110,9 @@ async function findBroadMatches(uid, limit = 20) {
        activityScore,
        sameCollege
        ORDER BY sameCollege DESC, activityScore DESC, SIZE(sharedSkills) DESC
+       SKIP $offset
        LIMIT $limit`,
-      { uid, limit: neo4jInt(limit) },
+      { uid, limit: neo4jInt(limit), offset: neo4jInt(offset) },
     );
 
     return result.records.map((record) => ({
@@ -129,7 +133,7 @@ async function findBroadMatches(uid, limit = 20) {
  * Final fallback: any active users (highest rated)
  * Used when broad matches are also empty.
  */
-async function findAnyMatches(uid, limit = 20) {
+async function findAnyMatches(uid, limit = 20, offset = 0) {
   const driver  = getDriver();
   const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
 
@@ -142,8 +146,9 @@ async function findAnyMatches(uid, limit = 20) {
          .year, .averageRating, .totalSessions, .latitude, .longitude
        } AS tutorData
        ORDER BY tutor.averageRating DESC, tutor.totalSessions DESC
+       SKIP $offset
        LIMIT $limit`,
-      { uid, limit: neo4jInt(limit) },
+      { uid, limit: neo4jInt(limit), offset: neo4jInt(offset) },
     );
 
     return result.records.map((record) => ({

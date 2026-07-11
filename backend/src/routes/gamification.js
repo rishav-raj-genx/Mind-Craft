@@ -27,13 +27,14 @@ const {
 } = require('../services/tokenEconomy');
 const { calculateStreak, recordCheckIn } = require('../services/streakCalculator');
 const { calculateBadges, recordBadgeEarned } = require('../services/badgeCalculator');
+const { getPagination } = require('../utils/pagination');
 
 // ── GET /api/tokens/:uid ──────────────────────────────────────────────
 router.get('/tokens/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
     if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s token wallet' });
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const { limit } = getPagination(req.query);
     const after = req.query.after || null;
 
     const [balance, transactions] = await Promise.all([
@@ -46,6 +47,7 @@ router.get('/tokens/:uid', verifyFirebaseToken, async (req, res, next) => {
       data: {
         balance,
         transactions,
+        limit,
         hasMore: transactions.length === limit,
       },
     });

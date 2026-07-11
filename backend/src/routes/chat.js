@@ -6,6 +6,7 @@ const { verifyFirebaseToken } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { getDriver } = require('../config/neo4j');
 const { v4: uuidv4 } = require('uuid');
+const { getPagination } = require('../utils/pagination');
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 
 router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
@@ -13,7 +14,7 @@ router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
   const session = driver.session();
   try {
     const { matchId } = req.params;
-    const limit  = parseInt(req.query.limit, 10) || 50;
+    const { limit, offset } = getPagination(req.query);
     const before = req.query.before ? parseInt(req.query.before, 10) : null;
     
     let query = `
@@ -22,8 +23,9 @@ router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
     `;
     let params = { matchId, uid: req.user.uid };
     if (before) { query += ` WHERE m.timestamp < $before`; params.before = before; }
-    query += ` RETURN m ORDER BY m.timestamp DESC LIMIT toInteger($limit)`;
+    query += ` RETURN m ORDER BY m.timestamp DESC SKIP toInteger($offset) LIMIT toInteger($limit)`;
     params.limit = limit;
+    params.offset = offset;
     
     const result = await session.executeRead(tx => tx.run(query, params));
     if (result.records.length === 0) {
@@ -39,7 +41,7 @@ router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
       return m;
     }).reverse();
     
-    res.json({ success: true, count: messages.length, hasMore: messages.length === limit, data: messages });
+    res.json({ success: true, count: messages.length, limit, offset, hasMore: messages.length === limit, data: messages });
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
@@ -179,10 +181,12 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
     if (req.params.uid !== req.user.uid) {
       return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s chat threads' });
     }
+    const { limit, offset } = getPagination(req.query);
     const result = await session.executeRead(tx => tx.run(`
       MATCH (u:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread)<-[:PARTICIPATES_IN]-(p:User)
       RETURN t, p ORDER BY t.lastMessageTime DESC
-    `, { uid: req.params.uid }));
+      SKIP toInteger($offset) LIMIT toInteger($limit)
+    `, { uid: req.params.uid, limit, offset }));
     const threads = result.records.map(r => {
       const t = r.get('t').properties;
       const p = r.get('p').properties;
@@ -195,7 +199,7 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
         unread: t.unread || false,
       };
     });
-    res.json({ success: true, count: threads.length, data: threads });
+    res.json({ success: true, count: threads.length, limit, offset, hasMore: threads.length === limit, data: threads });
   } catch (err) { next(err); } finally { await session.close(); }
 });
 

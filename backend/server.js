@@ -10,8 +10,7 @@
  *   3. Initialize Neo4j driver + create uniqueness constraints
  *   4. Mount Express middleware + routes
  *   5. Start WebSocket server for real-time chat
- *   6. Start Firestore → Neo4j realtime sync listener
- *   7. Listen on configured port
+ *   6. Listen on configured port
  */
 
 require('dotenv').config();
@@ -21,6 +20,7 @@ const cors     = require('cors');
 const helmet   = require('helmet');
 const morgan   = require('morgan');
 const http     = require('http');
+const compression = require('compression');
 
 // ── Config (imported for side-effect initialization) ──────────────────
 require('./src/config/firebase');
@@ -59,6 +59,10 @@ app.use(cors({
 }));
 
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.use(compression({
+  threshold: 1024,
+  level: 6,
+}));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -108,9 +112,7 @@ async function boot() {
   // 2. WebSocket server for real-time chat
   initWebSocketServer(httpServer);
 
-  // 3. (Removed Firestore Sync)
-
-  // 4. Start listening
+  // 3. Start listening
   httpServer.listen(PORT, () => {
     console.log(`\n🚀 Mindcraft backend listening on port ${PORT}`);
     console.log(`   Health:        http://localhost:${PORT}/health`);

@@ -8,6 +8,7 @@ const { awardSessionComplete }  = require('../services/tokenEconomy');
 const { exportSessionToCalendar, getAuthUrl } = require('../services/calendarExport');
 const { getDriver } = require('../config/neo4j');
 const { v4: uuidv4 } = require('uuid');
+const { getPagination } = require('../utils/pagination');
 
 const { SESSION_PENDING, SESSION_UPCOMING, SESSION_COMPLETED, SESSION_REJECTED } = require('../utils/constants');
 
@@ -70,19 +71,21 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const { uid } = req.params;
     const { status } = req.query;
+    const { limit, offset } = getPagination(req.query);
     
     if (uid !== req.user.uid) {
       return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s sessions' });
     }
 
-    let query = `
+    const query = `
       MATCH (me:User {uid: $uid})-[role:HOSTS|ATTENDS]->(s:Session)
       OPTIONAL MATCH (peer:User)-[:HOSTS|ATTENDS]->(s)
-      WHERE peer.uid <> $uid
+      WHERE peer.uid <> $uid AND ($status IS NULL OR s.status = $status)
       RETURN s, peer.name AS peerName
       ORDER BY s.scheduledAt ASC
+      SKIP toInteger($offset) LIMIT toInteger($limit)
     `;
-    let result = await session.executeRead(tx => tx.run(query, { uid }));
+    let result = await session.executeRead(tx => tx.run(query, { uid, status: status || null, limit, offset }));
     
     const now = Date.now();
     let sessions = [];
@@ -106,8 +109,7 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
       sessions.push(s);
     }
     
-    if(status) sessions = sessions.filter(s => s.status === status);
-    res.json({ success: true, count: sessions.length, data: sessions });
+    res.json({ success: true, count: sessions.length, limit, offset, hasMore: sessions.length === limit, data: sessions });
   } catch (err) { next(err); } finally { await session.close(); }
 });
 

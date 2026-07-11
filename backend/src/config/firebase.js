@@ -41,10 +41,6 @@ if (serviceAccount) {
     credential: admin.credential.cert(serviceAccount),
   };
 
-  if (process.env.FIREBASE_DATABASE_URL) {
-    appConfig.databaseURL = process.env.FIREBASE_DATABASE_URL;
-  }
-
   admin.initializeApp(appConfig);
   console.log(`✅ Firebase Admin SDK initialized (project: ${projectId})`);
 } else {

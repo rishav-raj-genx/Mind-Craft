@@ -1,36 +1,53 @@
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { palette, radii } from '@/constants/theme';
-
-const badges = ['Weekly Warrior', 'Session Pro', 'Problem Solver'];
+import { fallbackProfile, fetchProfileSummary, type ProfileSummary } from '@/services/mindcraft';
 
 export default function ProfileScreen() {
+  const [profile, setProfile] = useState<ProfileSummary>(fallbackProfile);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchProfileSummary()
+      .then((summary) => {
+        if (isMounted) setProfile(summary);
+      })
+      .catch(() => {
+        if (isMounted) setProfile(fallbackProfile);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>M</Text>
+            <Text style={styles.avatarText}>{profile.name.slice(0, 1).toUpperCase()}</Text>
           </View>
-          <Text style={styles.name}>Mindcraft Learner</Text>
-          <Text style={styles.meta}>CSE • Year 1 • 7 day streak</Text>
+          <Text style={styles.name}>{profile.name}</Text>
+          <Text style={styles.meta}>{profile.meta}</Text>
         </View>
 
         <View style={styles.walletRow}>
           <View style={[styles.walletCard, { backgroundColor: palette.lime }]}>
-            <Text style={styles.walletValue}>1,240</Text>
+            <Text style={styles.walletValue}>{profile.tokens.toLocaleString('en-IN')}</Text>
             <Text style={styles.walletLabel}>Mind Tokens</Text>
           </View>
           <View style={[styles.walletCard, { backgroundColor: palette.peach }]}>
-            <Text style={styles.walletValue}>7</Text>
+            <Text style={styles.walletValue}>{profile.streakDays}</Text>
             <Text style={styles.walletLabel}>Streak Days</Text>
           </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Badges</Text>
-          {badges.map((badge) => (
+          {profile.badges.map((badge) => (
             <TouchableOpacity key={badge} style={styles.badgeCard} activeOpacity={0.82}>
               <Text style={styles.badgeIcon}>★</Text>
               <Text style={styles.badgeText}>{badge}</Text>

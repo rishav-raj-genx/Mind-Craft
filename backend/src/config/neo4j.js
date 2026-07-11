@@ -1,12 +1,11 @@
 /**
  * neo4j.js — Neo4j Driver Singleton & Boot-Up Schema Constraints
  *
- * Creates a single Neo4j driver instance with connection pooling optimized
- * for Apple Silicon (arm64). On server start, runs Cypher uniqueness
+ * Creates a single Neo4j AuraDB Bolt driver instance with strict connection
+ * pooling for small Render instances. On server start, runs Cypher uniqueness
  * constraints to prevent data duplication in the graph.
  *
- * Supports both Neo4j Aura (cloud) and local Docker deployments via
- * environment variables.
+ * Supports Neo4j AuraDB via neo4j+s:// and local Bolt via neo4j:// or bolt://.
  */
 
 const neo4j = require('neo4j-driver');
@@ -16,7 +15,7 @@ let driver = null;
 
 /**
  * Returns the Neo4j driver singleton, creating it on first call.
- * Connection pooling is configured for low-memory arm64 machines.
+ * Connection pooling is configured for low-memory Render workers.
  */
 function getDriver() {
   if (driver) return driver;
@@ -24,13 +23,18 @@ function getDriver() {
   const uri      = process.env.NEO4J_URI      || 'neo4j+s://localhost:7687';
   const user     = process.env.NEO4J_USER     || 'neo4j';
   const password = process.env.NEO4J_PASSWORD || 'password';
+  const isBoltUri = /^(neo4j|bolt)(\+s|\+ssc)?:\/\//.test(uri);
+
+  if (!isBoltUri) {
+    throw new Error('NEO4J_URI must use the Bolt protocol, e.g. neo4j+s://<aura-host>');
+  }
 
   driver = neo4j.driver(uri, neo4j.auth.basic(user, password), {
-    // ── Pool tuning for Mac M2 (arm64) ──────────────────────────────
-    maxConnectionPoolSize: 50,
-    connectionAcquisitionTimeout: 30_000,    // 30 s
-    connectionTimeout: 10_000,               // 10 s
-    maxTransactionRetryTime: 15_000,         // 15 s
+    maxConnectionPoolSize: Number(process.env.NEO4J_MAX_POOL_SIZE || 20),
+    connectionAcquisitionTimeout: 15_000,
+    connectionTimeout: 8_000,
+    maxTransactionRetryTime: 10_000,
+    maxConnectionLifetime: 30 * 60 * 1000,
 
     // Log level in dev only
     logging: neo4j.logging.console(
@@ -44,7 +48,7 @@ function getDriver() {
 
 /**
  * Boot-up optimization: Creates uniqueness constraints on the graph
- * to prevent data duplication during Firestore→Neo4j sync.
+ * to prevent data duplication in the graph.
  *
  * Runs once when the server starts. Safe to call multiple times
  * (CREATE CONSTRAINT IF NOT EXISTS is idempotent).

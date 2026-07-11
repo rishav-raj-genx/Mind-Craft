@@ -1,15 +1,38 @@
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { palette, radii } from '@/constants/theme';
-
-const stats = [
-  { label: 'Mind Tokens', value: '1,240', tint: palette.lime },
-  { label: 'Study Streak', value: '7 days', tint: palette.peach },
-  { label: 'Doubts Solved', value: '18', tint: palette.purpleSoft },
-];
+import { fallbackProfile, fetchProfileSummary, type ProfileSummary } from '@/services/mindcraft';
 
 export default function HomeScreen() {
+  const [profile, setProfile] = useState<ProfileSummary>(fallbackProfile);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchProfileSummary()
+      .then((summary) => {
+        if (isMounted) setProfile(summary);
+      })
+      .catch(() => {
+        if (isMounted) setProfile(fallbackProfile);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const stats = [
+    { label: 'Mind Tokens', value: profile.tokens.toLocaleString('en-IN'), tint: palette.lime },
+    { label: 'Study Streak', value: `${profile.streakDays} days`, tint: palette.peach },
+    { label: 'Doubts Solved', value: String(profile.doubtsSolved), tint: palette.purpleSoft },
+  ];
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -18,7 +41,7 @@ export default function HomeScreen() {
           <Text style={styles.title}>Peer tutoring that feels like a study circle.</Text>
           <Text style={styles.subtitle}>Find mates, ask doubts, keep streaks alive, and earn tokens.</Text>
           <TouchableOpacity style={styles.heroButton} activeOpacity={0.82}>
-            <Text style={styles.heroButtonText}>Start today</Text>
+            <Text style={styles.heroButtonText}>{isLoading ? 'Syncing...' : 'Start today'}</Text>
           </TouchableOpacity>
         </View>
 

@@ -59,7 +59,7 @@ async function exchangeCodeForTokens(code) {
 /**
  * Exports a tutoring session to the user's Google Calendar.
  *
- * @param {object} session   — Session document from Firestore
+ * @param {object} session   — Session object from Neo4j
  * @param {string} session.skill        — Skill being taught
  * @param {number} session.scheduledAt  — Epoch millis
  * @param {string} session.mode         — 'Online' or 'In-Person'

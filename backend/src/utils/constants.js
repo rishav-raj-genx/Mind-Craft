@@ -1,21 +1,10 @@
 /**
  * constants.js — App-wide constants mirrored from the Android client
  *
- * Keeps the backend in sync with the Kotlin Constants.kt values so that
- * Firestore documents written by either side are always compatible.
+ * Keeps shared labels and status values in sync with the Android client.
  *
  * @see app/src/main/java/com/mindcraft/app/utils/Constants.kt
  */
-
-// ── Firestore Collection Names ────────────────────────────────────────
-const COLLECTION_USERS          = 'users';
-const COLLECTION_MATCH_REQUESTS = 'matchRequests';
-const COLLECTION_MATCHES        = 'matches';
-const COLLECTION_MESSAGES       = 'messages';
-const COLLECTION_CHATS          = 'chats';
-const COLLECTION_SESSIONS       = 'sessions';
-const COLLECTION_TOKEN_LEDGER   = 'tokenLedger';
-const COLLECTION_ACTIVITY_LOG   = 'activityLog';
 
 // ── Match Request Status ──────────────────────────────────────────────
 const STATUS_PENDING  = 'pending';
@@ -95,16 +84,6 @@ const ALLOWED_AUDIO_MIMES = [
 const MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024;
 
 module.exports = {
-  // Collections
-  COLLECTION_USERS,
-  COLLECTION_MATCH_REQUESTS,
-  COLLECTION_MATCHES,
-  COLLECTION_MESSAGES,
-  COLLECTION_CHATS,
-  COLLECTION_SESSIONS,
-  COLLECTION_TOKEN_LEDGER,
-  COLLECTION_ACTIVITY_LOG,
-
   // Statuses
   STATUS_PENDING,
   STATUS_ACCEPTED,

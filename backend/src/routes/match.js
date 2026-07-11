@@ -7,6 +7,7 @@ const { formatValidationErrors } = require('../middleware/errorHandler');
 const { findMatches, findBroadMatches, findAnyMatches } = require('../services/matchingEngine');
 const { getDriver } = require('../config/neo4j');
 const { v4: uuidv4 } = require('uuid');
+const { getPagination } = require('../utils/pagination');
 
 const { STATUS_PENDING, STATUS_ACCEPTED, STATUS_DECLINED } = require('../utils/constants');
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
@@ -15,10 +16,10 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
     if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch matches for another user' });
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const { limit, offset } = getPagination(req.query);
     const skill = req.query.skill || null;
-    const matches = await findMatches(uid, { limit, skillFilter: skill });
-    res.json({ success: true, count: matches.length, data: matches });
+    const matches = await findMatches(uid, { limit, offset, skillFilter: skill });
+    res.json({ success: true, count: matches.length, limit, offset, hasMore: matches.length === limit, data: matches });
   } catch (err) { next(err); }
 });
 
@@ -26,10 +27,10 @@ router.get('/:uid/broad', verifyFirebaseToken, async (req, res, next) => {
   try {
     const uid   = req.params.uid;
     if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch matches for another user' });
-    const limit = parseInt(req.query.limit, 10) || 20;
-    let matches = await findBroadMatches(uid, limit);
-    if (matches.length === 0) matches = await findAnyMatches(uid, limit);
-    res.json({ success: true, count: matches.length, data: matches });
+    const { limit, offset } = getPagination(req.query);
+    let matches = await findBroadMatches(uid, limit, offset);
+    if (matches.length === 0) matches = await findAnyMatches(uid, limit, offset);
+    res.json({ success: true, count: matches.length, limit, offset, hasMore: matches.length === limit, data: matches });
   } catch (err) { next(err); }
 });
 
@@ -120,10 +121,13 @@ router.get('/requests/:uid', verifyFirebaseToken, async (req, res, next) => {
   const session = driver.session();
   try {
     if (req.params.uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s requests' });
+    const { limit, offset } = getPagination(req.query);
     const result = await session.executeRead(tx => tx.run(`
       MATCH (u1:User)-[r:REQUESTS_MATCH {status: $status}]->(u2:User {uid: $uid})
       RETURN r, u1.uid AS fromUid
-    `, { uid: req.params.uid, status: STATUS_PENDING }));
+      ORDER BY r.createdAt DESC
+      SKIP toInteger($offset) LIMIT toInteger($limit)
+    `, { uid: req.params.uid, status: STATUS_PENDING, limit, offset }));
     const requests = result.records.map(r => {
       const p = r.get('r').properties;
       p.fromUid = r.get('fromUid');
@@ -131,7 +135,7 @@ router.get('/requests/:uid', verifyFirebaseToken, async (req, res, next) => {
       p.createdAt = toNumber(p.createdAt);
       return p;
     });
-    res.json({ success: true, count: requests.length, data: requests });
+    res.json({ success: true, count: requests.length, limit, offset, hasMore: requests.length === limit, data: requests });
   } catch (err) { next(err); } finally { await session.close(); }
 });
 

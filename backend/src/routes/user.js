@@ -23,6 +23,7 @@ const { getDriver }             = require('../config/neo4j');
 const { getUserSkillGraph }     = require('../services/matchingEngine');
 const { getBalance, getTransactionHistory } = require('../services/tokenEconomy');
 const { calculateStreak }       = require('../services/streakCalculator');
+const { getPagination }         = require('../utils/pagination');
 const {
   SESSION_COMPLETED,
 } = require('../utils/constants');
@@ -174,6 +175,7 @@ router.get('/search', verifyFirebaseToken, async (req, res, next) => {
   const session = driver.session();
   try {
     const q = (req.query.q || '').trim().toLowerCase();
+    const { limit, offset } = getPagination(req.query);
     
     // Using a broad MATCH and filtering in Cypher
     const query = `
@@ -191,10 +193,10 @@ router.get('/search', verifyFirebaseToken, async (req, res, next) => {
             any(s IN learns WHERE toLower(s) CONTAINS $q)
       RETURN u, teaches, learns
       ORDER BY u.name ASC
-      LIMIT 50
+      SKIP toInteger($offset) LIMIT toInteger($limit)
     `;
     
-    const result = await session.executeRead(tx => tx.run(query, { currentUid: req.user.uid, q }));
+    const result = await session.executeRead(tx => tx.run(query, { currentUid: req.user.uid, q, limit, offset }));
     
     const users = result.records.map(record => {
       const u = record.get('u').properties;
@@ -204,7 +206,7 @@ router.get('/search', verifyFirebaseToken, async (req, res, next) => {
       return normalizeUserNumbers(u);
     });
     
-    res.json({ success: true, count: users.length, data: users });
+    res.json({ success: true, count: users.length, limit, offset, hasMore: users.length === limit, data: users });
   } catch (err) {
     next(err);
   } finally {
@@ -490,10 +492,13 @@ router.get('/:uid/following', verifyFirebaseToken, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
+    const { limit, offset } = getPagination(req.query);
     const result = await session.executeRead(tx => tx.run(
       `MATCH (u:User {uid: $uid})-[:FOLLOWS]->(f:User)
-       RETURN f`,
-      { uid: req.params.uid }
+       RETURN f
+       ORDER BY f.name ASC
+       SKIP toInteger($offset) LIMIT toInteger($limit)`,
+      { uid: req.params.uid, limit, offset }
     ));
     
     const followedUsers = result.records.map(r => {
@@ -508,7 +513,7 @@ router.get('/:uid/following', verifyFirebaseToken, async (req, res, next) => {
       };
     });
 
-    res.json({ success: true, data: followedUsers });
+    res.json({ success: true, count: followedUsers.length, limit, offset, hasMore: followedUsers.length === limit, data: followedUsers });
   } catch (err) {
     next(err);
   } finally {
