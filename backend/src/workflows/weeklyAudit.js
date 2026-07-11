@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const { task } = require('@renderinc/sdk/workflows');
 const { getDriver, closeDriver } = require('../config/neo4j');
 
 const WEEKLY_BADGE = {
@@ -38,7 +39,7 @@ function getAuditWeekKey(weekDates) {
   return `${weekDates[0]}_${weekDates[weekDates.length - 1]}`;
 }
 
-async function fetchUsers() {
+async function fetchUsersImpl() {
   const driver = getDriver();
   const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j' });
 
@@ -61,7 +62,7 @@ async function fetchUsers() {
   }
 }
 
-async function evaluateUserWeeklyStreak(user, weekDates) {
+async function evaluateUserWeeklyStreakImpl(user, weekDates) {
   const driver = getDriver();
   const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j' });
 
@@ -89,7 +90,7 @@ async function evaluateUserWeeklyStreak(user, weekDates) {
   }
 }
 
-async function awardWeeklyWarriors(winners, weekDates) {
+async function awardWeeklyWarriorsImpl(winners, weekDates) {
   if (!winners.length) {
     return { processed: 0, newlyAwarded: 0, weekKey: getAuditWeekKey(weekDates) };
   }
@@ -160,7 +161,22 @@ async function awardWeeklyWarriors(winners, weekDates) {
   }
 }
 
-async function runWeeklyAudit(now = new Date()) {
+const fetchUsers = task(
+  { name: 'weeklyAuditFetchUsers' },
+  fetchUsersImpl,
+);
+
+const evaluateUserWeeklyStreak = task(
+  { name: 'weeklyAuditEvaluateUserStreak' },
+  evaluateUserWeeklyStreakImpl,
+);
+
+const awardWeeklyWarriors = task(
+  { name: 'weeklyAuditAwardWarriors' },
+  awardWeeklyWarriorsImpl,
+);
+
+async function runWeeklyAuditImpl(now = new Date()) {
   const weekDates = getAuditWeekDates(now);
   const weekKey = getAuditWeekKey(weekDates);
 
@@ -202,6 +218,11 @@ async function runWeeklyAudit(now = new Date()) {
     failures,
   };
 }
+
+const runWeeklyAudit = task(
+  { name: 'weeklyAuditRun' },
+  runWeeklyAuditImpl,
+);
 
 if (require.main === module) {
   runWeeklyAudit()
