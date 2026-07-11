@@ -38,7 +38,7 @@ const normalizeMate = (record) => {
   };
 };
 
-// ─── Neo4j Visual Match Graph (Force Directed Modal) ──────────────────────────
+// ─── Why Matched Graph (Force Directed Modal) ──────────────────────────
 const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 400, height: 300 });
@@ -57,15 +57,15 @@ const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
     : mate.teaches?.slice(0, 3) || ['Peer'];
 
   const nodes = [
-    { id: 'user', name: currentUserName, color: '#DCFD8B', val: 20 },
-    { id: 'peer', name: (mate.name || 'PEER').split(' ')[0], color: '#A78BFA', val: 20 },
+    { id: 'user', name: currentUserName, type: 'person', color: '#DCFD8B', val: 20 },
+    { id: 'peer', name: (mate.name || 'PEER').split(' ')[0], type: 'person', color: '#A78BFA', val: 20 },
   ];
 
   const links = [];
 
   sharedSkills.forEach((skill, i) => {
     const skillId = `skill-${i}`;
-    nodes.push({ id: skillId, name: skill, color: '#E5E7EB', val: 12 });
+    nodes.push({ id: skillId, name: skill, type: 'skill', color: '#E5E7EB', val: 12 });
     links.push({ source: 'user', target: skillId, color: '#DCFD8B' });
     links.push({ source: skillId, target: 'peer', color: '#A78BFA' });
   });
@@ -89,7 +89,7 @@ const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
 
         <div className="mb-4 flex items-center gap-2">
           <GitBranch size={18} className="text-green-600 dark:text-success-lime" />
-          <h3 className="font-headline-md text-gray-900 dark:text-on-surface">Neo4j Match Traversal</h3>
+          <h3 className="font-headline-md text-gray-900 dark:text-on-surface">Why matched?</h3>
         </div>
 
         <div 
@@ -111,9 +111,10 @@ const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
               nodeCanvasObject={(node, ctx, globalScale) => {
                 const label = node.name;
                 const fontSize = 12/globalScale;
+                const isDarkGraph = document.documentElement.classList.contains('dark')
+                  || window.matchMedia?.('(prefers-color-scheme: dark)').matches;
                 ctx.font = `bold ${fontSize}px Sans-Serif`;
-                const textWidth = ctx.measureText(label).width;
-                const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2);
+                const labelY = node.y + (node.val / 2) + fontSize;
 
                 ctx.fillStyle = node.color;
                 ctx.beginPath();
@@ -122,8 +123,11 @@ const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
 
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = node.id === 'skill' ? '#666' : '#000';
-                ctx.fillText(label, node.x, node.y + (node.val/2) + 4);
+                ctx.lineWidth = 4 / globalScale;
+                ctx.strokeStyle = isDarkGraph ? 'rgba(8, 10, 15, 0.92)' : 'rgba(255, 255, 255, 0.92)';
+                ctx.strokeText(label, node.x, labelY);
+                ctx.fillStyle = isDarkGraph ? '#F8FAFC' : (node.type === 'skill' ? '#374151' : '#111827');
+                ctx.fillText(label, node.x, labelY);
               }}
             />
           )}
