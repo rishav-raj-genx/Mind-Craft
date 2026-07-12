@@ -9,7 +9,18 @@ export const doubtService = {
   },
 
   // Create a new doubt
-  createDoubt: async ({ title, content, tag }) => {
+  createDoubt: async ({ title, content, tag, images = [] }) => {
+    if (images.length > 0) {
+      const form = new FormData();
+      form.append('title', title);
+      form.append('content', content);
+      form.append('tag', tag);
+      images.forEach((image) => form.append('images', image));
+
+      const response = await api.post('/doubt', form);
+      return response.data;
+    }
+
     const response = await api.post('/doubt', { title, content, tag });
     return response.data;
   },

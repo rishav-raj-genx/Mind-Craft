@@ -21,6 +21,31 @@ const LinkedinIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
 );
 
+const cleanSocialValue = (value = '') => String(value).trim().replace(/^@+/, '');
+
+const getSocialUrl = (platform, value = '') => {
+  const raw = cleanSocialValue(value);
+  if (!raw) return '#';
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const handle = raw
+    .replace(/^www\./i, '')
+    .replace(/^(linkedin\.com\/in\/|linkedin\.com\/pub\/|github\.com\/|leetcode\.com\/u\/|leetcode\.com\/|codeforces\.com\/profile\/|codechef\.com\/users\/)/i, '')
+    .replace(/^\/+|\/+$/g, '');
+
+  const routes = {
+    linkedin: `https://www.linkedin.com/in/${handle}`,
+    github: `https://github.com/${handle}`,
+    leetcode: `https://leetcode.com/u/${handle}`,
+    codeforces: `https://codeforces.com/profile/${handle}`,
+    codechef: `https://www.codechef.com/users/${handle}`,
+  };
+
+  return routes[platform] || raw;
+};
+
+const getSocialLabel = (value = '') => cleanSocialValue(value).replace(/^https?:\/\/(www\.)?/i, '');
+
 // ─── Topics Modal ("Show All" popup) ──────────────────────────────────
 const TopicsModal = ({ title, topics, color, onClose }) => {
   useEffect(() => {
@@ -599,51 +624,51 @@ const Profile = () => {
               
               <div className="flex flex-col gap-3">
                 {user.linkedinUsername && (
-                  <a href={`https://linkedin.com/in/${user.linkedinUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                  <a href={getSocialUrl('linkedin', user.linkedinUsername)} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-[#0077B5]/10 text-[#0077B5] flex items-center justify-center group-hover:scale-110 transition-transform"><LinkedinIcon size={18} /></div>
                     <div className="flex-1 min-w-0">
                       <span className="block font-bold text-gray-900 dark:text-white">LinkedIn</span>
-                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.linkedinUsername}</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{getSocialLabel(user.linkedinUsername)}</span>
                     </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.githubUsername && (
-                  <a href={`https://github.com/${user.githubUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                  <a href={getSocialUrl('github', user.githubUsername)} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white flex items-center justify-center group-hover:scale-110 transition-transform"><GithubIcon size={18} /></div>
                     <div className="flex-1 min-w-0">
                       <span className="block font-bold text-gray-900 dark:text-white">GitHub</span>
-                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.githubUsername}</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{getSocialLabel(user.githubUsername)}</span>
                     </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.leetcodeUsername && (
-                  <a href={`https://leetcode.com/${user.leetcodeUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                  <a href={getSocialUrl('leetcode', user.leetcodeUsername)} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
                     <div className="flex-1 min-w-0">
                       <span className="block font-bold text-gray-900 dark:text-white">LeetCode</span>
-                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.leetcodeUsername}</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{getSocialLabel(user.leetcodeUsername)}</span>
                     </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.codeforcesUsername && (
-                  <a href={`https://codeforces.com/profile/${user.codeforcesUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                  <a href={getSocialUrl('codeforces', user.codeforcesUsername)} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
                     <div className="flex-1 min-w-0">
                       <span className="block font-bold text-gray-900 dark:text-white">Codeforces</span>
-                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.codeforcesUsername}</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{getSocialLabel(user.codeforcesUsername)}</span>
                     </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>
                 )}
                 {user.codechefUsername && (
-                  <a href={`https://www.codechef.com/users/${user.codechefUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
+                  <a href={getSocialUrl('codechef', user.codechefUsername)} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-[#1C1C2E] hover:bg-gray-100 dark:hover:bg-[#2A2A3A] transition-colors group">
                     <div className="w-10 h-10 rounded-full bg-red-500/10 text-red-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Code size={18} /></div>
                     <div className="flex-1 min-w-0">
                       <span className="block font-bold text-gray-900 dark:text-white">CodeChef</span>
-                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{user.codechefUsername}</span>
+                      <span className="block text-sm text-gray-500 dark:text-gray-400 truncate">{getSocialLabel(user.codechefUsername)}</span>
                     </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </a>

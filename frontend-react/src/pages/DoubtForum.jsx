@@ -1,12 +1,30 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import imageCompression from 'browser-image-compression';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { doubtService } from '../services/doubtService';
-import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles } from 'lucide-react';
+import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const TAGS = ['#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
 const FILTERS = ['All Doubts', 'My Doubts', '#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
+const MAX_DOUBT_IMAGES = 4;
+
+const compressDoubtImage = async (file) => {
+  const compressed = await imageCompression(file, {
+    maxSizeMB: 0.35,
+    maxWidthOrHeight: 1280,
+    useWebWorker: true,
+    fileType: 'image/webp',
+    initialQuality: 0.72,
+  });
+
+  return new File(
+    [compressed],
+    `${file.name.replace(/\.[^.]+$/, '') || 'doubt-image'}.webp`,
+    { type: 'image/webp', lastModified: Date.now() },
+  );
+};
 
 // Format timestamp
 const timeAgo = (ts) => {
@@ -55,13 +73,56 @@ const AIAssistHint = ({ hint, status, error }) => {
   );
 };
 
+const ImageSlideshowModal = ({ images = [], startIndex = 0, onClose }) => {
+  const [index, setIndex] = useState(startIndex);
+  const current = images[index];
+
+  useEffect(() => {
+    setIndex(startIndex);
+  }, [startIndex]);
+
+  const goPrev = () => setIndex(curr => (curr - 1 + images.length) % images.length);
+  const goNext = () => setIndex(curr => (curr + 1) % images.length);
+
+  if (!current) return null;
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+      <button onClick={onClose} className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/95 text-gray-900 flex items-center justify-center shadow-lg">
+        <X size={22} />
+      </button>
+      <img
+        src={current.dataUri}
+        alt="Doubt attachment"
+        className="max-w-full max-h-[74vh] object-contain rounded-2xl shadow-2xl"
+      />
+      {images.length > 1 && (
+        <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center gap-4">
+          <button onClick={goPrev} className="w-12 h-12 rounded-full bg-[#DCFD8B] text-[#151f00] flex items-center justify-center shadow-lg">
+            <ChevronLeft size={24} />
+          </button>
+          <span className="px-4 py-2 rounded-full bg-white/10 border border-white/20 text-white text-sm font-bold">
+            {index + 1}/{images.length}
+          </span>
+          <button onClick={goNext} className="w-12 h-12 rounded-full bg-[#DCFD8B] text-[#151f00] flex items-center justify-center shadow-lg">
+            <ChevronRight size={24} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Add Doubt Modal ───────────────────────────────────────────────────
 const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [tag, setTag] = useState(TAGS[0]);
+  const [images, setImages] = useState([]);
+  const [compressingImages, setCompressingImages] = useState(false);
   const [error, setError] = useState('');
   const titleRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   useEffect(() => {
     setTimeout(() => titleRef.current?.focus(), 100);
@@ -70,12 +131,48 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
     return () => { document.body.style.overflow = ''; };
   }, []);
 
+  const handleImageSelect = async (e) => {
+    const selected = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!selected.length) return;
+
+    setError('');
+    if (images.length + selected.length > MAX_DOUBT_IMAGES) {
+      setError(`You can attach up to ${MAX_DOUBT_IMAGES} images.`);
+      return;
+    }
+
+    setCompressingImages(true);
+    try {
+      const compressed = await Promise.all(selected.map(compressDoubtImage));
+      const next = compressed.map((file) => ({
+        id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+      setImages(prev => [...prev, ...next].slice(0, MAX_DOUBT_IMAGES));
+    } catch (err) {
+      console.error('Image compression failed:', err);
+      setError('Could not compress this image. Please try another screenshot.');
+    } finally {
+      setCompressingImages(false);
+    }
+  };
+
+  const removeImage = (id) => {
+    setImages(prev => {
+      const target = prev.find(img => img.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter(img => img.id !== id);
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     if (!title.trim()) { setError('Please enter a title for your doubt.'); return; }
     if (!content.trim()) { setError('Please describe your doubt.'); return; }
-    await onSubmit({ title: title.trim(), content: content.trim(), tag });
+    await onSubmit({ title: title.trim(), content: content.trim(), tag, images: images.map(img => img.file) });
   };
 
   return (
@@ -102,6 +199,7 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
             <h2 className="font-bold text-xl text-gray-900 dark:text-white">Ask a Doubt</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Get help from your peers</p>
           </div>
+
           <button
             id="close-doubt-modal"
             onClick={onClose}
@@ -183,6 +281,48 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
             <div className="text-right text-xs text-gray-400 mt-1">{content.length}/1000</div>
           </div>
 
+          {/* Images */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+              Screenshots / images <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleImageSelect}
+            />
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={loading || compressingImages || images.length >= MAX_DOUBT_IMAGES}
+              className="w-full py-3 rounded-2xl border border-dashed border-[#7C3AED]/50 bg-purple-50 dark:bg-purple-900/20 text-[#7C3AED] dark:text-purple-300 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {compressingImages ? <Loader2 size={17} className="animate-spin" /> : <ImageIcon size={17} />}
+              {compressingImages ? 'Compressing...' : `Add images (${images.length}/${MAX_DOUBT_IMAGES})`}
+            </button>
+            <p className="text-xs text-gray-400 mt-2">Images are compressed before upload and compressed again on the server.</p>
+
+            {images.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto hide-scrollbar mt-3 pb-1">
+                {images.map(img => (
+                  <div key={img.id} className="relative shrink-0 w-20 h-20 rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                    <img src={img.previewUrl} alt="Selected doubt attachment" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(img.id)}
+                      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Error */}
           {error && (
             <div className="flex items-center gap-2 text-red-500 text-sm bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
@@ -211,7 +351,7 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
 };
 
 // ── Answer Doubt Modal (supports read-only mode for own doubts) ───────
-const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner }) => {
+const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner, onImageOpen }) => {
   const [content, setContent] = useState('');
   const [error, setError] = useState('');
 
@@ -262,6 +402,18 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner }) => {
              </div>
              <h3 className="font-bold text-gray-900 dark:text-white mb-1">{post.title}</h3>
              <p className="text-sm text-gray-600 dark:text-gray-400">{post.content}</p>
+             {(post.images || []).length > 0 && (
+               <button
+                 type="button"
+                 onClick={() => onImageOpen(post.images, 0)}
+                 className="mt-3 relative w-full h-36 rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-800"
+               >
+                 <img src={post.images[0].dataUri} alt="Doubt attachment" className="w-full h-full object-cover" />
+                 <span className="absolute right-3 bottom-3 rounded-full bg-black/70 text-white text-xs font-bold px-3 py-1">
+                   {post.images.length} image{post.images.length > 1 ? 's' : ''}
+                 </span>
+               </button>
+             )}
              <AIAssistHint hint={post.aiHint} status={post.aiAssistStatus} error={post.aiAssistError} />
           </div>
 
@@ -374,6 +526,7 @@ const DoubtForum = () => {
   const [fetchError, setFetchError] = useState('');
   const [upvotedIds, setUpvotedIds] = useState(new Set());
   const [successMsg, setSuccessMsg] = useState('');
+  const [imageViewer, setImageViewer] = useState(null);
   const aiHintRetryRef = useRef(false);
 
   const fetchDoubts = async (filter = activeFilter) => {
@@ -413,10 +566,10 @@ const DoubtForum = () => {
     fetchDoubts(activeFilter);
   }, [activeFilter, markForumVisited]);
 
-  const handleAddDoubt = async ({ title, content, tag }) => {
+  const handleAddDoubt = async ({ title, content, tag, images = [] }) => {
     setSubmitting(true);
     try {
-      const res = await doubtService.createDoubt({ title, content, tag });
+      const res = await doubtService.createDoubt({ title, content, tag, images });
       setPosts(prev => [res.data, ...prev]);
       if (!res.data?.aiHint) {
         setTimeout(() => fetchDoubts(activeFilter), 2500);
@@ -608,6 +761,18 @@ const DoubtForum = () => {
                 <div className="mb-4">
                   <h2 className="font-bold text-base text-gray-900 dark:text-white mb-1">{post.title}</h2>
                   <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed">{post.content}</p>
+                  {(post.images || []).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setImageViewer({ images: post.images, startIndex: 0 })}
+                      className="mt-3 relative w-full h-40 rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-100 dark:border-gray-800"
+                    >
+                      <img src={post.images[0].dataUri} alt="Doubt attachment" className="w-full h-full object-cover" />
+                      <span className="absolute right-3 bottom-3 rounded-full bg-black/70 text-white text-xs font-bold px-3 py-1">
+                        {post.images.length} image{post.images.length > 1 ? 's' : ''}
+                      </span>
+                    </button>
+                  )}
                   <AIAssistHint hint={post.aiHint} status={post.aiAssistStatus} error={post.aiAssistError} />
                 </div>
 
@@ -692,6 +857,7 @@ const DoubtForum = () => {
           onSubmit={handleAnswerDoubt}
           loading={answering}
           isOwner={answeringDoubt.authorUid === currentUser?.uid}
+          onImageOpen={(images, startIndex = 0) => setImageViewer({ images, startIndex })}
         />
       )}
       {resolvingDoubt && (
@@ -700,6 +866,13 @@ const DoubtForum = () => {
           onClose={() => setResolvingDoubt(null)}
           onConfirm={handleResolveDoubt}
           loading={resolving}
+        />
+      )}
+      {imageViewer && (
+        <ImageSlideshowModal
+          images={imageViewer.images}
+          startIndex={imageViewer.startIndex}
+          onClose={() => setImageViewer(null)}
         />
       )}
     </div>
