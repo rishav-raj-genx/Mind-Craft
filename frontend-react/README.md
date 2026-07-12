@@ -1,48 +1,195 @@
-# Mindcraft Frontend - React Conversion
+# Mindcraft Frontend
 
-This is the fully converted React application for the Mindcraft P2P Tutoring platform, built with Vite, React, Tailwind CSS, and Firebase.
+This folder contains the Mindcraft frontend surfaces:
 
-## 3 Steps to Run Locally
+- Vite React PWA/mobile-web app in `frontend-react/`
+- Expo React Native app in `frontend-react/mobile/`
 
-**Step 1: Start the Backend**
-Open a terminal in the `backend/` directory and start the Express server.
-```bash
-cd backend
-npm install
-npm run dev
-```
+Both clients communicate with the Node backend API.
 
-**Step 2: Configure Firebase**
-In the `frontend-react/` directory, ensure you have a `.env.local` file with your Firebase credentials:
-```env
-VITE_FIREBASE_API_KEY=your_key
-VITE_FIREBASE_AUTH_DOMAIN=your_domain
-VITE_FIREBASE_PROJECT_ID=mind-craft-4f16c
-VITE_FIREBASE_STORAGE_BUCKET=your_bucket
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
-```
+## Web/PWA App
 
-**Step 3: Start the Frontend**
-Open a separate terminal in the `frontend-react/` directory and start the Vite development server.
+### Stack
+
+- Vite
+- React
+- Tailwind CSS
+- Firebase client auth
+- Axios API services
+- WebSocket chat
+- PWA service worker
+- `browser-image-compression` for doubt screenshots
+
+### Local Setup
+
 ```bash
 cd frontend-react
 npm install
 npm run dev
 ```
 
-## Project Structure
+Default local URL:
 
-- `src/components/`: Reusable components (Layout, TopAppBar, etc.)
-- `src/pages/`: Main application screens (Home, Login, Profile, etc.)
-- `src/context/`: React Context providers (AuthContext)
-- `src/services/`: API client modules using Axios (userService, chatService, etc.)
-- `src/config/`: Firebase and Axios initialization
+```txt
+http://localhost:5173
+```
 
-## Features Integrated
+### Web Environment Variables
 
-- **Authentication**: Firebase Google Sign-In and Email/Password flow. ID Tokens attached to backend requests via Axios interceptors.
-- **WebSocket Chat**: Real-time P2P messaging using the `ChatWebSocket` client connecting to `ws://localhost:3000/ws`.
-- **Voice Search**: Built-in MediaRecorder on the Match screen to send audio blobs to the `/api/voice-search` endpoint for intent detection.
-- **Gamification**: Real-time integration with token balance, streaks, and match leaderboards.
-- **Styling**: Preserved custom Stitch UI tailwind configurations with responsive layouts and dark mode support.
+Create `.env` or `.env.local` in `frontend-react/`:
+
+```env
+VITE_API_BASE_URL=http://localhost:3000
+
+VITE_FIREBASE_API_KEY=your-key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+VITE_FIREBASE_APP_ID=your-app-id
+```
+
+For production:
+
+```env
+VITE_API_BASE_URL=https://your-render-backend.onrender.com
+```
+
+### Web Features
+
+- Login/signup with Firebase Auth.
+- Home dashboard.
+- Find Mate graph/matching experience.
+- Real-time chat and unread indicators.
+- Doubt forum with:
+  - Sarvam AI Assist hints,
+  - compressed screenshot/image uploads,
+  - image thumbnails,
+  - circular full-screen slideshow.
+- Profile pages with normalized social links.
+- Streaks, badges, ratings, and Mind Tokens.
+
+### Web Build
+
+```bash
+cd frontend-react
+npm run build
+```
+
+Preview locally:
+
+```bash
+npm run preview
+```
+
+## Expo Mobile App
+
+The native app lives in:
+
+```txt
+frontend-react/mobile
+```
+
+### Stack
+
+- Expo SDK 57
+- Expo Router
+- TypeScript
+- Axios
+- AsyncStorage
+- React Native Maps
+- Expo Image
+- Expo Image Picker
+- Expo Image Manipulator
+
+### Local Setup
+
+```bash
+cd frontend-react/mobile
+npm install
+npm start
+```
+
+### Mobile Environment Variable
+
+The mobile app needs:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://your-render-backend.onrender.com/api
+```
+
+For local Android emulator, do not use `localhost`; use your machine IP or emulator host address.
+
+Example:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://your-render-backend.onrender.com/api npm start
+```
+
+### Mobile Features
+
+- Native tab navigation: Home, Find, Forum, Profile.
+- Native components, not WebView.
+- Global alert modal with success/error/info/warning states.
+- Axios response interceptor for friendly network errors.
+- Expo Router ErrorBoundary for crash-safe UI.
+- Optimized FlatLists for low-RAM phones.
+- Cached avatars/images through `expo-image`.
+- Doubt images compressed before upload.
+
+### Mobile Checks
+
+```bash
+cd frontend-react/mobile
+npx tsc --noEmit
+npx expo export --platform android --output-dir /tmp/mindcraft-expo-check
+```
+
+## Expo EAS Build
+
+Install and login:
+
+```bash
+npm install -g eas-cli
+eas login
+```
+
+Configure if needed:
+
+```bash
+cd frontend-react/mobile
+eas build:configure
+```
+
+Preview APK:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://your-render-backend.onrender.com/api eas build --platform android --profile preview
+```
+
+Production Android:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://your-render-backend.onrender.com/api eas build --platform android --profile production
+```
+
+Production iOS:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://your-render-backend.onrender.com/api eas build --platform ios --profile production
+```
+
+Submit:
+
+```bash
+eas submit --platform android --profile production
+eas submit --platform ios --profile production
+```
+
+## Deployment Order
+
+1. Deploy backend on Render.
+2. Confirm `/health` works.
+3. Set frontend API URL to the Render backend.
+4. Build/deploy web app if needed.
+5. Build Expo app with EAS using `EXPO_PUBLIC_API_BASE_URL`.
