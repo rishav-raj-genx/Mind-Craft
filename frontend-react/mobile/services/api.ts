@@ -10,7 +10,7 @@ const USER_ID_KEY = 'mindcraft.userId';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 12000,
+  timeout: 60000, // 60s — Render free-tier cold starts can take ~50s
 });
 
 api.interceptors.request.use(async (config) => {

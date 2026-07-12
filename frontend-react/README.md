@@ -39,7 +39,7 @@ http://localhost:5173
 Create `.env` or `.env.local` in `frontend-react/`:
 
 ```env
-VITE_API_BASE_URL=http://localhost:3000
+VITE_API_BASE_URL=https://mindcraft-backend-g2hj.onrender.com
 
 VITE_FIREBASE_API_KEY=your-key
 VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
