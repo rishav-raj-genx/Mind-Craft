@@ -407,7 +407,7 @@ const Profile = () => {
         try {
           await updateProfile(currentUser, { photoURL: compressed });
         } catch {
-          console.warn('Firebase Auth photoURL limit exceeded, falling back to Firestore only.');
+          console.warn('Firebase Auth photoURL limit exceeded, falling back to backend API only.');
         }
       }
     } catch (err) {
