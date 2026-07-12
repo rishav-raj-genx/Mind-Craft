@@ -17,7 +17,21 @@ export type Doubt = {
   id: string;
   tag: string;
   title: string;
+  content?: string;
   hint: string;
+  images: DoubtImage[];
+};
+
+export type DoubtImage = {
+  id: string;
+  order?: number;
+  mimeType?: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+  size?: number;
+  dataUri: string;
+  createdAt?: number;
 };
 
 export type ProfileSummary = {
@@ -37,9 +51,9 @@ export const fallbackMates: Mate[] = [
 ];
 
 export const fallbackDoubts: Doubt[] = [
-  { id: '1', tag: '#DSA', title: 'What is a base case?', hint: 'Think of the smallest input where recursion can stop.' },
-  { id: '2', tag: '#WebDev', title: 'What is closure in JS?', hint: 'A function remembers variables from its outer scope.' },
-  { id: '3', tag: '#Math', title: 'How do limits work?', hint: 'Watch what value the function approaches, not always reaches.' },
+  { id: '1', tag: '#DSA', title: 'What is a base case?', content: 'Recursion stopping condition', hint: 'Think of the smallest input where recursion can stop.', images: [] },
+  { id: '2', tag: '#WebDev', title: 'What is closure in JS?', content: 'JavaScript scope doubt', hint: 'A function remembers variables from its outer scope.', images: [] },
+  { id: '3', tag: '#Math', title: 'How do limits work?', content: 'Calculus concept', hint: 'Watch what value the function approaches, not always reaches.', images: [] },
 ];
 
 export const fallbackProfile: ProfileSummary = {
@@ -87,8 +101,50 @@ export async function fetchDoubts(): Promise<Doubt[]> {
     id: doubt.id,
     tag: doubt.tag || '#General',
     title: doubt.title || doubt.content || 'Untitled doubt',
+    content: doubt.content || '',
     hint: doubt.aiHint || 'AI Assist is waiting for the Sarvam study hint.',
+    images: Array.isArray(doubt.images) ? doubt.images : [],
   }));
+}
+
+export type NewDoubtImage = {
+  uri: string;
+  name: string;
+  type: string;
+};
+
+export async function createDoubt(payload: {
+  title: string;
+  content: string;
+  tag: string;
+  images?: NewDoubtImage[];
+}): Promise<Doubt> {
+  const form = new FormData();
+  form.append('title', payload.title);
+  form.append('content', payload.content);
+  form.append('tag', payload.tag);
+
+  for (const image of payload.images || []) {
+    form.append('images', {
+      uri: image.uri,
+      name: image.name,
+      type: image.type,
+    } as unknown as Blob);
+  }
+
+  const response = await api.post('/doubt', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  const doubt = response.data?.data || {};
+
+  return {
+    id: doubt.id,
+    tag: doubt.tag || payload.tag,
+    title: doubt.title || payload.title,
+    content: doubt.content || payload.content,
+    hint: doubt.aiHint || 'AI Assist is waiting for the Sarvam study hint.',
+    images: Array.isArray(doubt.images) ? doubt.images : [],
+  };
 }
 
 export async function fetchProfileSummary(): Promise<ProfileSummary> {

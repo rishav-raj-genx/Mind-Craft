@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "workflow:weekly-audit": "node src/workflows/weeklyAudit.js"
+    "workflow:weekly-audit": "node src/workflows/weeklyAudit.js",
+    "db:clear": "node scripts/clearAuraDb.js"
   },
   "keywords": [
     "mindcraft",
@@ -32,6 +33,7 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "neo4j-driver": "^5.27.0",
+    "sharp": "^0.35.3",
     "uuid": "^11.0.5",
     "ws": "^8.18.0"
   },

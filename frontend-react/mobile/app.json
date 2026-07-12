@@ -34,7 +34,13 @@
           "backgroundColor": "#FFF9F1"
         }
       ],
-      "expo-image"
+      "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Mindcraft needs photo access so you can attach doubt screenshots."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,4 +1,6 @@
 const express = require('express');
+const multer = require('multer');
+const sharp = require('sharp');
 const { body } = require('express-validator');
 const router  = express.Router();
 
@@ -9,6 +11,28 @@ const { awardForumAnswer } = require('../services/tokenEconomy');
 const { generateStudyHint, isGenericStudyHint } = require('../services/sarvamAI');
 const { v4: uuidv4 } = require('uuid');
 const { getPagination } = require('../utils/pagination');
+
+const MAX_DOUBT_IMAGES = 4;
+const MAX_DOUBT_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_COMPRESSED_IMAGE_BYTES = 320 * 1024;
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+
+const uploadDoubtImages = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_DOUBT_IMAGE_BYTES,
+    files: MAX_DOUBT_IMAGES,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    const err = new Error(`Invalid image format: "${file.mimetype}". Upload JPG, PNG, WEBP, HEIC, or HEIF.`);
+    err.statusCode = 415;
+    cb(err, false);
+  },
+});
 
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 const parseJsonArray = (value) => {
@@ -27,6 +51,63 @@ const parseJsonValue = (value, fallback = null) => {
     return JSON.parse(value);
   } catch (_err) {
     return fallback;
+  }
+};
+
+const compressDoubtImage = async (file, index) => {
+  let buffer = await sharp(file.buffer, { failOn: 'none' })
+    .rotate()
+    .resize({
+      width: 1280,
+      height: 1280,
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    .webp({ quality: 72, effort: 4 })
+    .toBuffer();
+
+  if (buffer.length > MAX_COMPRESSED_IMAGE_BYTES) {
+    buffer = await sharp(file.buffer, { failOn: 'none' })
+      .rotate()
+      .resize({
+        width: 960,
+        height: 960,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 58, effort: 5 })
+      .toBuffer();
+  }
+
+  const metadata = await sharp(buffer).metadata();
+
+  return {
+    id: uuidv4(),
+    order: index,
+    mimeType: 'image/webp',
+    fileName: `${file.fieldname || 'doubt'}-${index + 1}.webp`,
+    width: metadata.width || null,
+    height: metadata.height || null,
+    size: buffer.length,
+    dataUri: `data:image/webp;base64,${buffer.toString('base64')}`,
+    createdAt: Date.now(),
+  };
+};
+
+const attachCompressedDoubtImages = async (req, _res, next) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      req.doubtImages = [];
+      return next();
+    }
+
+    const compressed = await Promise.all(files.map(compressDoubtImage));
+    req.doubtImages = compressed;
+    next();
+  } catch (err) {
+    err.statusCode = err.statusCode || 400;
+    next(err);
   }
 };
 
@@ -199,6 +280,8 @@ router.get('/', verifyFirebaseToken, async (req, res, next) => {
       // Fetch answers and upvotes later or assume empty for list view
       d.answers = parseJsonArray(d.answers);
       d.upvotedBy = parseJsonArray(d.upvotedBy);
+      d.images = parseJsonArray(d.images);
+      d.imageCount = toNumber(d.imageCount) || d.images.length;
       d.aiAssistUsage = parseJsonValue(d.aiAssistUsage, null);
       return d;
     });
@@ -221,7 +304,7 @@ router.get('/trending', verifyFirebaseToken, async (req, res, next) => {
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.post('/', verifyFirebaseToken, [
+router.post('/', verifyFirebaseToken, uploadDoubtImages.array('images', MAX_DOUBT_IMAGES), attachCompressedDoubtImages, [
   body('title').trim().notEmpty().withMessage('Title is required'),
   body('content').trim().notEmpty().withMessage('Content is required'),
   body('tag').trim().notEmpty().withMessage('Tag is required'),
@@ -249,6 +332,8 @@ router.post('/', verifyFirebaseToken, [
       title: req.body.title, content: req.body.content, tag: req.body.tag,
       upvotes: 0, answerCount: 0, createdAt: Date.now(),
       answers: JSON.stringify([]), upvotedBy: JSON.stringify([]),
+      images: JSON.stringify(req.doubtImages || []),
+      imageCount: (req.doubtImages || []).length,
       aiHint: req.aiAssist?.hint || '',
       aiAssistProvider: req.aiAssist?.provider || 'sarvam-ai',
       aiAssistModel: req.aiAssist?.model || '',
@@ -261,7 +346,13 @@ router.post('/', verifyFirebaseToken, [
     await session.executeWrite(tx => tx.run(`CREATE (d:Doubt) SET d = $doubt`, { doubt }));
     broadcastNewDoubt(doubt);
     
-    const ret = {...doubt, answers: [], upvotedBy: [], aiAssistUsage: parseJsonValue(doubt.aiAssistUsage, null)};
+    const ret = {
+      ...doubt,
+      answers: [],
+      upvotedBy: [],
+      images: parseJsonArray(doubt.images),
+      aiAssistUsage: parseJsonValue(doubt.aiAssistUsage, null),
+    };
     res.status(201).json({ success: true, data: ret });
   } catch (err) { next(err); } finally { await session.close(); }
 });
