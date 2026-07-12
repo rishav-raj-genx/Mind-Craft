@@ -1,8 +1,9 @@
 import { Image } from 'expo-image';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGlobalAlert } from '@/components/GlobalAlertProvider';
 import { LOW_MEMORY_LIST_PROPS } from '@/constants/list';
 import { palette, radii } from '@/constants/theme';
 import { fallbackProfile, fetchProfileSummary, type ProfileSummary } from '@/services/mindcraft';
@@ -17,6 +18,7 @@ const BadgeCard = memo(function BadgeCard({ badge, onPress }: { badge: string; o
 });
 
 export default function ProfileScreen() {
+  const { showAlert } = useGlobalAlert();
   const [profile, setProfile] = useState<ProfileSummary>(fallbackProfile);
 
   useEffect(() => {
@@ -29,7 +31,6 @@ export default function ProfileScreen() {
         .catch(() => {
           if (isMounted) {
             setProfile(fallbackProfile);
-            Alert.alert('Network issue', 'Could not refresh profile. Showing saved summary for now.');
           }
         });
     });
@@ -43,8 +44,8 @@ export default function ProfileScreen() {
   const badges = useMemo(() => profile.badges, [profile.badges]);
   const keyExtractor = useCallback((badge: string) => badge, []);
   const handleBadgePress = useCallback((badge: string) => {
-    Alert.alert('Badge', badge);
-  }, []);
+    showAlert({ type: 'success', title: 'Badge', message: badge });
+  }, [showAlert]);
   const renderBadge = useCallback(({ item }: { item: string }) => (
     <BadgeCard badge={item} onPress={handleBadgePress} />
   ), [handleBadgePress]);

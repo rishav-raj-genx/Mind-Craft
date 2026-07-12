@@ -470,7 +470,8 @@ async function generateStudyHint(doubt, options = {}) {
     );
   }
 
-  const callSarvamChat = async (selectedModel) => {
+  const callSarvamChat = async (selectedModel, attempt = 'primary') => {
+    const isSpecificRetry = attempt === 'specific-retry';
     const response = await axios.post(CHAT_URL, {
       model: selectedModel,
       messages: [
@@ -483,10 +484,14 @@ async function generateStudyHint(doubt, options = {}) {
             'Keep it under 90 words total.',
             'Make the hint specific to the exact title, details, and tag.',
             'Do not use generic wording like "identify the core idea" unless you name the actual concept from the doubt.',
+            'Avoid reusable templates. Mention the exact concept words from the student question.',
+            isSpecificRetry
+              ? 'Your previous answer was too generic. Rewrite it with one concrete clue, misconception, or mental model for this exact doubt.'
+              : '',
             'Use this exact format:',
             'English: <hint>',
             'Hindi: <hint in Devanagari>',
-          ].join(' '),
+          ].filter(Boolean).join(' '),
         },
         {
           role: 'user',
@@ -494,10 +499,13 @@ async function generateStudyHint(doubt, options = {}) {
             `Subject/tag: ${tag}`,
             `Question title: ${title}`,
             `Question details: ${content}`,
-          ].join('\n'),
+            isSpecificRetry
+              ? 'Important: Do not answer with a generic study strategy. Give a concept-specific hint for this exact title and details.'
+              : '',
+          ].filter(Boolean).join('\n'),
         },
       ],
-      temperature: 0.2,
+      temperature: isSpecificRetry ? 0.45 : 0.25,
       reasoning_effort: 'none',
       max_tokens: 220,
     }, {
@@ -525,6 +533,15 @@ async function generateStudyHint(doubt, options = {}) {
     if (!result.hint && model !== 'sarvam-105b') {
       console.warn(`Sarvam AI returned empty hint with ${model}; retrying with sarvam-105b`);
       result = await callSarvamChat('sarvam-105b');
+    }
+
+    if (result.hint && isGenericStudyHint(result.hint, { title, content, tag })) {
+      console.warn(`Sarvam AI returned generic hint with ${result.model || model}; retrying with a stricter prompt`);
+      const retryModel = result.model || model;
+      const retry = await callSarvamChat(retryModel, 'specific-retry');
+      if (retry.hint && !isGenericStudyHint(retry.hint, { title, content, tag })) {
+        result = retry;
+      }
     }
 
     if (!result.hint || isGenericStudyHint(result.hint, { title, content, tag })) {

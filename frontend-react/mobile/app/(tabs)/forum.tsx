@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGlobalAlert } from '@/components/GlobalAlertProvider';
 import { LOW_MEMORY_LIST_PROPS } from '@/constants/list';
 import { palette, radii } from '@/constants/theme';
 import { fallbackDoubts, fetchDoubts, type Doubt } from '@/services/mindcraft';
@@ -23,6 +24,7 @@ const DoubtCard = memo(function DoubtCard({ doubt, onAnswer }: { doubt: Doubt; o
 });
 
 export default function ForumScreen() {
+  const { showAlert } = useGlobalAlert();
   const [doubts, setDoubts] = useState<Doubt[]>(fallbackDoubts);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -36,7 +38,6 @@ export default function ForumScreen() {
         .catch(() => {
           if (isMounted) {
             setDoubts(fallbackDoubts);
-            Alert.alert('Network issue', 'Could not refresh doubts. Showing cached examples for now.');
           }
         })
         .finally(() => {
@@ -53,11 +54,11 @@ export default function ForumScreen() {
   const sortedDoubts = useMemo(() => doubts, [doubts]);
   const keyExtractor = useCallback((doubt: Doubt) => doubt.id, []);
   const handleAsk = useCallback(() => {
-    Alert.alert('Post a doubt', 'Doubt creation screen will open here.');
-  }, []);
+    showAlert({ type: 'info', title: 'Post a doubt', message: 'Doubt creation screen will open here.' });
+  }, [showAlert]);
   const handleAnswer = useCallback((doubt: Doubt) => {
-    Alert.alert('Answer doubt', `Reply to: ${doubt.title}`);
-  }, []);
+    showAlert({ type: 'info', title: 'Answer doubt', message: `Reply to: ${doubt.title}` });
+  }, [showAlert]);
   const renderDoubt = useCallback(({ item }: { item: Doubt }) => (
     <DoubtCard doubt={item} onAnswer={handleAnswer} />
   ), [handleAnswer]);

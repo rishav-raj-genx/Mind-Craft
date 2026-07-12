@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, InteractionManager, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { InteractionManager, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGlobalAlert } from '@/components/GlobalAlertProvider';
 import { palette, radii } from '@/constants/theme';
 import { fallbackProfile, fetchProfileSummary, type ProfileSummary } from '@/services/mindcraft';
 
 export default function HomeScreen() {
+  const { showAlert } = useGlobalAlert();
   const [profile, setProfile] = useState<ProfileSummary>(fallbackProfile);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -19,7 +21,6 @@ export default function HomeScreen() {
         .catch(() => {
           if (isMounted) {
             setProfile(fallbackProfile);
-            Alert.alert('Network issue', 'Could not refresh your dashboard. Showing saved summary for now.');
           }
         })
         .finally(() => {
@@ -40,8 +41,8 @@ export default function HomeScreen() {
   ], [profile.doubtsSolved, profile.streakDays, profile.tokens]);
 
   const handleStartToday = useCallback(() => {
-    Alert.alert('Ready', 'Open Find, Forum, or Profile from the tabs to continue.');
-  }, []);
+    showAlert({ type: 'success', title: 'Ready', message: 'Open Find, Forum, or Profile from the tabs to continue.' });
+  }, [showAlert]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

@@ -1,5 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import type { AxiosError } from 'axios';
+
+import { showGlobalAlert } from './globalAlert';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000/api';
 const TOKEN_KEY = 'mindcraft.authToken';
@@ -17,6 +20,26 @@ api.interceptors.request.use(async (config) => {
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ error?: string; message?: string }>) => {
+    const status = error.response?.status;
+    const serverMessage = error.response?.data?.error || error.response?.data?.message;
+    const message = serverMessage
+      || (error.code === 'ECONNABORTED'
+        ? 'The request took too long. Please try again on a stronger connection.'
+        : 'Please check your internet connection and try again.');
+
+    showGlobalAlert({
+      type: status && status < 500 ? 'warning' : 'error',
+      title: status ? `Request failed (${status})` : 'Connection Lost',
+      message,
+    });
+
+    return Promise.reject(error);
+  },
+);
 
 export async function saveAuthToken(token: string) {
   await AsyncStorage.setItem(TOKEN_KEY, token);

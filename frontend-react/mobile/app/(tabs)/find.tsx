@@ -1,9 +1,10 @@
 import MapView, { Marker } from 'react-native-maps';
 import { Image } from 'expo-image';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGlobalAlert } from '@/components/GlobalAlertProvider';
 import { LOW_MEMORY_LIST_PROPS } from '@/constants/list';
 import { palette, radii } from '@/constants/theme';
 import { fallbackMates, fetchMates, type Mate } from '@/services/mindcraft';
@@ -28,6 +29,7 @@ const MateCard = memo(function MateCard({ mate, onPress }: { mate: Mate; onPress
 });
 
 export default function FindScreen() {
+  const { showAlert } = useGlobalAlert();
   const [mates, setMates] = useState<Mate[]>(fallbackMates);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -41,7 +43,6 @@ export default function FindScreen() {
         .catch(() => {
           if (isMounted) {
             setMates(fallbackMates);
-            Alert.alert('Network issue', 'Could not refresh matches. Showing saved demo matches for now.');
           }
         })
         .finally(() => {
@@ -64,8 +65,8 @@ export default function FindScreen() {
 
   const keyExtractor = useCallback((mate: Mate) => mate.id, []);
   const handleMatePress = useCallback((mate: Mate) => {
-    Alert.alert('Why matched?', mate.matchReason);
-  }, []);
+    showAlert({ type: 'info', title: 'Why matched?', message: mate.matchReason });
+  }, [showAlert]);
   const renderMate = useCallback(({ item }: { item: Mate }) => (
     <MateCard mate={item} onPress={handleMatePress} />
   ), [handleMatePress]);
