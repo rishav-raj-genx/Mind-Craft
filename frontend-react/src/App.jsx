@@ -37,7 +37,9 @@ const AppContent = () => {
     localStorage.getItem('hasSeenOnboarding') === 'true'
   );
 
-  if (currentUser && !hasSeenOnboarding) {
+  const isAuthPage = window.location.pathname === '/login' || window.location.pathname === '/signup';
+
+  if (currentUser && !hasSeenOnboarding && !isAuthPage) {
     return (
       <Onboarding 
         onComplete={() => {
@@ -56,8 +58,8 @@ const AppContent = () => {
       
       <NotificationProvider>
         <Routes>
-          <Route path="/login" element={currentUser ? <Navigate to="/" replace /> : <Login />} />
-          <Route path="/signup" element={currentUser ? <Navigate to="/" replace /> : <SignUp />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<SignUp />} />
           
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Home />} />

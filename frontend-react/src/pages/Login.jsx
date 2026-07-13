@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { userService } from '../services/userService';
 
 const Login = () => {
-  const { loginWithGoogle, loginWithEmail, logout } = useAuth();
+  const { currentUser, loginWithGoogle, loginWithEmail, logout } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -12,11 +13,41 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState('');
 
+  // Handle users who navigate to /login while already authenticated
+  useEffect(() => {
+    if (currentUser) {
+      setLoading('init');
+      userService.getFullProfile(currentUser.uid)
+        .then(() => {
+          navigate('/');
+        })
+        .catch(async (err) => {
+          if (err.response?.status === 404) {
+            // Not registered yet, force log out so they can sign up properly
+            await logout();
+            setError('Account not found. Please sign up instead.');
+          }
+        })
+        .finally(() => setLoading(''));
+    }
+  }, [currentUser, navigate, logout]);
+
   const handleGoogleLogin = async () => {
     try {
       setLoading('google');
-      await loginWithGoogle();
-      navigate('/');
+      const cred = await loginWithGoogle();
+      
+      try {
+        await userService.getFullProfile(cred.user.uid);
+        navigate('/');
+      } catch (err) {
+        await logout();
+        if (err.response?.status === 404) {
+          setError('Account not found. Please sign up instead.');
+        } else {
+          setError('Failed to fetch profile. Please try again.');
+        }
+      }
     } catch {
       setError('Google login is restricted for unverified testers. Please use email and password below.');
     } finally {
@@ -29,8 +60,19 @@ const Login = () => {
     try {
       setError('');
       setLoading('email');
-      await loginWithEmail(email, password);
-      navigate('/');
+      const cred = await loginWithEmail(email, password);
+      
+      try {
+        await userService.getFullProfile(cred.user.uid);
+        navigate('/');
+      } catch (err) {
+        await logout();
+        if (err.response?.status === 404) {
+          setError('Account not found. Please sign up instead.');
+        } else {
+          setError('Failed to fetch profile. Please try again.');
+        }
+      }
     } catch (err) {
       setError('Failed to log in: ' + err.message);
     } finally {

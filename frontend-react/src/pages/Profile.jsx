@@ -190,7 +190,7 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#DCFD8B] shadow-lg relative z-10">
                 <img
                   className="w-full h-full object-cover"
-                  src={user.photoUrl || getAvatarUrl(user.name, user.gender)}
+                  src={(user.photoUrl && !user.photoUrl.includes('avatar.iran.liara.run')) ? user.photoUrl : getAvatarUrl(user.name, user.gender)}
                   alt={user.name}
                 />
               </div>
@@ -204,7 +204,7 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPhotoUpload} />
             </div>
             <span className="text-sm text-gray-500 font-medium">Change Avatar</span>
-            {user.photoUrl && user.photoUrl.length > 0 && !user.photoUrl.includes('avatar.iran.liara.run') && (
+            {user.photoUrl && user.photoUrl.length > 0 && (
               <button
                 onClick={async () => {
                   if (!window.confirm('Remove your profile picture?')) return;
@@ -719,7 +719,7 @@ const Profile = () => {
             <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)] relative z-10">
               <img
                 className="w-full h-full object-cover"
-                src={user.photoUrl || getAvatarUrl(user.name, user.gender)}
+                src={(user.photoUrl && !user.photoUrl.includes('avatar.iran.liara.run')) ? user.photoUrl : getAvatarUrl(user.name, user.gender)}
                 alt={user.name}
               />
             </div>
@@ -732,7 +732,7 @@ const Profile = () => {
                 >
                   {uploadingPhoto ? <Loader2 size={12} className="text-white animate-spin" /> : <Edit2 size={12} className="text-white" />}
                 </button>
-                {user.photoUrl && user.photoUrl.length > 0 && !user.photoUrl.includes('avatar.iran.liara.run') && (
+                {user.photoUrl && user.photoUrl.length > 0 && (
                   <button
                     onClick={handleRemovePhoto}
                     disabled={uploadingPhoto}

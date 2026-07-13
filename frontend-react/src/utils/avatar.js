@@ -8,7 +8,7 @@
  */
 export function getAvatarUrl(name, gender) {
   const encoded = encodeURIComponent(name || 'User');
-  if (gender === 'Male') return `https://api.dicebear.com/9.x/avataaars/svg?seed=${encoded}&top=shortHair`;
-  if (gender === 'Female') return `https://api.dicebear.com/9.x/avataaars/svg?seed=${encoded}&top=longHair`;
+  // Since avatar.iran.liara.run is down globally and DiceBear v9 avataaars broke the 'top' param,
+  // we use standard avataaars. The seed inherently generates a unique but random gender-agnostic avatar.
   return `https://api.dicebear.com/9.x/avataaars/svg?seed=${encoded}`;
 }

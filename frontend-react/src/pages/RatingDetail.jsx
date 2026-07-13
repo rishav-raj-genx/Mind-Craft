@@ -37,11 +37,11 @@ const RatingDetail = () => {
       {/* Summary */}
       <section className="bg-white dark:bg-[#12122A] rounded-3xl p-8 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col items-center text-center gap-3">
         <Star size={40} className="text-amber-400 fill-amber-400" />
-        <span className="text-5xl font-black text-gray-900 dark:text-white tabular-nums">{avgRating.toFixed(1)}</span>
+        <span className="text-5xl font-black text-gray-900 dark:text-white tabular-nums">{Number(avgRating || 0).toFixed(1)}</span>
         <p className="text-sm text-gray-500 dark:text-gray-400">{reviews.length} review{reviews.length !== 1 ? 's' : ''} received as a tutor</p>
         <div className="flex items-center gap-0.5 mt-1">
           {[1,2,3,4,5].map(s => (
-            <Star key={s} size={20} className={s <= Math.round(avgRating) ? 'text-amber-400 fill-amber-400' : 'text-gray-300 dark:text-gray-600'} />
+            <Star key={s} size={20} className={s <= Math.round(Number(avgRating || 0)) ? 'text-amber-400 fill-amber-400' : 'text-gray-300 dark:text-gray-600'} />
           ))}
         </div>
       </section>
@@ -67,8 +67,9 @@ const RatingDetail = () => {
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm font-semibold text-[#7C3AED] dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-3 py-1 rounded-full border border-purple-200 dark:border-purple-700">{r.skill}</span>
                 <div className="flex items-center gap-0.5 text-amber-500">
-                  {'★'.repeat(Math.round(r.rating))}{'☆'.repeat(5 - Math.round(r.rating))}
-                  <span className="text-xs text-gray-500 ml-1">{r.rating}</span>
+                  {'★'.repeat(Math.max(0, Math.min(5, Math.round(Number(r.rating) || 0))))}
+                  {'☆'.repeat(Math.max(0, Math.min(5, 5 - Math.round(Number(r.rating) || 0))))}
+                  <span className="text-xs text-gray-500 ml-1">{Number(r.rating || 0).toFixed(1)}</span>
                 </div>
               </div>
               {r.ratingComment && (

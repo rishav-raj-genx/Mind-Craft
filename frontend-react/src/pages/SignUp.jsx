@@ -168,7 +168,7 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
 };
 
 const SignUp = () => {
-  const { loginWithGoogle, registerWithEmail } = useAuth();
+  const { currentUser, loginWithGoogle, loginWithEmail, registerWithEmail } = useAuth();
   const { isDark, setIsDark } = useAppContext();
   const navigate = useNavigate();
   const [name, setName] = useState('');
@@ -176,6 +176,21 @@ const SignUp = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [photoUrl, setPhotoUrl] = useState('');
+  
+  // Handle users who navigate to /signup while already fully registered
+  useEffect(() => {
+    if (currentUser) {
+      userService.getFullProfile(currentUser.uid)
+        .then(() => {
+          // Profile exists, they shouldn't be on signup page
+          navigate('/');
+        })
+        .catch(() => {
+          // Profile doesn't exist yet - this is expected during the signup flow
+          // after they click "Continue with Google" but before they fill the form
+        });
+    }
+  }, [currentUser, navigate]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [gender, setGender] = useState('');
   const [college, setCollege] = useState('');
@@ -242,17 +257,7 @@ const SignUp = () => {
   };
 
   const buildUserData = (authUser) => {
-    let finalPhotoUrl = photoUrl || authUser?.photoURL;
-    if (!finalPhotoUrl) {
-      const encodedName = encodeURIComponent(name || authUser?.displayName || 'User');
-      if (gender === 'Male') {
-        finalPhotoUrl = `https://avatar.iran.liara.run/public/boy?username=${encodedName}`;
-      } else if (gender === 'Female') {
-        finalPhotoUrl = `https://avatar.iran.liara.run/public/girl?username=${encodedName}`;
-      } else {
-        finalPhotoUrl = `https://avatar.iran.liara.run/public?username=${encodedName}`;
-      }
-    }
+    let finalPhotoUrl = photoUrl || authUser?.photoURL || '';
 
     return {
       name: name.trim(),
@@ -296,13 +301,29 @@ const SignUp = () => {
     }
     if (!validateProfile()) return;
     try {
-      setError('');
       setSubmitting('email');
-      const result = await registerWithEmail(email.trim(), password);
-      await userService.register(buildUserData(result.user));
+      let user;
+      try {
+        const result = await registerWithEmail(email.trim(), password);
+        user = result.user;
+      } catch (err) {
+        if (err.code === 'auth/email-already-in-use') {
+          // Deadlock fix: They have a Firebase account but no DB profile. 
+          // Log them in to complete the DB registration.
+          const result = await loginWithEmail(email.trim(), password);
+          user = result.user;
+        } else {
+          throw err;
+        }
+      }
+      await userService.register(buildUserData(user));
       navigate('/');
     } catch (err) {
-      setError('Failed to sign up with email: ' + err.message);
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('This email is already registered. If you used Google earlier, please click "Sign up with Google" above. Otherwise, check your password.');
+      } else {
+        setError('Failed to sign up with email: ' + err.message);
+      }
     } finally {
       setSubmitting('');
     }
