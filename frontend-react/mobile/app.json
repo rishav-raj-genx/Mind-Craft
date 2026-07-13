@@ -45,6 +45,13 @@
           "photosPermission": "Mindcraft needs photo access so you can attach doubt screenshots."
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#dcfd8b"
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {

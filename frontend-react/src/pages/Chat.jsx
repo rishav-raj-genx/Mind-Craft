@@ -9,6 +9,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { readCache, writeCache } from '../utils/cache';
 import { useAppContext } from '../context/AppContext';
+import { getAvatarUrl } from '../utils/avatar';
 
 import RatingModal from '../components/RatingModal';
 
@@ -332,7 +333,10 @@ const Chat = () => {
   }, [matchId, currentUser]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = document.getElementById('messages-container');
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    }
     if (matchId && messages.length > 0) {
       writeCache(`chat-history:${matchId}`, messages);
     }
@@ -498,7 +502,7 @@ const Chat = () => {
                 >
                   <div className="relative shrink-0">
                     <img 
-                      src={partner?.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.name || 'User')}&background=DCFD8B&color=151f00`} 
+                      src={partner?.photoUrl || getAvatarUrl(partner?.name || 'User')} 
                       alt="Avatar" 
                       className="w-14 h-14 rounded-full object-cover" 
                     />
@@ -556,7 +560,7 @@ const Chat = () => {
                         className="flex items-center gap-3 w-full p-3 rounded-2xl hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors text-left"
                       >
                         <img 
-                          src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'User')}`}
+                          src={user.photoUrl || getAvatarUrl(user.name || 'User')}
                           alt={user.name}
                           className="w-12 h-12 rounded-full object-cover"
                         />
@@ -591,7 +595,7 @@ const Chat = () => {
           </button>
           <button onClick={() => partner?.uid && navigate(`/profile/${partner.uid}`)} className="flex items-center gap-3 text-left">
             <div className="relative">
-              <img src={partner?.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.name || 'Study Partner')}&background=DCFD8B&color=151f00`} alt={partner?.name || 'Study Partner'} className="w-10 h-10 rounded-full object-cover" />
+              <img src={partner?.photoUrl || getAvatarUrl(partner?.name || 'Study Partner')} alt={partner?.name || 'Study Partner'} className="w-10 h-10 rounded-full object-cover" />
               <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-background-deep rounded-full"></div>
             </div>
             <div>
@@ -671,7 +675,7 @@ const Chat = () => {
       )}
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-3 hide-scrollbar">
+      <div id="messages-container" className="flex-1 overflow-y-auto py-4 flex flex-col gap-3 hide-scrollbar">
         {messages.map((msg, idx) => {
           const isMine = msg.senderId === currentUser.uid || msg.senderUid === currentUser.uid;
           const previous = messages[idx - 1];

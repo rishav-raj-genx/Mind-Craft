@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { auth } from './firebase';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://mindcraft-backend-g2hj.onrender.com";
+export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || "wss://mindcraft-backend-g2hj.onrender.com";
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,

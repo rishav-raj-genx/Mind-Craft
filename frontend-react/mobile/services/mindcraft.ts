@@ -44,6 +44,58 @@ export type ProfileSummary = {
   photoUrl?: string;
 };
 
+export type ChatThread = {
+  matchId: string;
+  partner: {
+    uid: string;
+    name?: string;
+    email?: string;
+    photoUrl?: string;
+  };
+  lastMessage: string;
+  lastMessageTime: number;
+  lastMessageSender?: string;
+  unread: boolean;
+};
+
+export type ChatMessage = {
+  messageId: string;
+  senderUid: string;
+  text: string;
+  timestamp: number;
+  read?: boolean;
+  localId?: string;
+};
+
+export type SessionMode = 'Online' | 'Offline';
+
+export type StudySession = {
+  sessionId: string;
+  matchId: string;
+  teacherUid: string;
+  learnerUid: string;
+  skill: string;
+  scheduledAt: number;
+  mode: SessionMode | 'In-Person';
+  meetLink?: string;
+  location?: string;
+  notes?: string;
+  status: string;
+  peerName?: string;
+};
+
+export type TokenTransaction = {
+  id: string;
+  amount: number;
+  reason: string;
+  timestamp: number;
+};
+
+export type WalletSummary = {
+  balance: number;
+  transactions: TokenTransaction[];
+};
+
 export const fallbackMates: Mate[] = [
   { id: '1', name: 'Rishav', skill: 'JavaScript', coordinate: { latitude: 28.6139, longitude: 77.209 }, college: 'MIRAI School', matchReason: 'Shared Web Dev topic', photoUrl: avatarFor('Rishav') },
   { id: '2', name: 'Anya', skill: 'Organic Chem', coordinate: { latitude: 28.62, longitude: 77.23 }, college: 'Campus North', matchReason: 'Teaches what you learn', photoUrl: avatarFor('Anya', 'FFD2B8') },
@@ -192,4 +244,143 @@ export async function fetchProfileSummary(): Promise<ProfileSummary> {
     badges: badgeNames.length ? badgeNames.slice(0, 4) : fallbackProfile.badges,
     photoUrl: user.photoUrl || avatarFor(user.name || fallbackProfile.name, '9B7BFF', 'FFFFFF'),
   };
+}
+
+export async function createChatThread(partnerUid: string) {
+  const response = await api.post('/chat/thread', { partnerUid });
+  return response.data?.matchId || response.data?.data?.match?.matchId;
+}
+
+export async function fetchChatThreads(): Promise<ChatThread[]> {
+  const uid = await getStoredUserId();
+  if (!uid) return [];
+
+  const response = await api.get(`/chat/threads/${uid}`, { params: { limit: 20 } });
+  const rows = response.data?.data || [];
+  return rows.map((row: any) => ({
+    matchId: row.matchId,
+    partner: row.partner || {},
+    lastMessage: row.lastMessage || '',
+    lastMessageTime: Number(row.lastMessageTime || 0),
+    lastMessageSender: row.lastMessageSender || '',
+    unread: Boolean(row.unread && row.lastMessageSender !== uid),
+  }));
+}
+
+export async function fetchChatHistory(matchId: string): Promise<ChatMessage[]> {
+  const response = await api.get(`/chat/${matchId}/history`, { params: { limit: 20 } });
+  return (response.data?.data || []).map((message: any) => ({
+    messageId: message.messageId,
+    senderUid: message.senderUid,
+    text: message.text || '',
+    timestamp: Number(message.timestamp || 0),
+    read: Boolean(message.read),
+  }));
+}
+
+export async function sendChatMessage(matchId: string, text: string): Promise<ChatMessage> {
+  const response = await api.post(`/chat/${matchId}/send`, { text });
+  const message = response.data?.data || response.data?.message || response.data;
+  return {
+    messageId: message.messageId || message.id || `${Date.now()}`,
+    senderUid: message.senderUid || message.senderId || '',
+    text: message.text || text,
+    timestamp: Number(message.timestamp || Date.now()),
+    read: Boolean(message.read),
+  };
+}
+
+export async function markChatRead(matchId: string) {
+  await api.patch(`/chat/${matchId}/read`);
+}
+
+export async function fetchSessions(status?: string): Promise<StudySession[]> {
+  const uid = await getStoredUserId();
+  if (!uid) return [];
+
+  const response = await api.get(`/session/${uid}`, { params: { status, limit: 20 } });
+  return (response.data?.data || []).map((session: any) => ({
+    ...session,
+    scheduledAt: Number(session.scheduledAt || 0),
+    mode: session.mode === 'In-Person' ? 'Offline' : session.mode,
+  }));
+}
+
+export async function bookStudySession(payload: {
+  partnerUid: string;
+  skill: string;
+  scheduledAt: number;
+  mode: SessionMode;
+  location?: string;
+  notes?: string;
+}) {
+  const learnerUid = await getStoredUserId();
+  if (!learnerUid) throw new Error('Please log in again before booking a session.');
+
+  const matchId = await createChatThread(payload.partnerUid);
+  if (!matchId) throw new Error('Could not create a chat thread for this session.');
+
+  const response = await api.post('/session/book', {
+    matchId,
+    teacherUid: payload.partnerUid,
+    learnerUid,
+    skill: payload.skill,
+    scheduledAt: payload.scheduledAt,
+    mode: payload.mode === 'Offline' ? 'In-Person' : 'Online',
+    meetLink: payload.mode === 'Online' ? 'https://meet.google.com/abc-defg-hij' : '',
+    location: payload.mode === 'Offline' ? payload.location || '' : '',
+    notes: payload.notes || '',
+  });
+
+  const session = response.data?.data;
+  return {
+    ...session,
+    mode: session?.mode === 'In-Person' ? 'Offline' : session?.mode,
+    scheduledAt: Number(session?.scheduledAt || payload.scheduledAt),
+  } as StudySession;
+}
+
+export async function acceptStudySession(sessionId: string) {
+  const response = await api.patch(`/session/${sessionId}/accept`, {});
+  return response.data;
+}
+
+export async function fetchWallet(): Promise<WalletSummary> {
+  const uid = await getStoredUserId();
+  if (!uid) return { balance: 0, transactions: [] };
+
+  const response = await api.get(`/tokens/${uid}`, { params: { limit: 20 } });
+  const data = response.data?.data || {};
+  const transactions = data.transactions || data.history || data.recentTransactions || [];
+  return {
+    balance: Number(data.balance ?? data.mind_tokens ?? data.tokenBalance ?? 0),
+    transactions: transactions.map((transaction: any, index: number) => ({
+      id: transaction.id || transaction.transactionId || `${transaction.reason}-${transaction.timestamp}`,
+      amount: Number(transaction.amount || 0),
+      reason: transaction.reason || 'Mindcraft reward',
+      timestamp: Number(transaction.timestamp || transaction.createdAt || Date.now() - index * 3600000),
+    })),
+  };
+}
+
+export async function fetchLeaderboard() {
+  const response = await api.get('/user/search', { params: { q: '', limit: 50 } });
+  const users = response.data?.data || [];
+  const leaders = users
+    .map((user: any) => ({
+      uid: user.uid,
+      name: user.name || user.email || 'Mindcraft Learner',
+      tokens: Number(user.mind_tokens ?? user.tokenBalance ?? user.tokens ?? user.balance ?? 0),
+      department: user.department || user.badge || 'Peer Tutor',
+      photoUrl: user.photoUrl || avatarFor(user.name || 'Learner', 'D9FF7A', '201A2E'),
+    }))
+    .sort((a: any, b: any) => b.tokens - a.tokens)
+    .map((user: any, index: number) => ({ ...user, rank: index + 1 }));
+
+  return leaders.length ? leaders : [
+    { uid: 'demo-1', rank: 1, name: 'Muskan', tokens: 1200, department: 'Master Tutor', photoUrl: avatarFor('Muskan', 'DCFD8B', '151F00') },
+    { uid: 'demo-2', rank: 2, name: 'Satya', tokens: 850, department: 'Top Contributor', photoUrl: avatarFor('Satya', 'DEB7FF', '2D0050') },
+    { uid: 'demo-3', rank: 3, name: 'Kavita', tokens: 760, department: 'Rising Star', photoUrl: avatarFor('Kavita', 'FDD5BD', '432B1B') },
+    { uid: 'demo-4', rank: 4, name: 'Sneha', tokens: 720, department: 'Helpful', photoUrl: avatarFor('Sneha') },
+  ];
 }

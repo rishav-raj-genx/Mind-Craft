@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Home, Search, MessageSquarePlus, User } from 'lucide-react-native';
+import { CalendarClock, Home, MessageCircle, MessageSquarePlus, Search, Trophy, User, Wallet } from 'lucide-react-native';
 
 const colors = {
   lime: '#D9FF7A',
@@ -50,6 +50,34 @@ export default function TabLayout() {
         options={{
           title: 'Forum',
           tabBarIcon: ({ color }) => <MessageSquarePlus color={color} size={24} />,
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'Chat',
+          tabBarIcon: ({ color }) => <MessageCircle color={color} size={24} />,
+        }}
+      />
+      <Tabs.Screen
+        name="sessions"
+        options={{
+          title: 'Sessions',
+          tabBarIcon: ({ color }) => <CalendarClock color={color} size={24} />,
+        }}
+      />
+      <Tabs.Screen
+        name="leaderboard"
+        options={{
+          title: 'Ranks',
+          tabBarIcon: ({ color }) => <Trophy color={color} size={24} />,
+        }}
+      />
+      <Tabs.Screen
+        name="wallet"
+        options={{
+          title: 'Wallet',
+          tabBarIcon: ({ color }) => <Wallet color={color} size={24} />,
         }}
       />
       <Tabs.Screen

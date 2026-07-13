@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, MapPin, X, Rocket, Code, ChevronDown, ChevronUp, GraduationCap, Building2, Moon, Sun, Camera, Edit2, Loader2, CheckCircle2, Link2 } from 'lucide-react';
+import { User, MapPin, X, Rocket, GraduationCap, Building2, Moon, Sun, Camera, Edit2, Loader2, Link2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { userService } from '../services/userService';
 import { useAppContext } from '../context/AppContext';
 
@@ -168,10 +168,13 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
 };
 
 const SignUp = () => {
-  const { loginWithGoogle } = useAuth();
+  const { loginWithGoogle, registerWithEmail } = useAuth();
   const { isDark, setIsDark } = useAppContext();
   const navigate = useNavigate();
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [photoUrl, setPhotoUrl] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [gender, setGender] = useState('');
@@ -190,6 +193,7 @@ const SignUp = () => {
   const [codechefUsername, setCodechefUsername] = useState('');
   const [showSocials, setShowSocials] = useState(false);
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState('');
   const [collegeOptions, setCollegeOptions] = useState([]);
   const [departmentOptions, setDepartmentOptions] = useState([]);
 
@@ -214,61 +218,93 @@ const SignUp = () => {
     try {
       const compressedDataUrl = await compressImage(file);
       setPhotoUrl(compressedDataUrl);
-    } catch (err) {
+    } catch {
       setError('Failed to process image');
     } finally {
       setUploadingPhoto(false);
     }
   };
 
-  const handleGoogleSignup = async (e) => {
-    e.preventDefault();
+  const validateProfile = () => {
+    if (!name.trim()) {
+      setError('Please enter your preferred name.');
+      return false;
+    }
     if (!college.trim() || !collegeLocation.trim() || !department.trim() || !year.trim() || !gender) {
       setError('Please fill in all required fields: Gender, College, Location, Department, and Year.');
-      return;
+      return false;
     }
     if (teaches.length === 0 || learns.length === 0) {
       setError('Please add at least one topic you teach and one you want to learn.');
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const buildUserData = (authUser) => {
+    let finalPhotoUrl = photoUrl || authUser?.photoURL;
+    if (!finalPhotoUrl) {
+      const encodedName = encodeURIComponent(name || authUser?.displayName || 'User');
+      if (gender === 'Male') {
+        finalPhotoUrl = `https://avatar.iran.liara.run/public/boy?username=${encodedName}`;
+      } else if (gender === 'Female') {
+        finalPhotoUrl = `https://avatar.iran.liara.run/public/girl?username=${encodedName}`;
+      } else {
+        finalPhotoUrl = `https://avatar.iran.liara.run/public?username=${encodedName}`;
+      }
+    }
+
+    return {
+      name: name.trim(),
+      photoUrl: finalPhotoUrl,
+      gender,
+      college: college.trim(),
+      collegeLocation: collegeLocation.trim(),
+      department: department.trim(),
+      year,
+      teaches,
+      learns,
+      linkedinUsername,
+      githubUsername,
+      leetcodeUsername,
+      codeforcesUsername,
+      codechefUsername,
+    };
+  };
+
+  const handleGoogleSignup = async (e) => {
+    e.preventDefault();
+    if (!validateProfile()) return;
     try {
       setError('');
+      setSubmitting('google');
       const result = await loginWithGoogle();
-      
-      let finalPhotoUrl = photoUrl || result.user.photoURL;
-      if (!photoUrl) {
-        // Fallback to cute avatars based on gender if no photo uploaded
-        const encodedName = encodeURIComponent(name || 'User');
-        if (gender === 'Male') {
-          finalPhotoUrl = `https://avatar.iran.liara.run/public/boy?username=${encodedName}`;
-        } else if (gender === 'Female') {
-          finalPhotoUrl = `https://avatar.iran.liara.run/public/girl?username=${encodedName}`;
-        } else {
-          finalPhotoUrl = `https://avatar.iran.liara.run/public?username=${encodedName}`;
-        }
-      }
+      await userService.register(buildUserData(result.user));
+      navigate('/');
+    } catch {
+      setError('Google signup is restricted for unverified testers. Please create an account with email and password.');
+    } finally {
+      setSubmitting('');
+    }
+  };
 
-      const userData = {
-        name,
-        photoUrl: finalPhotoUrl,
-        gender,
-        college,
-        collegeLocation,
-        department,
-        year,
-        teaches,
-        learns,
-        linkedinUsername,
-        githubUsername,
-        leetcodeUsername,
-        codeforcesUsername,
-        codechefUsername,
-      };
-      
-      await userService.register(userData);
+  const handleEmailSignup = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || password.length < 6) {
+      setError('Enter a valid email and a password with at least 6 characters.');
+      return;
+    }
+    if (!validateProfile()) return;
+    try {
+      setError('');
+      setSubmitting('email');
+      const result = await registerWithEmail(email.trim(), password);
+      await userService.register(buildUserData(result.user));
       navigate('/');
     } catch (err) {
-      setError('Failed to sign up: ' + err.message);
+      setError('Failed to sign up with email: ' + err.message);
+    } finally {
+      setSubmitting('');
     }
   };
 
@@ -309,8 +345,40 @@ const SignUp = () => {
 
         {error && <div className="text-red-500 mb-4 z-10 relative text-sm">{error}</div>}
 
-        <form onSubmit={handleGoogleSignup} className="space-y-5 relative z-10">
+        <form onSubmit={handleEmailSignup} className="space-y-5 relative z-10">
           <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="relative sm:col-span-2">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50"
+                placeholder="Email address"
+                required
+              />
+            </div>
+            <div className="relative sm:col-span-2">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={6}
+                className="glass-input w-full rounded-full py-3 pl-12 pr-12 text-on-surface placeholder:text-on-surface-variant/50"
+                placeholder="Password (6+ characters)"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-success-lime"
+              >
+                {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+              </button>
+            </div>
+          </div>
           
           {/* Profile Picture Upload */}
           <div className="flex flex-col items-center mb-6">
@@ -533,9 +601,18 @@ const SignUp = () => {
 
           <button 
             type="submit"
+            disabled={!!submitting}
             className="w-full bg-success-lime text-on-primary-fixed font-headline-md text-[18px] rounded-full py-4 px-6 flex items-center justify-center gap-2 tactile-button border-[#b3d266] mt-8 hover:bg-primary-fixed"
           >
-            Start Crafting with Google <Rocket size={20} />
+            {submitting === 'email' ? <Loader2 size={20} className="animate-spin" /> : <>Create Account <Rocket size={20} /></>}
+          </button>
+          <button
+            type="button"
+            onClick={handleGoogleSignup}
+            disabled={!!submitting}
+            className="w-full bg-white dark:bg-surface-raised text-gray-900 dark:text-on-surface border border-gray-200 dark:border-outline-variant font-label-lg rounded-full py-3 px-6 flex items-center justify-center gap-2 hover:bg-gray-50 dark:hover:bg-surface-container-high transition-colors"
+          >
+            {submitting === 'google' ? <Loader2 size={18} className="animate-spin" /> : 'Continue with Google'}
           </button>
         </form>
 

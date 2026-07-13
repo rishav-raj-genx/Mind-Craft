@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { palette, radii } from '../../constants/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGlobalAlert } from '@/components/GlobalAlertProvider';
+import Logo from '@/components/Logo';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -39,7 +40,7 @@ export default function LoginScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
-            <Text style={styles.title}>Mindcraft</Text>
+            <Logo size={92} showWordmark />
             <Text style={styles.subtitle}>Your academic playground awaits.</Text>
           </View>
 
@@ -79,7 +80,7 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Don't have an account? </Text>
-            <Link href="/signup" asChild>
+            <Link href="/(auth)/signup" asChild>
               <TouchableOpacity>
                 <Text style={styles.footerLink}>Sign Up</Text>
               </TouchableOpacity>
@@ -108,16 +109,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 48,
   },
-  title: {
-    fontSize: 42,
-    fontWeight: '900',
-    color: palette.lime,
-    marginBottom: 8,
-  },
   subtitle: {
     fontSize: 16,
     color: palette.muted,
     fontWeight: '700',
+    marginTop: 8,
   },
   form: {
     gap: 16,

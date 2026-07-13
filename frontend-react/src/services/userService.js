@@ -21,6 +21,11 @@ export const userService = {
     return response.data;
   },
 
+  deleteProfile: async (uid) => {
+    const response = await api.delete(`/user/${uid}`);
+    return response.data;
+  },
+
   // Search users globally
   searchUsers: async (query) => {
     const response = await api.get(`/user/search?q=${encodeURIComponent(query)}`);

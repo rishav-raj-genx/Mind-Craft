@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { doubtService } from '../services/doubtService';
 import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getAvatarUrl } from '../utils/avatar';
 
 const TAGS = ['#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
 const FILTERS = ['All Doubts', 'My Doubts', '#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
@@ -735,7 +736,7 @@ const DoubtForum = () => {
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex items-center gap-3">
                     <img
-                      src={post.authorAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.authorName)}`}
+                      src={post.authorAvatar || getAvatarUrl(post.authorName)}
                       alt={post.authorName}
                       className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100 dark:ring-gray-700"
                     />

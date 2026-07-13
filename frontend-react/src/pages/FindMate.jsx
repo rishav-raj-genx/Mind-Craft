@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { matchService } from '../services/matchService';
 import { voiceService } from '../services/voiceService';
-import { Search, Mic, MapPin, Star, Filter, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { Search, Mic, MapPin, Star, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { getAvatarUrl } from '../utils/avatar';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import ForceGraph2D from 'react-force-graph-2d';
@@ -24,6 +25,19 @@ const SORT_OPTIONS = [
   { value: 'rating', label: 'Highest Rating' },
   { value: 'name', label: 'Name (A–Z)' },
 ];
+
+const RECORDER_MIME_OPTIONS = [
+  { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
+  { mimeType: 'audio/webm', extension: 'webm' },
+  { mimeType: 'audio/mp4', extension: 'm4a' },
+  { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' },
+  { mimeType: '', extension: 'webm' },
+];
+
+const getSupportedRecorderFormat = () => {
+  if (typeof MediaRecorder === 'undefined') return null;
+  return RECORDER_MIME_OPTIONS.find(({ mimeType }) => !mimeType || MediaRecorder.isTypeSupported(mimeType));
+};
 
 const normalizeMate = (record) => {
   const user = record?.tutor || record?.user || record || {};
@@ -152,7 +166,7 @@ const MatchCard = ({ mate, index, onFollow, onChat, isFollowed }) => {
       {/* Top row: avatar + info + rating */}
       <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate(`/profile/${mate.uid}`)}>
         <img
-          src={mate.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(mate.name || 'Mate')}&background=DCFD8B&color=151f00`}
+          src={mate.photoUrl || getAvatarUrl(mate.name || 'Mate')}
           alt={mate.name || 'Mate'}
           className="w-16 h-16 rounded-full border-2 border-gray-200 dark:border-surface-raised object-cover flex-shrink-0"
         />
@@ -361,7 +375,6 @@ const FindMate = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [allMatches, setAllMatches] = useState([]);
-  const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [voiceResult, setVoiceResult] = useState(null);
@@ -387,21 +400,15 @@ const FindMate = () => {
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const recorderFormatRef = useRef({ mimeType: 'audio/webm', extension: 'webm' });
 
   const [globalColleges, setGlobalColleges] = useState([]);
   const [globalDepartments, setGlobalDepartments] = useState([]);
 
   const hasActiveFilters = appliedFilters.college || appliedFilters.department || appliedFilters.year || appliedFilters.minRating > 0 || appliedFilters.sortBy !== 'relevance';
 
-  useEffect(() => {
-    if (currentUser) {
-      loadInitialMatches();
-      loadMyFollowing();
-      loadMetadataOptions();
-    }
-  }, [currentUser]);
-
-  const loadMetadataOptions = async () => {
+  const loadMetadataOptions = useCallback(async () => {
     try {
       const { userService } = await import('../services/userService');
       const res = await userService.getMetadataOptions();
@@ -412,10 +419,47 @@ const FindMate = () => {
     } catch (err) {
       console.error('Failed to load metadata options', err);
     }
-  };
+  }, []);
+
+  const loadMyFollowing = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const { userService } = await import('../services/userService');
+      const res = await userService.getFollowing(currentUser.uid);
+      const following = (res.data || []).map(u => u.uid);
+      setMyFollowingUids(new Set(following));
+    } catch (err) {
+      console.error(err);
+    }
+  }, [currentUser]);
+
+  const loadInitialMatches = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      setLoading(true);
+      const data = await matchService.getMatches(currentUser.uid);
+      const normalized = (data.data || data.matches || []).map(normalizeMate);
+      setAllMatches(normalized);
+      setActiveSearch('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser) {
+      queueMicrotask(() => {
+        loadInitialMatches();
+        loadMyFollowing();
+        loadMetadataOptions();
+      });
+    }
+  }, [currentUser, loadInitialMatches, loadMyFollowing, loadMetadataOptions]);
 
   // Whenever allMatches or appliedFilters change, re-compute displayed matches
-  useEffect(() => {
+  const matches = useMemo(() => {
     let filtered = [...allMatches];
 
     if (appliedFilters.college) {
@@ -438,54 +482,48 @@ const FindMate = () => {
       filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
 
-    setMatches(filtered);
+    return filtered;
   }, [allMatches, appliedFilters]);
-
-  const loadMyFollowing = async () => {
-    try {
-      const { userService } = await import('../services/userService');
-      const res = await userService.getFollowing(currentUser.uid);
-      const following = (res.data || []).map(u => u.uid);
-      setMyFollowingUids(new Set(following));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadInitialMatches = async () => {
-    try {
-      setLoading(true);
-      const data = await matchService.getMatches(currentUser.uid);
-      const normalized = (data.data || data.matches || []).map(normalizeMate);
-      setAllMatches(normalized);
-      setActiveSearch('');
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const startRecording = async () => {
     try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        alert('Voice search is not supported in this browser. Please use Chrome, Edge, or Safari 14.1+.');
+        return;
+      }
+      const recorderFormat = getSupportedRecorderFormat();
+      if (!recorderFormat) {
+        alert('This browser cannot record a supported audio format. Please try Chrome or Edge.');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const options = recorderFormat.mimeType ? { mimeType: recorderFormat.mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
+      streamRef.current = stream;
+      recorderFormatRef.current = {
+        mimeType: mediaRecorder.mimeType || recorderFormat.mimeType || 'audio/webm',
+        extension: recorderFormat.extension,
+      };
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        handleVoiceSearch(audioBlob);
+        const { mimeType, extension } = recorderFormatRef.current;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        await handleVoiceSearch(audioBlob, `voice-search.${extension}`);
         stream.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
       };
 
       mediaRecorder.start();
       setRecording(true);
     } catch (err) {
       console.error('Microphone access denied or error:', err);
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
       alert('Microphone access is required for voice search.');
     }
   };
@@ -497,10 +535,10 @@ const FindMate = () => {
     }
   };
 
-  const handleVoiceSearch = async (audioBlob) => {
+  const handleVoiceSearch = async (audioBlob, fileName) => {
     try {
       setLoading(true);
-      const response = await voiceService.search(audioBlob, selectedLang);
+      const response = await voiceService.search(audioBlob, selectedLang, fileName);
       const resultData = response.data || response;
 
       setVoiceResult({
@@ -517,13 +555,13 @@ const FindMate = () => {
         const normalized = (resultData.matches || []).map(normalizeMate);
         setAllMatches(normalized);
         setActiveSearch(resultData.detectedSkill || transcript);
-        if (transcript) handleTextSearch(null, transcript);
       } else {
         setAllMatches([]);
         setActiveSearch('');
       }
     } catch (err) {
       console.error('Voice search failed:', err);
+      alert(err.response?.data?.error || 'Voice search failed. Please try again or use text search.');
     } finally {
       setLoading(false);
     }
@@ -587,13 +625,16 @@ const FindMate = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <header>
+      <header className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+        <div>
         <h1 className="font-headline-lg text-headline-lg text-gray-900 dark:text-on-surface">Find a Mate</h1>
         <p className="font-body-md text-body-md text-gray-600 dark:text-on-surface-variant mt-1">Discover peers who can help you grow.</p>
+        </div>
+        <p className="hidden md:block text-sm text-gray-500 dark:text-on-surface-variant">Search by voice, topic, college, or department.</p>
       </header>
 
-      {/* Voice Search Area */}
-      <section className="bg-white dark:bg-surface-container rounded-2xl p-4 shadow-lg border border-gray-200 dark:border-surface-raised flex flex-col items-center justify-center gap-3 transition-colors">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
+      <section className="bg-white dark:bg-surface-container rounded-2xl p-5 shadow-lg border border-gray-200 dark:border-surface-raised flex flex-col items-center justify-center gap-3 transition-colors">
         <h3 className="font-label-lg text-label-lg text-center text-gray-900 dark:text-on-surface">Describe what you need</h3>
 
         {/* Language Selector */}
@@ -627,9 +668,17 @@ const FindMate = () => {
         <p className="font-label-md text-xs text-gray-500 dark:text-on-surface-variant text-center">
           {recording ? "Listening... Tap to stop" : "Tap to speak (e.g. 'I need help with Data Structures')"}
         </p>
+        {voiceResult && (
+          <div className="w-full rounded-2xl bg-gray-50 dark:bg-surface-raised border border-gray-200 dark:border-outline-variant p-3 text-sm">
+            <p className="text-gray-500 dark:text-on-surface-variant">Heard</p>
+            <p className="font-semibold text-gray-900 dark:text-on-surface mt-1">{voiceResult.text || voiceResult.skill || 'No transcript returned'}</p>
+            {!!voiceResult.skill && <p className="text-green-700 dark:text-success-lime mt-1">Detected: {voiceResult.skill}</p>}
+          </div>
+        )}
       </section>
 
       {/* Manual Search + Filter Toggle */}
+      <div className="flex flex-col gap-4">
       <form onSubmit={handleTextSearch} className="flex gap-2">
         <div className="relative flex-grow">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
@@ -670,6 +719,8 @@ const FindMate = () => {
           />
         )}
       </AnimatePresence>
+      </div>
+      </div>
 
       {/* Active filter chips */}
       {hasActiveFilters && (
@@ -724,7 +775,7 @@ const FindMate = () => {
             {hasActiveFilters ? 'No matches with these filters. Try adjusting them.' : 'No matches found for this topic.'}
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="grid gap-4 lg:grid-cols-2">
             {matches.map((mate, i) => (
               <MatchCard
                 key={mate.uid || i}

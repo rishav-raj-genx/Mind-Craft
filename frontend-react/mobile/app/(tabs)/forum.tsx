@@ -28,6 +28,7 @@ import {
 } from '@/services/mindcraft';
 
 const TAGS = ['#DSA', '#Math', '#Physics', '#Economics', '#WebDev', '#Python', '#Other'];
+const MAX_DOUBT_IMAGES = 2;
 
 type PickedImage = NewDoubtImage & { previewUri: string };
 
@@ -103,17 +104,17 @@ const AddDoubtModal = memo(function AddDoubtModal({
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
-      selectionLimit: 4 - images.length,
-      quality: 0.75,
+      selectionLimit: MAX_DOUBT_IMAGES - images.length,
+      quality: 0.55,
     });
 
     if (result.canceled) return;
 
-    const nextImages = await Promise.all(result.assets.slice(0, 4 - images.length).map(async (asset, index) => {
+    const nextImages = await Promise.all(result.assets.slice(0, MAX_DOUBT_IMAGES - images.length).map(async (asset, index) => {
       const compressed = await ImageManipulator.manipulateAsync(
         asset.uri,
-        [{ resize: { width: 1280 } }],
-        { compress: 0.62, format: ImageManipulator.SaveFormat.JPEG },
+        [{ resize: { width: 960 } }],
+        { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG },
       );
       return {
         uri: compressed.uri,
@@ -123,7 +124,7 @@ const AddDoubtModal = memo(function AddDoubtModal({
       };
     }));
 
-    setImages(current => [...current, ...nextImages].slice(0, 4));
+    setImages(current => [...current, ...nextImages].slice(0, MAX_DOUBT_IMAGES));
   }, [images.length, showAlert]);
 
   const removeImage = useCallback((uri: string) => {
@@ -185,8 +186,8 @@ const AddDoubtModal = memo(function AddDoubtModal({
           />
 
           <View style={styles.pickRow}>
-            <TouchableOpacity onPress={pickImages} disabled={images.length >= 4} style={styles.pickButton} activeOpacity={0.82}>
-              <Text style={styles.pickButtonText}>Add images ({images.length}/4)</Text>
+            <TouchableOpacity onPress={pickImages} disabled={images.length >= MAX_DOUBT_IMAGES} style={styles.pickButton} activeOpacity={0.82}>
+              <Text style={styles.pickButtonText}>Add images ({images.length}/{MAX_DOUBT_IMAGES})</Text>
             </TouchableOpacity>
             <Text style={styles.compressionNote}>Compressed before upload</Text>
           </View>

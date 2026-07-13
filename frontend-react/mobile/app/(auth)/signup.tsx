@@ -6,6 +6,7 @@ import { palette, radii } from '../../constants/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGlobalAlert } from '@/components/GlobalAlertProvider';
 import { api } from '@/services/api';
+import Logo from '@/components/Logo';
 
 export default function SignupScreen() {
   const [email, setEmail] = useState('');
@@ -63,7 +64,7 @@ export default function SignupScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
-            <Text style={styles.title}>Join Mindcraft</Text>
+            <Logo size={80} showWordmark />
             <Text style={styles.subtitle}>Create your profile to find study mates.</Text>
           </View>
 
@@ -148,7 +149,7 @@ export default function SignupScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Already have an account? </Text>
-            <Link href="/login" asChild>
+            <Link href="/(auth)/login" asChild>
               <TouchableOpacity>
                 <Text style={styles.footerLink}>Log In</Text>
               </TouchableOpacity>
@@ -178,17 +179,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 32,
   },
-  title: {
-    fontSize: 36,
-    fontWeight: '900',
-    color: palette.lime,
-    marginBottom: 8,
-  },
   subtitle: {
     fontSize: 16,
     color: palette.muted,
     fontWeight: '700',
     textAlign: 'center',
+    marginTop: 8,
   },
   form: {
     gap: 16,

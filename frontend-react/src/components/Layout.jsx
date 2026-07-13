@@ -22,7 +22,7 @@ const Layout = () => {
   const isProfilePage = pathname.startsWith('/profile');
 
   return (
-    <div className="bg-gray-50 dark:bg-background-deep text-gray-900 dark:text-on-surface font-body-md min-h-screen pb-[100px] transition-colors duration-200">
+    <div className="bg-gray-50 dark:bg-background-deep text-gray-900 dark:text-on-surface font-body-md min-h-screen pb-[100px] md:pb-0 transition-colors duration-200">
 
       {/* TopAppBar */}
       <header className={`w-full top-0 sticky z-50 transition-colors duration-200 ${
@@ -35,6 +35,26 @@ const Layout = () => {
           <div className="flex items-center gap-3 pointer-events-auto">
             <MindcraftLogo size="md" showIcon={true} variant={isProfilePage ? 'profile' : 'default'} />
           </div>
+          <nav className="hidden md:flex items-center gap-1 pointer-events-auto absolute left-1/2 -translate-x-1/2">
+            {navItems.map((item) => {
+              const isActive = item.match(pathname);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                    isActive
+                      ? 'bg-purple-100 dark:bg-secondary-container text-purple-900 dark:text-on-secondary-container'
+                      : 'text-gray-500 dark:text-on-surface-variant hover:bg-white dark:hover:bg-surface-container'
+                  }`}
+                >
+                  <Icon size={18} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
           <div className="flex items-center gap-2 pointer-events-auto">
             <button
               onClick={() => {
@@ -59,7 +79,7 @@ const Layout = () => {
       </div>
 
       {/* BottomNavBar — 5 items matching Stitch design */}
-      <nav className="fixed bottom-0 w-full z-40 flex justify-around items-center px-4 py-3 pb-safe bg-white dark:bg-surface-container-low shadow-[0px_-10px_30px_rgba(0,0,0,0.1)] dark:shadow-[0px_-10px_30px_rgba(0,0,0,0.4)] rounded-t-lg transition-colors duration-200 border-t border-gray-200 dark:border-transparent">
+      <nav className="fixed bottom-0 w-full z-40 flex md:hidden justify-around items-center px-4 py-3 pb-safe bg-white dark:bg-surface-container-low shadow-[0px_-10px_30px_rgba(0,0,0,0.1)] dark:shadow-[0px_-10px_30px_rgba(0,0,0,0.4)] rounded-t-lg transition-colors duration-200 border-t border-gray-200 dark:border-transparent">
         {navItems.map((item) => {
           const isActive = item.match(pathname);
           const Icon = item.icon;

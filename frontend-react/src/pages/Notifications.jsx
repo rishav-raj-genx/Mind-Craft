@@ -126,25 +126,7 @@ const Notifications = () => {
       }
     } catch (err) {}
 
-    try {
-      const tokensRes = await gamificationService.getTokens(currentUser.uid);
-      const balance = tokensRes.data?.balance || 0;
-      const transactions = tokensRes.data?.transactions || [];
-      if (transactions.length > 0) {
-        const latest = transactions[0];
-        notifs.push({
-          id: `token-${latest.id || 'latest'}`,
-          category: 'gamification',
-          type: 'REWARD',
-          title: 'Token Reward',
-          message: `You earned ${latest.amount || 0} Mind Tokens${latest.reason ? ` for ${latest.reason}` : ''}. Balance: ${balance}`,
-          timestamp: latest.createdAt || Date.now(),
-          read: true,
-          actionable: false,
-          route: '/'
-        });
-      }
-    } catch (err) {}
+
 
     try {
       const doubtsRes = await doubtService.getAllDoubts('All Doubts');

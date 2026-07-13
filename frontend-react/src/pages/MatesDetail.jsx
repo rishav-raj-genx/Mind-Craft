@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { matchService } from '../services/matchService';
 import { ArrowLeft, Users, Star, MessageSquare } from 'lucide-react';
+import { getAvatarUrl } from '../utils/avatar';
 
 const MatesDetail = () => {
   const navigate = useNavigate();
@@ -65,7 +66,7 @@ const MatesDetail = () => {
               style={{ animationDelay: `${idx * 60}ms`, animation: 'slideUp 0.4s ease-out both' }}
             >
               <img
-                src={mate.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(mate.name)}&background=7C3AED&color=fff`}
+                src={mate.photoUrl || getAvatarUrl(mate.name)}
                 alt={mate.name}
                 className="w-14 h-14 rounded-full object-cover border-2 border-[#7C3AED]"
               />

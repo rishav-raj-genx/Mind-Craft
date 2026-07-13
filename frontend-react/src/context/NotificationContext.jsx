@@ -1,8 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { API_BASE_URL } from '../config/api';
+import { WS_BASE_URL } from '../config/api';
 import { chatService } from '../services/chatService';
-import { sessionService } from '../services/sessionService';
 import { userService } from '../services/userService';
 import { requestNotificationPermission, onForegroundMessage } from '../config/firebase';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -227,8 +226,7 @@ export const NotificationProvider = ({ children }) => {
 
     // ── Unified Master WebSocket ──────────────────────────────────
     currentUser.getIdToken().then(token => {
-      const wsBaseUrl = API_BASE_URL.replace(/^http/, 'ws');
-      const ws = new WebSocket(`${wsBaseUrl}/ws?token=${encodeURIComponent(token)}`);
+      const ws = new WebSocket(`${WS_BASE_URL}/ws?token=${encodeURIComponent(token)}`);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -447,7 +445,9 @@ export const NotificationProvider = ({ children }) => {
             listener(data);
           }
         }
-      } catch (err) {}
+      } catch (err) {
+        console.warn('WebSocket message parse failed:', err);
+      }
     };
 
       ws.onclose = () => console.log('🌍 Unified WebSocket disconnected');

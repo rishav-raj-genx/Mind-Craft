@@ -1,17 +1,18 @@
 import { ArrowLeft, Star, Medal } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { getAvatarUrl } from '../utils/avatar';
 
 const Leaderboard = () => {
   const navigate = useNavigate();
 
   const topUsers = [
-    { rank: 1, name: "Muskan", tokens: 1200, badge: "Master Tutor", avatar: "https://ui-avatars.com/api/?name=Muskan&background=DCFD8B&color=151f00" },
-    { rank: 2, name: "Satya", tokens: 850, badge: "Top Contributor", avatar: "https://ui-avatars.com/api/?name=Satya&background=DEB7FF&color=2D0050" },
-    { rank: 3, name: "Kavita", tokens: 760, badge: "Rising Star", avatar: "https://ui-avatars.com/api/?name=Kavita&background=FDD5BD&color=432b1b" },
-    { rank: 4, name: "Sneha", tokens: 720, badge: "Helpful", avatar: "https://ui-avatars.com/api/?name=Sneha" },
-    { rank: 5, name: "Liam T.", tokens: 690, badge: "Active", avatar: "https://ui-avatars.com/api/?name=Liam" },
-    { rank: 6, name: "Olivia H.", tokens: 650, badge: "Consistent", avatar: "https://ui-avatars.com/api/?name=Olivia" },
-    { rank: 7, name: "Mia W.", tokens: 610, badge: "Learner", avatar: "https://ui-avatars.com/api/?name=Mia" },
+    { rank: 1, name: "Muskan", tokens: 1200, badge: "Master Tutor", avatar: getAvatarUrl("Muskan") },
+    { rank: 2, name: "Satya", tokens: 850, badge: "Top Contributor", avatar: getAvatarUrl("Satya") },
+    { rank: 3, name: "Kavita", tokens: 760, badge: "Rising Star", avatar: getAvatarUrl("Kavita") },
+    { rank: 4, name: "Sneha", tokens: 720, badge: "Helpful", avatar: getAvatarUrl("Sneha") },
+    { rank: 5, name: "Liam T.", tokens: 690, badge: "Active", avatar: getAvatarUrl("Liam T.") },
+    { rank: 6, name: "Olivia H.", tokens: 650, badge: "Consistent", avatar: getAvatarUrl("Olivia H.") },
+    { rank: 7, name: "Mia W.", tokens: 610, badge: "Learner", avatar: getAvatarUrl("Mia W.") },
   ];
 
   return (

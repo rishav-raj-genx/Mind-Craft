@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppContext } from '../context/AppContext';
+import { getAvatarUrl } from '../utils/avatar';
 
 const GithubIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3-.3 6-1.5 6-6.5a5.5 5.5 0 0 0-1.5-3.8 5.5 5.5 0 0 0-.2-3.8s-1.2-.4-3.9 1.4a13.3 13.3 0 0 0-7 0C6.2 1.6 5 2 5 2a5.5 5.5 0 0 0-.2 3.8A5.5 5.5 0 0 0 3 9.5c0 5 3 6.2 6 6.5a4.8 4.8 0 0 0-1 3.2v4"></path><path d="M9 18c-4.5 1.5-5-2.5-7-3"></path></svg>
@@ -189,7 +190,7 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#DCFD8B] shadow-lg relative z-10">
                 <img
                   className="w-full h-full object-cover"
-                  src={user.photoUrl || (user.gender === 'Male' ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(user.name)}` : user.gender === 'Female' ? `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(user.name)}` : `https://avatar.iran.liara.run/public?username=${encodeURIComponent(user.name)}`)}
+                  src={user.photoUrl || getAvatarUrl(user.name, user.gender)}
                   alt={user.name}
                 />
               </div>
@@ -381,8 +382,8 @@ const Profile = () => {
 
       if (currentUser && currentUser.uid !== uid) {
         try {
-          const myProfile = await userService.getProfile(currentUser.uid);
-          if (myProfile.data?.following?.includes(uid)) {
+          const followingRes = await userService.getFollowing(currentUser.uid);
+          if (followingRes.data && followingRes.data.some(u => u.uid === uid)) {
             setIsConnected(true);
           }
         } catch { /* ignore */ }
@@ -688,7 +689,7 @@ const Profile = () => {
             <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)] relative z-10">
               <img
                 className="w-full h-full object-cover"
-                src={user.photoUrl || (user.gender === 'Male' ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(user.name)}` : user.gender === 'Female' ? `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(user.name)}` : `https://avatar.iran.liara.run/public?username=${encodeURIComponent(user.name)}`)}
+                src={user.photoUrl || getAvatarUrl(user.name, user.gender)}
                 alt={user.name}
               />
             </div>
@@ -923,13 +924,32 @@ const Profile = () => {
         </section>
       )}
 
-      {/* Log Out Button */}
+      {/* ── Account Actions ─────────────────────────────────────────── */}
       {isOwner && (
-        <div className="flex justify-center mt-4">
-          <button onClick={logout} className="px-8 py-3 rounded-full bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 font-bold text-sm hover:bg-red-200 dark:hover:bg-red-900/40 transition-colors w-full sm:w-auto">
-            Log Out
-          </button>
-        </div>
+        <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 shadow-sm dark:shadow-lg flex flex-col gap-4 transition-colors">
+          <h2 className="font-bold text-gray-900 dark:text-white text-lg">Account Actions</h2>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button onClick={logout} className="flex-1 py-3 rounded-full bg-gray-100 dark:bg-[#2A2A3A] text-gray-900 dark:text-white font-bold text-sm hover:bg-gray-200 dark:hover:bg-[#333345] transition-colors">
+              Log Out
+            </button>
+            <button 
+              onClick={async () => {
+                if (window.confirm('Are you sure you want to permanently delete your account? This action cannot be undone.')) {
+                  try {
+                    await userService.deleteProfile(uid);
+                    await logout();
+                  } catch (err) {
+                    console.error('Failed to delete account', err);
+                    alert('Failed to delete account.');
+                  }
+                }
+              }} 
+              className="flex-1 py-3 rounded-full bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 font-bold text-sm hover:bg-red-200 dark:hover:bg-red-900/40 transition-colors"
+            >
+              Delete Profile
+            </button>
+          </div>
+        </section>
       )}
 
       {/* Edit Modal */}

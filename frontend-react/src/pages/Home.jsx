@@ -2,6 +2,7 @@ import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { Flame, Trophy, Star, Hash, ChevronRight, Plus, TrendingUp } from 'lucide-react';
+import { getAvatarUrl } from '../utils/avatar';
 import { motion, animate, useMotionValue, useTransform } from 'framer-motion';
 import { useEffect } from 'react';
 
@@ -95,7 +96,7 @@ const Home = () => {
               className="min-w-[200px] bg-white dark:bg-surface-container rounded-xl p-4 flex flex-col items-center gap-3 snap-center border border-gray-200 dark:border-surface-raised shadow-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-container-high transition-colors active:scale-[0.98]"
               onClick={() => navigate(`/profile/${mate.uid}`)}
             >
-              <img alt="Mate Avatar" className="w-16 h-16 rounded-full object-cover border-2 border-focus-purple" src={mate.photoUrl || "https://ui-avatars.com/api/?name="+mate.name} />
+              <img alt="Mate Avatar" className="w-16 h-16 rounded-full object-cover border-2 border-focus-purple" src={mate.photoUrl || getAvatarUrl(mate.name)} />
               <div className="text-center">
                 <h4 className="font-body-lg text-body-lg text-gray-900 dark:text-on-surface font-semibold">{mate.name}</h4>
                 <p className="font-label-md text-label-md text-gray-600 dark:text-on-surface-variant truncate w-32">{mate.sharedSkills?.slice(0, 2).join(', ') || mate.department}</p>
@@ -161,7 +162,7 @@ const Home = () => {
                 onClick={() => navigate(`/profile/${user.uid}`)}
               >
                 <img 
-                  src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}`} 
+                  src={user.photoUrl || getAvatarUrl(user.name)} 
                   alt={user.name} 
                   className="w-16 h-16 rounded-full border-2 border-purple-200 dark:border-secondary object-cover"
                 />

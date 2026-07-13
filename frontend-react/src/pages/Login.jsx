@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 const Login = () => {
   const { loginWithGoogle, loginWithEmail, logout } = useAuth();
@@ -10,13 +10,17 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState('');
 
   const handleGoogleLogin = async () => {
     try {
+      setLoading('google');
       await loginWithGoogle();
       navigate('/');
-    } catch (err) {
-      setError('Failed to log in with Google');
+    } catch {
+      setError('Google login is restricted for unverified testers. Please use email and password below.');
+    } finally {
+      setLoading('');
     }
   };
 
@@ -24,10 +28,13 @@ const Login = () => {
     e.preventDefault();
     try {
       setError('');
+      setLoading('email');
       await loginWithEmail(email, password);
       navigate('/');
     } catch (err) {
       setError('Failed to log in: ' + err.message);
+    } finally {
+      setLoading('');
     }
   };
 
@@ -53,6 +60,7 @@ const Login = () => {
         {/* Social Login */}
         <button 
           onClick={handleGoogleLogin}
+          disabled={!!loading}
           className="squish-btn w-full bg-white text-[#131313] font-label-lg text-label-lg rounded-full py-4 px-6 flex items-center justify-center gap-3 border-b-4 border-gray-300 transition-all duration-150 mb-8 hover:bg-gray-50"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -61,7 +69,7 @@ const Login = () => {
             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"></path>
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"></path>
           </svg>
-          Continue with Google
+          {loading === 'google' ? <Loader2 size={20} className="animate-spin" /> : 'Continue with Google'}
         </button>
 
         {/* Divider */}
@@ -118,9 +126,10 @@ const Login = () => {
           {/* Submit Button */}
           <button 
             type="submit"
+            disabled={!!loading}
             className="squish-btn w-full bg-success-lime text-[#151f00] font-headline-md text-headline-md rounded-full py-4 mt-2 border-b-4 border-[#b3d266] shadow-[0px_5px_15px_rgba(220,253,139,0.2)] transition-all duration-150"
           >
-            Log In
+            {loading === 'email' ? <Loader2 size={22} className="animate-spin mx-auto" /> : 'Log In'}
           </button>
         </form>
 
@@ -132,7 +141,7 @@ const Login = () => {
 
         {/* Force Logout / Reset */}
         <button 
-          onClick={async () => { try { await logout(); } catch (e) {} }}
+          onClick={async () => { try { await logout(); } catch { setError('Could not force log out. Please refresh and try again.'); } }}
           className="font-label-sm text-on-surface-variant hover:text-red-500 mt-6 underline text-xs transition-colors"
         >
           Having trouble? Force Log Out

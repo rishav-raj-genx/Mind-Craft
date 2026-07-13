@@ -79,8 +79,9 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
 
     const query = `
       MATCH (me:User {uid: $uid})-[role:HOSTS|ATTENDS]->(s:Session)
+      WHERE ($status IS NULL OR s.status = $status)
       OPTIONAL MATCH (peer:User)-[:HOSTS|ATTENDS]->(s)
-      WHERE peer.uid <> $uid AND ($status IS NULL OR s.status = $status)
+      WHERE peer.uid <> $uid
       RETURN s, peer.name AS peerName
       ORDER BY s.scheduledAt ASC
       SKIP toInteger($offset) LIMIT toInteger($limit)

@@ -13,6 +13,11 @@ export const api = axios.create({
   timeout: 60000, // 60s — Render free-tier cold starts can take ~50s
 });
 
+export function getRealtimeUrl() {
+  const apiRoot = API_BASE_URL.replace(/\/api\/?$/, '');
+  return apiRoot.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+}
+
 import { auth } from '../config/firebase';
 
 api.interceptors.request.use(async (config) => {
