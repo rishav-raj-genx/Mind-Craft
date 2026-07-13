@@ -1,119 +1,140 @@
-# Mindcraft
+<div align="center">
+  <img src="https://raw.githubusercontent.com/github/explore/80688e429a7d4ef2fca1e82350fe8e3517d3494d/topics/react/react.png" alt="React" width="60" />
+  <img src="https://raw.githubusercontent.com/github/explore/80688e429a7d4ef2fca1e82350fe8e3517d3494d/topics/nodejs/nodejs.png" alt="Node.js" width="60" />
+  <h1>Mindcraft</h1>
+  <p><strong>Your Academic Playground Awaits. Learn Together, Level Up.</strong></p>
+  <p>A highly scalable, peer-to-peer college tutoring platform driven by Graph Databases, AI Voice Search, and Distributed Workflows.</p>
+</div>
 
-Mindcraft is a peer tutoring platform for college students. It combines skill-based matching, real-time chat, a doubt forum with Sarvam AI study hints, gamification, streaks, Mind Tokens, and an Expo mobile frontend.
+---
 
-## Repository Layout
+## 🚀 Overview
+
+Mindcraft gamifies peer learning by connecting students based on what they want to learn and what they can teach. It transforms isolated academic struggles into a collaborative learning platform, unlock badges, maintain streaks, and ask doubts in their native languages using **Sarvam Voice AI**. 
+
+Under the hood, Mindcraft is a production-grade monorepo featuring a **React (Vite)** frontend, an **Expo React Native** mobile app, and a robust **Node.js/Express** backend powered entirely by **Neo4j AuraDB**.
+
+---
+
+## 🏆 HackHazards '26: Partner Tracks Eligibility
+
+Mindcraft was engineered from day one to natively leverage the technologies required for the following Partner Tracks:
+
+### 1. Neo4j Track (Primary Database)
+**AuraDB is not just an optional add-on; it is the core nervous system of Mindcraft.**
+- **Graph Modeling:** Users, Skills, Departments, Matches, Chat Threads, Forums, and Badges are all mapped as nodes and relationships.
+- **Why Graph?** Finding a peer tutor isn't a simple relational query. Mindcraft uses Neo4j to compute complex compatibility scores based on graph proximity (Shared Skills, Same College, Teaching/Learning intersections).
+- **Core Role:** AuraDB handles *all* data persistence, chat logs, streak tracking, and the gamification engine.
+
+### 2. Sarvam Track (Core AI Experience)
+**Multilingual Voice AI and Automated Hint Generation.**
+- **Vernacular Voice Search:** Students often struggle to type complex technical doubts. Using Sarvam's Speech-to-Text API, students can tap the microphone on the Find Mate screen and speak their queries in Indic languages (e.g., Hindi/English mix).
+- **Automated Study Hints:** When a student posts a question in the Doubt Forum, the backend triggers Sarvam's Chat API (`sarvam-30b` / `105b`) to instantly generate a bilingual study hint, drastically reducing wait times for peer responses.
+
+### 3. Render Workflows Track (Background Orchestration)
+**Distributed Data Processing.**
+- **Weekly Warrior Audit:** Calculating weekly streaks for thousands of users simultaneously would crash a simple API. 
+- **The Workflow:** We utilize `@renderinc/sdk/workflows` to orchestrate a distributed pipeline (`src/workflows/weeklyAudit.js`). 
+  - Stage 1: Fetches all active users.
+  - Stage 2: Parallel execution (`evaluateUserWeeklyStreak`) processing 7-day login histories via Neo4j.
+  - Stage 3: Batch update (`awardWeeklyWarriors`) minting new badges idempotently.
+
+---
+
+## 🛠 Tech Stack
+
+- **Frontend:** React (Vite), Tailwind CSS, Framer Motion, Context API
+- **Mobile:** React Native (Expo)
+- **Backend:** Node.js, Express.js
+- **Database:** Neo4j AuraDB (Primary), Firebase Auth (Authentication Identity)
+- **AI / NLP:** Sarvam AI (Speech-to-Text, LLM Completions)
+- **Real-Time:** WebSockets (Unified Notification & Chat Context)
+- **DevOps/Orchestration:** Render, Vercel
+
+---
+
+## 📂 Repository Architecture
 
 ```txt
 Mind-Craft/
-├── backend/              # Node.js + Express API, Neo4j AuraDB, Firebase Auth, WebSocket chat
-├── frontend-react/       # Vite React PWA/mobile-web app
-│   └── mobile/           # Expo React Native app
-├── render.yaml           # Render Blueprint for full monorepo deployment
-└── README.md
+├── backend/              # Node.js + Express API, Neo4j Graph, Render Workflows
+│   ├── src/config/       # Neo4j & Firebase initializers
+│   ├── src/routes/       # API endpoints (users, matching, doubts, chat)
+│   ├── src/services/     # Sarvam AI wrappers, Badge logic, Matching logic
+│   └── src/workflows/    # Render Workflows (weeklyAudit.js)
+├── frontend-react/       # Vite React Web App
+│   ├── src/context/      # AuthContext, NotificationContext (WebSockets)
+│   ├── src/pages/        # Dashboard, Chat, Profile, Doubt Forum
+│   └── mobile/           # Expo Native App codebase
+├── render.yaml           # Blueprint for seamless Render API deployment
+└── render.free.yaml      # Fallback blueprint for Render Free Tier
 ```
 
-## Important Render Deployment Note
+---
 
-This root folder has `render.yaml`. That means:
+## 🚦 Getting Started
 
-- If you deploy from the full `Mind-Craft` repo, keep Render's Blueprint Path as `render.yaml`.
-- The current root `render.yaml` uses `rootDir: backend`, so it expects the repo to contain a nested `backend/` folder.
-- If you deploy from a backend-only repo, copy/create a separate `render.yaml` inside that backend repo root and remove `rootDir: backend`.
+### Prerequisites
+- Node.js `v20+`
+- Neo4j AuraDB instance
+- Firebase Project (Auth enabled)
+- Sarvam AI API Key
 
-For your screenshot error, Render was connected to `Mind-Craft-Backend`, but that repo did not have `render.yaml` on the selected `main` branch.
+### 1. Environment Configuration
 
-## Core Features
+Clone the repository and set up the `.env` variables for both `backend/` and `frontend-react/`.
 
-- Firebase Authentication for user login.
-- Neo4j AuraDB for users, skills, matches, chat, doubts, tokens, streaks, and badges.
-- Sarvam AI integration for bilingual English/Hindi AI Assist study hints.
-- WebSocket-based real-time chat and notifications.
-- Doubt forum with compressed screenshot/image upload.
-- Render cron workflow for weekly streak audits and Weekly Warrior rewards.
-- Expo native app with global alert modal, ErrorBoundary, optimized FlatLists, cached images, and API resilience.
-
-## Local Setup
-
-Install dependencies separately:
-
-```bash
-cd backend
-npm install
-
-cd ../frontend-react
-npm install
-
-cd mobile
-npm install
+**Backend (`backend/.env`):**
+```env
+PORT=3000
+NODE_ENV=development
+NEO4J_URI=neo4j+s://<your-instance>.databases.neo4j.io
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=<password>
+SARVAM_API_KEY=<your-sarvam-key>
+FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 ```
 
-Run backend:
+**Frontend (`frontend-react/.env`):**
+```env
+VITE_API_BASE_URL=http://localhost:3000
+VITE_WS_BASE_URL=ws://localhost:3000
+VITE_FIREBASE_API_KEY=<firebase-api-key>
+VITE_FIREBASE_AUTH_DOMAIN=<firebase-auth-domain>
+```
+
+### 2. Installation & Running Locally
+
+Install dependencies for the workspaces:
 
 ```bash
+# Terminal 1: Backend
 cd backend
+npm install
 npm run dev
-```
 
-Run web frontend:
-
-```bash
+# Terminal 2: Web Frontend
 cd frontend-react
+npm install
 npm run dev
-```
 
-Run Expo app:
-
-```bash
+# Terminal 3: Mobile App (Optional)
 cd frontend-react/mobile
+npm install
 npm start
 ```
 
-## Verification Commands
+---
 
-Backend:
+## ☁️ Deployment
 
-```bash
-cd backend
-node --check server.js
-node --check src/routes/doubt.js
-node --check src/services/sarvamAI.js
-node --check src/workflows/weeklyAudit.js
-```
+**Backend (Render):**
+The backend is fully configured for Render via the `render.yaml` blueprint. Connect the repository in the Render Dashboard, select "Blueprint", and it will automatically provision the Node server and the Weekly Audit background workflow.
 
-Web frontend:
+**Frontend (Vercel):**
+Connect the `frontend-react` subdirectory to Vercel. Ensure you override the build command to standard Vite builds and supply the `VITE_API_BASE_URL` pointing to your Render backend.
 
-```bash
-cd frontend-react
-npm run build
-```
+---
 
-Expo frontend:
-
-```bash
-cd frontend-react/mobile
-npx tsc --noEmit
-npx expo export --platform android --output-dir /tmp/mindcraft-expo-check
-```
-
-## Deployment Summary
-
-Backend is deployed on Render using `render.yaml`.
-
-Expo mobile is built with EAS:
-
-```bash
-cd frontend-react/mobile
-eas build --platform android --profile production
-```
-
-Set this before native production builds:
-
-```env
-EXPO_PUBLIC_API_BASE_URL=https://your-render-backend.onrender.com/api
-```
-
-## Documentation
-
-- Backend details: [backend/README.md](backend/README.md)
-- Frontend details: [frontend-react/README.md](frontend-react/README.md)
+## 📄 License
+This project is licensed under the MIT License. Built for HackHazards '26.
