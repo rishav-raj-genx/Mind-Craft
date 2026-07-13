@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { gamificationService } from '../services/gamificationService';
@@ -240,6 +240,67 @@ const StreakDetail = () => {
     loadStreak();
   }, [currentUser]);
 
+  const buildGrid = () => {
+    const activeDates = new Set(
+      (streakData?.activeDates || []).map(d =>
+        typeof d === 'string' ? d.split('T')[0] : new Date(d).toISOString().split('T')[0]
+      )
+    );
+    const nowLocal = new Date();
+    const utcMs = nowLocal.getTime() + (nowLocal.getTimezoneOffset() * 60000);
+    const today = new Date(utcMs + (5.5 * 60 * 60 * 1000));
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    
+    // End at today's column (Saturday = end of week), go back 15 weeks
+    const endDate = new Date(today);
+    while (endDate.getDay() !== 6) endDate.setDate(endDate.getDate() + 1);
+    
+    const startDate = new Date(endDate);
+    startDate.setDate(endDate.getDate() - (15 * 7) + 1);
+    while (startDate.getDay() !== 0) startDate.setDate(startDate.getDate() - 1);
+    
+    const columns = [];
+    const monthLabels = [];
+    let prevMonth = -1;
+    let currDate = new Date(startDate);
+    
+    let col = 0;
+    while (currDate <= endDate) {
+      const week = [];
+      for (let row = 0; row < 7; row++) {
+        const y = currDate.getFullYear();
+        const m = String(currDate.getMonth()+1).padStart(2,'0');
+        const d = String(currDate.getDate()).padStart(2,'0');
+        const ds = `${y}-${m}-${d}`;
+        const isFuture = ds > todayStr;
+        const isActive = !isFuture && activeDates.has(ds);
+        week.push({
+          date: ds,
+          level: isFuture ? -1 : (isActive ? 1 : 0),
+          label: currDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        });
+        
+        if (row === 0 && currDate.getMonth() !== prevMonth) {
+          monthLabels.push({ col, label: currDate.toLocaleDateString('en-US', { month: 'short' }) });
+          prevMonth = currDate.getMonth();
+        }
+        currDate.setDate(currDate.getDate() + 1);
+      }
+      columns.push(week);
+      col++;
+    }
+    
+    return { columns, monthLabels };
+  };
+
+  const graphScrollRef = useRef(null);
+
+  useEffect(() => {
+    if (graphScrollRef.current && streakData) {
+      graphScrollRef.current.scrollLeft = graphScrollRef.current.scrollWidth;
+    }
+  }, [streakData]);
+
   // ── Loading State ─────────────────────────────────────────────────
   if (loading) {
     return (
@@ -262,32 +323,14 @@ const StreakDetail = () => {
   const streakFreezes = streakData?.streakFreezes ?? 2;
   const totalActiveDays = streakData?.totalActiveDays || 0;
 
-  // Generate active days set from streak data
-  const activeDateSet = new Set(
-    (streakData?.activeDates || []).map(d => {
-      if (typeof d === 'string') return d.split('T')[0];
-      return new Date(d).toISOString().split('T')[0];
-    })
-  );
-
-  // Build 35-day contribution grid
-  const gridCells = [];
-  const nowLocal = new Date();
-  const utcMs = nowLocal.getTime() + (nowLocal.getTimezoneOffset() * 60000);
-  const todayDate = new Date(utcMs + (5.5 * 60 * 60 * 1000)); // Align with backend IST (UTC+5:30)
-
-  for (let i = 34; i >= 0; i--) {
-    const d = new Date(todayDate);
-    d.setDate(d.getDate() - i);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    gridCells.push({
-      dateStr,
-      isActive: activeDateSet.has(dateStr),
-      isToday: i === 0,
+  const gridData = buildGrid();
+  // Count active days in the generated grid
+  let activeDaysInGrid = 0;
+  gridData.columns.forEach(week => {
+    week.forEach(cell => {
+      if (cell.level > 0) activeDaysInGrid++;
     });
-  }
-
-  const activeDaysInGrid = gridCells.filter(c => c.isActive).length;
+  });
 
   // ── Next badge info ───────────────────────────────────────────────
   const nextBadge = badges.next;
@@ -390,33 +433,36 @@ const StreakDetail = () => {
                 <span className="font-label-md text-label-md text-gray-400 dark:text-on-surface-variant">Last 35 Days</span>
               </div>
 
-              <div className="grid grid-cols-7 gap-2">
-                {gridCells.map((cell, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ scale: 0.6, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ delay: i * 0.015, duration: 0.25 }}
-                    className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                      cell.isActive
-                        ? 'bg-[#DCFD8B] shadow-[0_0_10px_rgba(220,253,139,0.3)]'
-                        : cell.isToday
-                          ? 'bg-gray-100 dark:bg-surface-raised ring-2 ring-focus-purple'
-                          : 'bg-gray-100 dark:bg-surface-raised/50 opacity-60'
-                    }`}
-                    title={`${cell.dateStr}${cell.isActive ? ' ✓' : ''}${cell.isToday ? ' (Today)' : ''}`}
-                  >
-                    {cell.isActive && (
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ delay: i * 0.015 + 0.15, type: 'spring', stiffness: 300 }}
-                      >
-                        <Flame size={14} className="text-green-800/60" />
-                      </motion.div>
-                    )}
-                  </motion.div>
-                ))}
+              <div className="w-full overflow-x-auto pb-2 hide-scrollbar" ref={graphScrollRef}>
+                <div className="flex flex-col min-w-max px-1">
+                  <div className="flex gap-[3px]">
+                    {gridData.columns.map((week, cIdx) => (
+                      <div key={cIdx} className="flex flex-col gap-[3px]">
+                        {week.map((cell, rIdx) => (
+                          <div
+                            key={`${cIdx}-${rIdx}`}
+                            title={cell.label}
+                            className={`w-[14px] h-[14px] rounded-[3px] transition-all ${
+                              cell.level === -1
+                                ? 'bg-transparent border border-dashed border-gray-200 dark:border-surface-raised/50'
+                                : cell.level > 0
+                                ? 'bg-[#DCFD8B] shadow-[0_0_10px_rgba(220,253,139,0.3)]'
+                                : 'bg-gray-100 dark:bg-surface-raised/50 opacity-60'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Month labels */}
+                  <div className="relative h-5 mt-2 text-[10px] font-bold text-gray-400">
+                    {gridData.monthLabels.map((ml, i) => (
+                      <span key={i} className="absolute" style={{ left: ml.col * 17 }}>
+                        {ml.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div className="flex items-center justify-end gap-2 mt-4 text-xs font-label-md text-gray-500">
                 <span>Less</span>

@@ -8,7 +8,7 @@
  */
 export function getAvatarUrl(name, gender) {
   const encoded = encodeURIComponent(name || 'User');
-  if (gender === 'Male') return `https://avatar.iran.liara.run/public/boy?username=${encoded}`;
-  if (gender === 'Female') return `https://avatar.iran.liara.run/public/girl?username=${encoded}`;
-  return `https://avatar.iran.liara.run/public?username=${encoded}`;
+  if (gender === 'Male') return `https://api.dicebear.com/9.x/avataaars/svg?seed=${encoded}&top=shortHair`;
+  if (gender === 'Female') return `https://api.dicebear.com/9.x/avataaars/svg?seed=${encoded}&top=longHair`;
+  return `https://api.dicebear.com/9.x/avataaars/svg?seed=${encoded}`;
 }

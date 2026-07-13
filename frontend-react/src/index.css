@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply antialiased;
+    @apply antialiased bg-gray-50 dark:bg-[#0A0A0A];
     min-height: max(884px, 100dvh);
   }
 }

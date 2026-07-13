@@ -7,7 +7,7 @@ import { gamificationService } from '../services/gamificationService';
 import {
   Edit2, UserPlus, MessageSquare, BookOpen, GraduationCap,
   Flame, Users, Star, Clock, BarChart2, Medal,
-  X, Save, Loader2, ChevronRight,
+  X, Save, Loader2, ChevronRight, Trash2,
   Code, MapPin, Link2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -204,6 +204,24 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPhotoUpload} />
             </div>
             <span className="text-sm text-gray-500 font-medium">Change Avatar</span>
+            {user.photoUrl && user.photoUrl.length > 0 && !user.photoUrl.includes('avatar.iran.liara.run') && (
+              <button
+                onClick={async () => {
+                  if (!window.confirm('Remove your profile picture?')) return;
+                  try {
+                    onClose();
+                    await userService.updateProfile(user.uid, { photoUrl: '' });
+                    window.dispatchEvent(new CustomEvent('profile-updated', { detail: { photoUrl: '' } }));
+                    window.location.reload();
+                  } catch (err) {
+                    console.error('Remove photo error:', err);
+                  }
+                }}
+                className="text-xs text-red-500 hover:text-red-600 font-medium flex items-center gap-1 transition-colors"
+              >
+                <Trash2 size={12} /> Remove Photo
+              </button>
+            )}
           </div>
 
           {/* Name */}
@@ -439,6 +457,18 @@ const Profile = () => {
     } catch (err) {
       console.error('Photo upload error:', err);
     } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!window.confirm('Remove your profile picture? It will revert to the default avatar.')) return;
+    setUploadingPhoto(true);
+    try {
+      await userService.updateProfile(uid, { photoUrl: '' });
+      window.location.reload();
+    } catch (err) {
+      console.error('Remove photo error:', err);
       setUploadingPhoto(false);
     }
   };
@@ -694,13 +724,25 @@ const Profile = () => {
               />
             </div>
             {isOwner && (
-              <button
-                onClick={() => photoInputRef.current?.click()}
-                disabled={uploadingPhoto}
-                className="absolute -bottom-1 -right-1 w-7 h-7 bg-[#7C3AED] rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors"
-              >
-                {uploadingPhoto ? <Loader2 size={12} className="text-white animate-spin" /> : <Edit2 size={12} className="text-white" />}
-              </button>
+              <div className="absolute -bottom-1 -right-1 flex gap-1 z-20">
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  className="w-7 h-7 bg-[#7C3AED] rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors"
+                >
+                  {uploadingPhoto ? <Loader2 size={12} className="text-white animate-spin" /> : <Edit2 size={12} className="text-white" />}
+                </button>
+                {user.photoUrl && user.photoUrl.length > 0 && !user.photoUrl.includes('avatar.iran.liara.run') && (
+                  <button
+                    onClick={handleRemovePhoto}
+                    disabled={uploadingPhoto}
+                    className="w-7 h-7 bg-red-500 rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-red-600 transition-colors"
+                    title="Remove profile photo"
+                  >
+                    <Trash2 size={12} className="text-white" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
 

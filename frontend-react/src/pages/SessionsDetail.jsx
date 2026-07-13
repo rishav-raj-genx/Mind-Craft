@@ -250,29 +250,36 @@ const SessionsDetail = () => {
         </motion.div>
       )}
 
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="w-10 h-10 border-4 border-[#DCFD8B] border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : sessions.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <Calendar size={48} className="text-gray-300 dark:text-gray-700 mb-4" />
-          <p className="font-semibold text-gray-600 dark:text-gray-400">No sessions found</p>
-          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Book a session with a mate to get started!</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3 pb-32">
-          {sessions.map((s, idx) => (
-            <SessionCard
-              key={s.sessionId || idx}
-              session={s}
-              index={idx}
-              currentUserId={currentUser?.uid}
-              onRateClick={setRatingSessionId}
-            />
-          ))}
-        </div>
-      )}
+      {/* Session list */}
+      <div className="flex flex-col gap-3 pb-32">
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="w-10 h-10 border-4 border-[#DCFD8B] border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          (() => {
+            const filteredSessions = sessions.filter(s => filter === 'all' || s.status === filter);
+            if (filteredSessions.length === 0) {
+              return (
+                <div className="text-center py-12">
+                  <Calendar size={48} className="mx-auto text-gray-300 dark:text-gray-700 mb-4" />
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">No sessions found</h3>
+                  <p className="text-gray-500 dark:text-gray-400">You don't have any {filter !== 'all' ? filter : ''} sessions yet.</p>
+                </div>
+              );
+            }
+            return filteredSessions.map((s, idx) => (
+                <SessionCard
+                  key={s.sessionId || idx}
+                  session={s}
+                  index={idx}
+                  currentUserId={currentUser?.uid}
+                  onRateClick={setRatingSessionId}
+                />
+              ));
+          })()
+        )}
+      </div>
       
       <RatingModal
         isOpen={!!ratingSessionId}

@@ -13,7 +13,7 @@ const Layout = () => {
 
   const navItems = [
     { path: '/', icon: Grid, label: 'Home', match: (p) => p === '/' },
-    { path: '/find', icon: Map, label: 'Map', match: (p) => p === '/find' },
+    { path: '/find', icon: Map, label: 'Find', match: (p) => p === '/find' },
     { path: '/forum', icon: MessageCircle, label: 'Forum', match: (p) => p === '/forum' },
     { path: '/chat', icon: MessageSquare, label: 'Chat', match: (p) => p.startsWith('/chat') },
     { path: `/profile/${currentUser?.uid}`, icon: User, label: 'Profile', match: (p) => p.startsWith('/profile') },
@@ -74,7 +74,7 @@ const Layout = () => {
       </header>
 
       {/* Main Content */}
-      <div className="w-full max-w-[1200px] mx-auto px-margin-mobile py-6">
+      <div className="w-full max-w-[600px] mx-auto px-margin-mobile py-6">
         <Outlet />
       </div>
 

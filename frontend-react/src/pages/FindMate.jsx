@@ -633,7 +633,7 @@ const FindMate = () => {
         <p className="hidden md:block text-sm text-gray-500 dark:text-on-surface-variant">Search by voice, topic, college, or department.</p>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
+      <div className="flex flex-col gap-6">
       <section className="bg-white dark:bg-surface-container rounded-2xl p-5 shadow-lg border border-gray-200 dark:border-surface-raised flex flex-col items-center justify-center gap-3 transition-colors">
         <h3 className="font-label-lg text-label-lg text-center text-gray-900 dark:text-on-surface">Describe what you need</h3>
 

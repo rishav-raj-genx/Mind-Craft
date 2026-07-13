@@ -704,7 +704,15 @@ const Chat = () => {
                     }
                   }}
                 >
-                  <p className="font-body-md text-[15px] break-words">{msg.text}</p>
+                  <p className="font-body-md text-[15px] break-words whitespace-pre-wrap">
+                    {msg.text.split(/(https?:\/\/[^\s]+)/g).map((part, i) => 
+                      /(https?:\/\/[^\s]+)/.test(part) ? (
+                        <a key={i} href={part} target="_blank" rel="noreferrer" className="underline text-blue-300 hover:text-blue-200">{part}</a>
+                      ) : (
+                        <span key={i}>{part}</span>
+                      )
+                    )}
+                  </p>
                   <div className={`text-xs flex items-center justify-end gap-1 mt-1.5 opacity-90 ${isMine ? 'text-purple-100' : 'text-gray-500'}`}>
                     {msg.isEdited && <span className="mr-1 italic text-[10px]">Edited</span>}
                     {formatMessageTime(msg.timestamp)}
