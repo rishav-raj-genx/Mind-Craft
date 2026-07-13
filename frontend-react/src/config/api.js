@@ -6,7 +6,7 @@ export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || "wss://mindcraft-
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
-  timeout: 15_000, // 15s — prevents infinite hangs on flaky mobile networks
+  timeout: 60_000, // 60s — prevents infinite hangs, handles Render cold starts
   headers: {
     'Content-Type': 'application/json',
   },
@@ -37,7 +37,7 @@ api.interceptors.response.use(
     if (!error.response) {
       // Network error or timeout — no response from server
       const message = error.code === 'ECONNABORTED'
-        ? 'Request timed out. Please check your connection and try again.'
+        ? 'Waking up server... (this can take up to 60 seconds on the free tier)'
         : 'Network error. Please check your internet connection.';
       console.error('🌐 Network error:', error.message);
       // Show a non-blocking toast / alert so the user knows what happened

@@ -111,7 +111,12 @@ const Home = () => {
             </div>
           ))}
           {topMates.length === 0 && (
-            <div className="text-gray-500 dark:text-on-surface-variant italic">No matches found yet. Try adding more skills to your profile!</div>
+            <div className="w-full bg-white dark:bg-surface-container rounded-xl p-8 flex flex-col items-center justify-center text-center border border-dashed border-gray-300 dark:border-surface-raised shadow-sm mx-4">
+              <Star size={40} className="text-gray-300 dark:text-surface-raised mb-3" />
+              <h4 className="font-headline-md text-gray-900 dark:text-on-surface">No matches yet!</h4>
+              <p className="text-sm text-gray-500 dark:text-on-surface-variant mt-1">Go add some skills to your profile to find study mates.</p>
+              <button onClick={() => navigate('/profile')} className="mt-4 bg-focus-purple text-white font-label-md py-2 px-6 rounded-full hover:bg-purple-700 transition-colors">Edit Profile</button>
+            </div>
           )}
         </div>
       </section>
@@ -134,7 +139,11 @@ const Home = () => {
               <span className="text-xs opacity-60">({topic.count})</span>
             </button>
           )) : (
-            <div className="col-span-2 text-gray-500 dark:text-on-surface-variant italic text-sm">No trending topics yet. Be the first to post a doubt!</div>
+            <div className="col-span-2 md:col-span-3 bg-white dark:bg-surface-container rounded-xl p-6 flex flex-col items-center justify-center text-center border border-dashed border-gray-300 dark:border-surface-raised shadow-sm">
+              <Hash size={32} className="text-gray-300 dark:text-surface-raised mb-2" />
+              <h4 className="font-headline-sm text-gray-900 dark:text-on-surface">No trending topics yet!</h4>
+              <p className="text-sm text-gray-500 dark:text-on-surface-variant mt-1">Be the first to post a doubt in the forum.</p>
+            </div>
           )}
         </div>
       </section>

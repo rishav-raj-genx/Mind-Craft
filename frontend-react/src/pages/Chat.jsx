@@ -483,10 +483,11 @@ const Chat = () => {
         </header>
         <div className="flex flex-col gap-3">
           {threads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center opacity-70">
+            <div className="flex flex-col items-center justify-center py-20 text-center opacity-70 bg-white dark:bg-surface-container rounded-3xl border border-dashed border-gray-300 dark:border-surface-raised mx-2 mt-4 shadow-sm">
               <MessageSquare size={64} className="text-gray-300 dark:text-surface-raised mb-4" />
-              <h2 className="font-headline-md text-gray-900 dark:text-on-surface">No Messages Yet</h2>
-              <p className="text-gray-500 mt-2">Start a conversation with your mates.</p>
+              <h2 className="font-headline-md text-gray-900 dark:text-on-surface">No chats yet!</h2>
+              <p className="text-gray-500 mt-2">Go find a mate in the Find Mate section to start chatting.</p>
+              <button onClick={() => navigate('/find')} className="mt-4 bg-purple-100 text-purple-700 font-label-md py-2 px-6 rounded-full hover:bg-purple-200 transition-colors">Find a Mate</button>
             </div>
           ) : (
             threads.map((thread) => {

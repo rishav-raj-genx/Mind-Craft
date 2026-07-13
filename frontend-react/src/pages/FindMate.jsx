@@ -524,7 +524,11 @@ const FindMate = () => {
       console.error('Microphone access denied or error:', err);
       streamRef.current?.getTracks().forEach(track => track.stop());
       streamRef.current = null;
-      alert('Microphone access is required for voice search.');
+      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+        alert('Microphone access is required for voice search. Please allow access in your browser settings.');
+      } else {
+        alert('Microphone access failed: ' + err.message);
+      }
     }
   };
 

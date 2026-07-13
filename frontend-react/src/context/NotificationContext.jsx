@@ -225,16 +225,24 @@ export const NotificationProvider = ({ children }) => {
     initFCM();
 
     // ── Unified Master WebSocket ──────────────────────────────────
-    currentUser.getIdToken().then(token => {
-      const ws = new WebSocket(`${WS_BASE_URL}/ws?token=${encodeURIComponent(token)}`);
-      wsRef.current = ws;
+    let reconnectTimer;
+    let isMounted = true;
 
-      ws.onopen = () => {
-        console.log('🌍 Unified WebSocket connected');
-        chatListeners.current.forEach((_callback, matchId) => {
-          ws.send(JSON.stringify({ type: 'join', matchId }));
-        });
-      };
+    const connectWebSocket = async () => {
+      if (!isMounted || !currentUser) return;
+      try {
+        const token = await currentUser.getIdToken();
+        const ws = new WebSocket(`${WS_BASE_URL}/ws?token=${encodeURIComponent(token)}`);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          console.log('🌍 Unified WebSocket connected');
+          chatListeners.current.forEach((_callback, matchId) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'join', matchId }));
+            }
+          });
+        };
 
       ws.onmessage = (event) => {
         try {
@@ -450,10 +458,30 @@ export const NotificationProvider = ({ children }) => {
       }
     };
 
-      ws.onclose = () => console.log('🌍 Unified WebSocket disconnected');
-    });
+      ws.onclose = () => {
+        console.log('🌍 Unified WebSocket disconnected. Attempting reconnect in 5s...');
+        if (isMounted) {
+          reconnectTimer = setTimeout(connectWebSocket, 5000);
+        }
+      };
+      
+      ws.onerror = (err) => {
+        console.warn('WebSocket error:', err);
+        ws.close();
+      };
+      } catch (err) {
+        console.warn('Failed to connect WS:', err);
+        if (isMounted) {
+          reconnectTimer = setTimeout(connectWebSocket, 5000);
+        }
+      }
+    };
+
+    connectWebSocket();
 
     return () => {
+      isMounted = false;
+      clearTimeout(reconnectTimer);
       if (wsRef.current) {
         wsRef.current.close();
       }

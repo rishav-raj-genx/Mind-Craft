@@ -83,13 +83,17 @@ const AppContent = () => {
   );
 };
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 function App() {
   return (
-    <Router>
-      <AppProvider>
-        <AppContent />
-      </AppProvider>
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <AppProvider>
+          <AppContent />
+        </AppProvider>
+      </Router>
+    </ErrorBoundary>
   );
 }
 
