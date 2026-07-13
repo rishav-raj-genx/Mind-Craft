@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import imageCompression from 'browser-image-compression';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -393,14 +393,16 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner, onImageOp
         <div className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-900">
           {/* Original Post */}
           <div className="bg-white dark:bg-[#1A1A2E] rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-800 mb-6">
-             <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2">
+              <Link to={`/profile/${post.authorUid}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity" onClick={e => e.stopPropagation()}>
                 <img src={post.authorAvatar} alt={post.authorName} className="w-8 h-8 rounded-full" />
-                <span className="font-semibold text-sm text-gray-900 dark:text-white">{post.authorName}</span>
-                {isOwner && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C3AED] bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 rounded-full">You</span>
-                )}
-                <span className="text-xs text-gray-400 ml-auto">{timeAgo(post.createdAt)}</span>
-             </div>
+                <span className="font-semibold text-sm text-gray-900 dark:text-white hover:underline">{post.authorName}</span>
+              </Link>
+              {isOwner && (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C3AED] bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 rounded-full">You</span>
+              )}
+              <span className="text-xs text-gray-400 ml-auto">{timeAgo(post.createdAt)}</span>
+            </div>
              <h3 className="font-bold text-gray-900 dark:text-white mb-1">{post.title}</h3>
              <p className="text-sm text-gray-600 dark:text-gray-400">{post.content}</p>
              {(post.images || []).length > 0 && (
@@ -429,8 +431,10 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner, onImageOp
             {(post.answers || []).map((ans, i) => (
               <div key={i} className="bg-white dark:bg-[#1C1C2E] rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
                 <div className="flex items-center gap-3 mb-2">
-                  <img src={ans.authorAvatar} alt={ans.authorName} className="w-7 h-7 rounded-full" />
-                  <span className="font-semibold text-sm text-gray-900 dark:text-white">{ans.authorName}</span>
+                  <Link to={`/profile/${ans.authorUid}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                    <img src={ans.authorAvatar} alt={ans.authorName} className="w-7 h-7 rounded-full" />
+                    <span className="font-semibold text-sm text-gray-900 dark:text-white hover:underline">{ans.authorName}</span>
+                  </Link>
                   <span className="text-xs text-gray-400 ml-auto">{timeAgo(ans.createdAt)}</span>
                 </div>
                 <p className="text-sm text-gray-700 dark:text-gray-300 ml-10">{ans.content}</p>
@@ -734,7 +738,7 @@ const DoubtForum = () => {
               >
                 {/* Author row */}
                 <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-3">
+                  <Link to={`/profile/${post.authorUid}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity" onClick={e => e.stopPropagation()}>
                     <img
                       src={post.authorAvatar || getAvatarUrl(post.authorName)}
                       alt={post.authorName}
@@ -742,7 +746,7 @@ const DoubtForum = () => {
                     />
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-sm text-gray-900 dark:text-white">{post.authorName}</p>
+                        <p className="font-semibold text-sm text-gray-900 dark:text-white hover:underline">{post.authorName}</p>
                         {isOwn && (
                           <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C3AED] bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded-full">You</span>
                         )}
@@ -752,7 +756,7 @@ const DoubtForum = () => {
                         {timeAgo(post.createdAt)}
                       </div>
                     </div>
-                  </div>
+                  </Link>
                   <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${tagColor(post.tag)}`}>
                     {post.tag}
                   </span>
