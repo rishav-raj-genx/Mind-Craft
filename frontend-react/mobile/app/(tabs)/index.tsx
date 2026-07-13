@@ -1,31 +1,39 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { InteractionManager, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { InteractionManager, ScrollView, StyleSheet, Text, TouchableOpacity, View, Image as RNImage, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 
 import { useGlobalAlert } from '@/components/GlobalAlertProvider';
 import { palette, radii } from '@/constants/theme';
-import { fallbackProfile, fetchProfileSummary, type ProfileSummary } from '@/services/mindcraft';
+import { fetchProfileSummary, fetchMates, fetchTrendingTopics, type ProfileSummary, type Mate, fallbackProfile } from '@/services/mindcraft';
 
 export default function HomeScreen() {
   const { showAlert } = useGlobalAlert();
+  const router = useRouter();
   const [profile, setProfile] = useState<ProfileSummary>(fallbackProfile);
+  const [topMates, setTopMates] = useState<Mate[]>([]);
+  const [trending, setTrending] = useState<{tag: string, count: number}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
     const task = InteractionManager.runAfterInteractions(() => {
-      fetchProfileSummary()
-        .then((summary) => {
-          if (isMounted) setProfile(summary);
-        })
-        .catch(() => {
-          if (isMounted) {
-            setProfile(fallbackProfile);
-          }
-        })
-        .finally(() => {
-          if (isMounted) setIsLoading(false);
-        });
+      Promise.all([
+        fetchProfileSummary(),
+        fetchMates(),
+        fetchTrendingTopics(),
+      ]).then(([summary, mates, topics]) => {
+        if (isMounted) {
+          setProfile(summary);
+          setTopMates(mates.slice(0, 3));
+          setTrending(topics);
+        }
+      }).catch(() => {
+        if (isMounted) setProfile(fallbackProfile);
+      }).finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
     });
 
     return () => {
@@ -34,54 +42,89 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const stats = useMemo(() => [
-    { label: 'Mind Tokens', value: profile.tokens.toLocaleString('en-IN'), tint: palette.lime },
-    { label: 'Study Streak', value: `${profile.streakDays} days`, tint: palette.peach },
-    { label: 'Doubts Solved', value: String(profile.doubtsSolved), tint: palette.purpleSoft },
-  ], [profile.doubtsSolved, profile.streakDays, profile.tokens]);
-
   const handleStartToday = useCallback(() => {
-    showAlert({ type: 'success', title: 'Ready', message: 'Open Find, Forum, or Profile from the tabs to continue.' });
-  }, [showAlert]);
+    router.push('/(tabs)/forum');
+  }, [router]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        
+        {/* Welcome Hero */}
         <View style={styles.hero}>
-          <Text style={styles.kicker}>Mindcraft</Text>
-          <Text style={styles.title}>Peer tutoring that feels like a study circle.</Text>
-          <Text style={styles.subtitle}>Find mates, ask doubts, keep streaks alive, and earn tokens.</Text>
-          <TouchableOpacity onPress={handleStartToday} style={styles.heroButton} activeOpacity={0.82}>
-            <Text style={styles.heroButtonText}>{isLoading ? 'Syncing...' : 'Start today'}</Text>
-          </TouchableOpacity>
+          <Text style={styles.kicker}>Welcome Back, {profile.name.split(' ')[0]}!</Text>
+          <Text style={styles.title}>Ready to crush some concepts today?</Text>
+          
+          <View style={styles.heroPillContainer}>
+            <TouchableOpacity style={styles.heroPill} activeOpacity={0.8} onPress={() => showAlert({ type: 'success', title: 'Streak', message: `You are on a ${profile.streakDays} day streak!`})}>
+              <Text style={styles.heroPillIcon}>🔥</Text>
+              <Text style={styles.heroPillText}>{profile.streakDays} Day Streak</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.heroPill, styles.heroPillSecondary]} activeOpacity={0.8} onPress={() => showAlert({ type: 'success', title: 'Badges', message: `You have ${profile.badges.length} badges!`})}>
+              <Text style={styles.heroPillIcon}>🏆</Text>
+              <Text style={[styles.heroPillText, {color: palette.purple}]}>{profile.badges.length} Badges</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={styles.statsGrid}>
-          {stats.map((item) => (
-            <View key={item.label} style={[styles.statCard, { backgroundColor: item.tint }]}>
-              <Text style={styles.statValue}>{item.value}</Text>
-              <Text style={styles.statLabel}>{item.label}</Text>
-            </View>
-          ))}
-        </View>
-
+        {/* Top Recommended Mates */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Today’s Plan</Text>
-          <View style={styles.planCard}>
-            <View style={styles.planDot} />
-            <View style={styles.planTextWrap}>
-              <Text style={styles.planTitle}>Revise DSA base cases</Text>
-              <Text style={styles.planMeta}>25 min focus sprint with Rishav</Text>
-            </View>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Top Recommended Mates</Text>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/find')}>
+              <Text style={styles.viewAllText}>View All</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.planCard}>
-            <View style={[styles.planDot, { backgroundColor: palette.purple }]} />
-            <View style={styles.planTextWrap}>
-              <Text style={styles.planTitle}>Answer one forum doubt</Text>
-              <Text style={styles.planMeta}>Earn tokens by helping a peer</Text>
-            </View>
+          
+          {isLoading ? (
+            <ActivityIndicator size="small" color={palette.lime} />
+          ) : topMates.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.matesList}>
+              {topMates.map((mate) => (
+                <TouchableOpacity key={mate.id} style={styles.mateCard} activeOpacity={0.82} onPress={() => showAlert({ type: 'info', title: 'Match', message: mate.matchReason })}>
+                  <Image source={{ uri: mate.photoUrl }} style={styles.mateAvatar} contentFit="cover" />
+                  <Text style={styles.mateName} numberOfLines={1}>{mate.name}</Text>
+                  <Text style={styles.mateSkill} numberOfLines={1}>{mate.skill}</Text>
+                  <View style={styles.ratingBadge}>
+                    <Text style={styles.ratingText}>★ {4.8}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+             <Text style={styles.emptyText}>No matches found yet.</Text>
+          )}
+        </View>
+
+        {/* Trending Topics */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Trending Topics</Text>
+          </View>
+          
+          <View style={styles.trendingGrid}>
+            {trending.length > 0 ? trending.map((topic, i) => (
+              <TouchableOpacity key={topic.tag} style={styles.trendingPill} activeOpacity={0.8} onPress={() => router.push('/(tabs)/forum')}>
+                <Text style={styles.trendingTag}>{topic.tag.replace('#', '')}</Text>
+                <Text style={styles.trendingCount}>({topic.count})</Text>
+              </TouchableOpacity>
+            )) : (
+              ['DSA', 'WebDev', 'Math', 'Physics'].map((t) => (
+                <TouchableOpacity key={t} style={styles.trendingPill} activeOpacity={0.8} onPress={() => router.push('/(tabs)/forum')}>
+                  <Text style={styles.trendingTag}>{t}</Text>
+                  <Text style={styles.trendingCount}>(0)</Text>
+                </TouchableOpacity>
+              ))
+            )}
           </View>
         </View>
+
+        {/* Post Doubt CTA */}
+        <TouchableOpacity style={styles.ctaButton} onPress={handleStartToday} activeOpacity={0.82}>
+          <Text style={styles.ctaButtonText}>+ Post a Doubt</Text>
+        </TouchableOpacity>
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -95,99 +138,160 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 120,
-    gap: 20,
+    gap: 24,
   },
   hero: {
-    backgroundColor: palette.ink,
-    borderRadius: 32,
+    backgroundColor: palette.card,
+    borderRadius: 24,
     padding: 24,
-    minHeight: 260,
-    justifyContent: 'flex-end',
+    borderWidth: 1,
+    borderColor: palette.line,
   },
   kicker: {
-    color: palette.lime,
-    fontSize: 16,
+    color: palette.ink,
+    fontSize: 24,
     fontWeight: '900',
-    marginBottom: 14,
+    marginBottom: 8,
   },
   title: {
-    color: '#FFFFFF',
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: '900',
-  },
-  subtitle: {
-    color: '#D8D0E3',
+    color: palette.muted,
     fontSize: 16,
-    lineHeight: 22,
-    marginTop: 12,
+    fontWeight: '700',
+    marginBottom: 20,
   },
-  heroButton: {
-    alignSelf: 'flex-start',
-    marginTop: 20,
-    backgroundColor: palette.lime,
-    borderRadius: radii.pill,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  heroButtonText: {
-    color: palette.ink,
-    fontWeight: '900',
-    fontSize: 15,
-  },
-  statsGrid: {
+  heroPillContainer: {
+    flexDirection: 'row',
     gap: 12,
   },
-  statCard: {
-    borderRadius: radii.xl,
-    padding: 18,
+  heroPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFF4E6',
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radii.pill,
   },
-  statValue: {
+  heroPillSecondary: {
+    backgroundColor: palette.purpleSoft,
+    borderColor: '#E6DDF2',
+  },
+  heroPillIcon: {
+    fontSize: 16,
+  },
+  heroPillText: {
     color: palette.ink,
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  statLabel: {
-    color: palette.muted,
-    fontSize: 13,
     fontWeight: '800',
-    marginTop: 4,
+    fontSize: 14,
   },
   section: {
     gap: 12,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: 4,
+  },
   sectionTitle: {
     color: palette.ink,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '900',
   },
-  planCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
+  viewAllText: {
+    color: palette.limeDeep,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  matesList: {
+    gap: 12,
+    paddingRight: 20,
+  },
+  mateCard: {
+    width: 140,
     backgroundColor: palette.card,
     borderRadius: radii.xl,
     padding: 16,
     borderWidth: 1,
     borderColor: palette.line,
+    alignItems: 'center',
   },
-  planDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: palette.limeDeep,
+  mateAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: palette.purple,
   },
-  planTextWrap: {
-    flex: 1,
-  },
-  planTitle: {
+  mateName: {
     color: palette.ink,
     fontSize: 16,
     fontWeight: '900',
+    marginBottom: 4,
   },
-  planMeta: {
+  mateSkill: {
     color: palette.muted,
-    marginTop: 4,
     fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  ratingBadge: {
+    backgroundColor: palette.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+  },
+  ratingText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  emptyText: {
+    color: palette.muted,
+    fontStyle: 'italic',
+    fontSize: 14,
+  },
+  trendingGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  trendingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: palette.card,
+    borderWidth: 1,
+    borderColor: palette.line,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: radii.pill,
+  },
+  trendingTag: {
+    color: palette.ink,
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  trendingCount: {
+    color: palette.muted,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  ctaButton: {
+    backgroundColor: palette.purpleSoft,
+    borderWidth: 1,
+    borderColor: '#E6DDF2',
+    borderRadius: radii.xl,
+    paddingVertical: 18,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  ctaButtonText: {
+    color: palette.purple,
+    fontWeight: '900',
+    fontSize: 16,
   },
 });

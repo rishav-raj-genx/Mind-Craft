@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Home, Search, MessageSquarePlus, User } from 'lucide-react-native';
 
 const colors = {
   lime: '#D9FF7A',
@@ -35,36 +35,28 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18, fontWeight: '900' }}>H</Text>
-          ),
+          tabBarIcon: ({ color }) => <Home color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="find"
         options={{
           title: 'Find',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18, fontWeight: '900' }}>F</Text>
-          ),
+          tabBarIcon: ({ color }) => <Search color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="forum"
         options={{
           title: 'Forum',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18, fontWeight: '900' }}>Q</Text>
-          ),
+          tabBarIcon: ({ color }) => <MessageSquarePlus color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18, fontWeight: '900' }}>P</Text>
-          ),
+          tabBarIcon: ({ color }) => <User color={color} size={24} />,
         }}
       />
     </Tabs>

@@ -8,6 +8,8 @@ import 'react-native-reanimated';
 import { GlobalAlertProvider } from '@/components/GlobalAlertProvider';
 import { useColorScheme } from '@/components/useColorScheme';
 import { palette, radii } from '@/constants/theme';
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { useRouter, useSegments } from 'expo-router';
 
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
   return (
@@ -55,17 +57,39 @@ export default function RootLayout() {
     return null;
   }
 
-  return <RootLayoutNav />;
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
+  );
 }
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const { currentUser, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === '(auth)';
+    
+    if (!currentUser && !inAuthGroup) {
+      // Redirect to the login page.
+      router.replace('/(auth)/login');
+    } else if (currentUser && inAuthGroup) {
+      // Redirect away from the login page.
+      router.replace('/(tabs)');
+    }
+  }, [currentUser, loading, segments, router]);
 
   return (
     <GlobalAlertProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         </Stack>
       </ThemeProvider>

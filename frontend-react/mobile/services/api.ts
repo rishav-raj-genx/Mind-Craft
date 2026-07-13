@@ -13,8 +13,16 @@ export const api = axios.create({
   timeout: 60000, // 60s — Render free-tier cold starts can take ~50s
 });
 
+import { auth } from '../config/firebase';
+
 api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem(TOKEN_KEY);
+  let token = null;
+  if (auth.currentUser) {
+    token = await auth.currentUser.getIdToken();
+  } else {
+    token = await AsyncStorage.getItem(TOKEN_KEY);
+  }
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

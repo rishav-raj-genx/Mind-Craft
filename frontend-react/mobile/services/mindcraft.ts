@@ -93,8 +93,9 @@ export async function fetchMates(): Promise<Mate[]> {
   });
 }
 
-export async function fetchDoubts(): Promise<Doubt[]> {
-  const response = await api.get('/doubt');
+export async function fetchDoubts(tag?: string): Promise<Doubt[]> {
+  const url = tag ? `/doubt?tag=${encodeURIComponent(tag)}` : '/doubt';
+  const response = await api.get(url);
   const rows = response.data?.data || [];
 
   return rows.map((doubt: any) => ({
@@ -105,6 +106,15 @@ export async function fetchDoubts(): Promise<Doubt[]> {
     hint: doubt.aiHint || 'AI Assist is waiting for the Sarvam study hint.',
     images: Array.isArray(doubt.images) ? doubt.images : [],
   }));
+}
+
+export async function fetchTrendingTopics(): Promise<{ tag: string, count: number }[]> {
+  try {
+    const response = await api.get('/doubt/trending');
+    return response.data?.data || [];
+  } catch {
+    return [];
+  }
 }
 
 export type NewDoubtImage = {

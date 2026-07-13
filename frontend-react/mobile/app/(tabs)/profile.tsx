@@ -1,12 +1,14 @@
-import { Image } from 'expo-image';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, InteractionManager, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 
 import { useGlobalAlert } from '@/components/GlobalAlertProvider';
 import { LOW_MEMORY_LIST_PROPS } from '@/constants/list';
 import { palette, radii } from '@/constants/theme';
 import { fallbackProfile, fetchProfileSummary, type ProfileSummary } from '@/services/mindcraft';
+import { useAuth } from '@/context/AuthContext';
 
 const BadgeCard = memo(function BadgeCard({ badge, onPress }: { badge: string; onPress: (badge: string) => void }) {
   return (
@@ -19,7 +21,10 @@ const BadgeCard = memo(function BadgeCard({ badge, onPress }: { badge: string; o
 
 export default function ProfileScreen() {
   const { showAlert } = useGlobalAlert();
+  const { logout } = useAuth();
+  const router = useRouter();
   const [profile, setProfile] = useState<ProfileSummary>(fallbackProfile);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -29,9 +34,10 @@ export default function ProfileScreen() {
           if (isMounted) setProfile(summary);
         })
         .catch(() => {
-          if (isMounted) {
-            setProfile(fallbackProfile);
-          }
+          if (isMounted) setProfile(fallbackProfile);
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
         });
     });
 
@@ -40,6 +46,15 @@ export default function ProfileScreen() {
       task.cancel();
     };
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.replace('/(auth)/login');
+    } catch (e) {
+      showAlert({ type: 'error', title: 'Logout Failed', message: 'Could not log out.' });
+    }
+  };
 
   const badges = useMemo(() => profile.badges, [profile.badges]);
   const keyExtractor = useCallback((badge: string) => badge, []);
@@ -52,16 +67,29 @@ export default function ProfileScreen() {
 
   const header = useMemo(() => (
     <>
+      <View style={styles.headerTop}>
+        <Text style={styles.headerTitle}>Profile</Text>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutText}>Log Out</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.profileCard}>
-        <Image
-          source={{ uri: profile.photoUrl }}
-          style={styles.avatar}
-          cachePolicy="memory-disk"
-          contentFit="cover"
-          transition={120}
-        />
-        <Text style={styles.name}>{profile.name}</Text>
-        <Text style={styles.meta}>{profile.meta}</Text>
+        {isLoading ? (
+          <ActivityIndicator size="large" color={palette.purple} style={{ marginVertical: 32 }} />
+        ) : (
+          <>
+            <Image
+              source={{ uri: profile.photoUrl }}
+              style={styles.avatar}
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              transition={120}
+            />
+            <Text style={styles.name}>{profile.name}</Text>
+            <Text style={styles.meta}>{profile.meta}</Text>
+          </>
+        )}
       </View>
 
       <View style={styles.walletRow}>
@@ -79,7 +107,7 @@ export default function ProfileScreen() {
         <Text style={styles.sectionTitle}>Badges</Text>
       </View>
     </>
-  ), [profile]);
+  ), [profile, isLoading]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -105,6 +133,28 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 120,
     gap: 18,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: palette.ink,
+  },
+  logoutButton: {
+    backgroundColor: '#FFE9E2',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+  },
+  logoutText: {
+    color: '#E44D35',
+    fontWeight: '800',
+    fontSize: 14,
   },
   profileCard: {
     alignItems: 'center',
