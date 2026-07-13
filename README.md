@@ -12,7 +12,7 @@
 
 Mindcraft gamifies peer learning by connecting students based on what they want to learn and what they can teach. It transforms isolated academic struggles into a collaborative, token-driven economy where students earn **Mind Tokens**, unlock badges, maintain streaks, and ask doubts in their native languages using **Sarvam Voice AI**. 
 
-Under the hood, Mindcraft is a production-grade monorepo featuring a **React (Vite)** frontend, an **Expo React Native** mobile app, and a robust **Node.js/Express** backend powered entirely by **Neo4j AuraDB**.
+Under the hood, Mindcraft is a production-grade repository featuring a **React (Vite)** web frontend and a robust **Node.js/Express** backend powered entirely by **Neo4j AuraDB**.
 
 ---
 
@@ -44,7 +44,6 @@ Mindcraft was engineered from day one to natively leverage the technologies requ
 ## 🛠 Tech Stack
 
 - **Frontend:** React (Vite), Tailwind CSS, Framer Motion, Context API
-- **Mobile:** React Native (Expo)
 - **Backend:** Node.js, Express.js
 - **Database:** Neo4j AuraDB (Primary), Firebase Auth (Authentication Identity)
 - **AI / NLP:** Sarvam AI (Speech-to-Text, LLM Completions)
@@ -65,7 +64,6 @@ Mind-Craft/
 ├── frontend-react/       # Vite React Web App
 │   ├── src/context/      # AuthContext, NotificationContext (WebSockets)
 │   ├── src/pages/        # Dashboard, Chat, Profile, Doubt Forum
-│   └── mobile/           # Expo Native App codebase
 ├── render.yaml           # Blueprint for seamless Render API deployment
 └── render.free.yaml      # Fallback blueprint for Render Free Tier
 ```
@@ -117,11 +115,6 @@ npm run dev
 cd frontend-react
 npm install
 npm run dev
-
-# Terminal 3: Mobile App (Optional)
-cd frontend-react/mobile
-npm install
-npm start
 ```
 
 ---
