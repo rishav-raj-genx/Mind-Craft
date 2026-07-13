@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { gamificationService } from '../services/gamificationService';
 import {
   ArrowLeft, Flame, Code, Moon, Bug, BookOpen, GraduationCap,
-  Trophy, Star, Users, Loader2, ChevronDown, ChevronUp, Clock,
+  Trophy, Star, Users, Loader2, ChevronDown, ChevronUp, Clock, Coins,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -18,6 +18,7 @@ const BADGE_ICONS = {
   mentor: GraduationCap,
   top_rated: Star,
   social_butterfly: Users,
+  wealthy_mind: Coins,
 };
 
 // ─── Badge unlock shimmer overlay ─────────────────────────────────────────────

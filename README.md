@@ -10,7 +10,7 @@
 
 ## 🚀 Overview
 
-Mindcraft gamifies peer learning by connecting students based on what they want to learn and what they can teach. It transforms isolated academic struggles into a collaborative learning platform, unlock badges, maintain streaks, and ask doubts in their native languages using **Sarvam Voice AI**. 
+Mindcraft gamifies peer learning by connecting students based on what they want to learn and what they can teach. It transforms isolated academic struggles into a collaborative, token-driven economy where students earn **Mind Tokens**, unlock badges, maintain streaks, and ask doubts in their native languages using **Sarvam Voice AI**. 
 
 Under the hood, Mindcraft is a production-grade monorepo featuring a **React (Vite)** frontend, an **Expo React Native** mobile app, and a robust **Node.js/Express** backend powered entirely by **Neo4j AuraDB**.
 
@@ -22,9 +22,9 @@ Mindcraft was engineered from day one to natively leverage the technologies requ
 
 ### 1. Neo4j Track (Primary Database)
 **AuraDB is not just an optional add-on; it is the core nervous system of Mindcraft.**
-- **Graph Modeling:** Users, Skills, Departments, Matches, Chat Threads, Forums, and Badges are all mapped as nodes and relationships.
+- **Graph Modeling:** Users, Skills, Departments, Matches, Chat Threads, Forums, and Transactions are all mapped as nodes and relationships.
 - **Why Graph?** Finding a peer tutor isn't a simple relational query. Mindcraft uses Neo4j to compute complex compatibility scores based on graph proximity (Shared Skills, Same College, Teaching/Learning intersections).
-- **Core Role:** AuraDB handles *all* data persistence, chat logs, streak tracking, and the gamification engine.
+- **Core Role:** AuraDB handles *all* data persistence, chat logs, streak tracking, and the Mind Token economy.
 
 ### 2. Sarvam Track (Core AI Experience)
 **Multilingual Voice AI and Automated Hint Generation.**
@@ -37,7 +37,7 @@ Mindcraft was engineered from day one to natively leverage the technologies requ
 - **The Workflow:** We utilize `@renderinc/sdk/workflows` to orchestrate a distributed pipeline (`src/workflows/weeklyAudit.js`). 
   - Stage 1: Fetches all active users.
   - Stage 2: Parallel execution (`evaluateUserWeeklyStreak`) processing 7-day login histories via Neo4j.
-  - Stage 3: Batch update (`awardWeeklyWarriors`) minting new badges idempotently.
+  - Stage 3: Batch update (`awardWeeklyWarriors`) minting new badges and bonus tokens idempotently.
 
 ---
 

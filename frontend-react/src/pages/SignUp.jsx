@@ -539,11 +539,16 @@ const SignUp = () => {
                   <X size={14} className="cursor-pointer" onClick={() => removeTeach(t)} />
                 </div>
               ))}
-              <input 
-                value={teachInput} onChange={e => setTeachInput(e.target.value)} onKeyDown={handleAddTeach}
-                className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[100px] py-1 focus:ring-0" 
-                placeholder="+ Add topic" 
-              />
+              <div className="flex flex-1 items-center gap-2 min-w-[120px]">
+                <input 
+                  value={teachInput} onChange={e => setTeachInput(e.target.value)} onKeyDown={handleAddTeach}
+                  className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[60px] py-1 focus:ring-0" 
+                  placeholder="Type topic..." 
+                />
+                {teachInput.trim() && (
+                  <button type="button" onClick={() => handleAddTeach({ key: 'Enter', preventDefault: () => {} })} className="text-xs bg-surface-raised text-on-surface px-3 py-1 rounded-full font-label-md border border-outline-variant whitespace-nowrap hover:bg-surface-variant transition-colors">Add</button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -557,11 +562,16 @@ const SignUp = () => {
                   <X size={14} className="cursor-pointer" onClick={() => removeLearn(l)} />
                 </div>
               ))}
-              <input 
-                value={learnInput} onChange={e => setLearnInput(e.target.value)} onKeyDown={handleAddLearn}
-                className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[100px] py-1 focus:ring-0" 
-                placeholder="+ Add topic" 
-              />
+              <div className="flex flex-1 items-center gap-2 min-w-[120px]">
+                <input 
+                  value={learnInput} onChange={e => setLearnInput(e.target.value)} onKeyDown={handleAddLearn}
+                  className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[60px] py-1 focus:ring-0" 
+                  placeholder="Type topic..." 
+                />
+                {learnInput.trim() && (
+                  <button type="button" onClick={() => handleAddLearn({ key: 'Enter', preventDefault: () => {} })} className="text-xs bg-secondary-container text-secondary-fixed px-3 py-1 rounded-full font-label-md border border-secondary-container whitespace-nowrap hover:bg-secondary-container/80 transition-colors">Add</button>
+                )}
+              </div>
             </div>
           </div>
 

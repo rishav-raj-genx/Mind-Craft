@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Bell, Grid, Map, MessageSquare, User, MessageCircle } from 'lucide-react';
+import { Bell, Grid, Map, MessageSquare, User, MessageCircle, Trophy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import MindcraftLogo from './MindcraftLogo';
@@ -56,6 +56,13 @@ const Layout = () => {
             })}
           </nav>
           <div className="flex items-center gap-2 pointer-events-auto">
+            <button
+              onClick={() => navigate('/leaderboard')}
+              className="relative w-10 h-10 rounded-full bg-white dark:bg-surface-container flex items-center justify-center text-yellow-500 hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95 duration-200 shadow-sm dark:shadow-none"
+              aria-label="Leaderboard"
+            >
+              <Trophy size={20} />
+            </button>
             <button
               onClick={() => {
                 clearUnreadNotifications();

@@ -13,6 +13,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppContext } from '../context/AppContext';
 import { getAvatarUrl } from '../utils/avatar';
+import MindTokenInfoModal from '../components/MindTokenInfoModal';
 
 const GithubIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3-.3 6-1.5 6-6.5a5.5 5.5 0 0 0-1.5-3.8 5.5 5.5 0 0 0-.2-3.8s-1.2-.4-3.9 1.4a13.3 13.3 0 0 0-7 0C6.2 1.6 5 2 5 2a5.5 5.5 0 0 0-.2 3.8A5.5 5.5 0 0 0 3 9.5c0 5 3 6.2 6 6.5a4.8 4.8 0 0 0-1 3.2v4"></path><path d="M9 18c-4.5 1.5-5-2.5-7-3"></path></svg>
@@ -278,7 +279,12 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
                   {t} <X size={12} className="cursor-pointer" onClick={() => setTeaches(teaches.filter(x => x !== t))} />
                 </span>
               ))}
-              <input value={teachInput} onChange={e => setTeachInput(e.target.value)} onKeyDown={addTeach} className="bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1 min-w-[80px] py-1 text-sm" placeholder="+ Add topic" />
+              <div className="flex flex-1 items-center gap-2 min-w-[120px]">
+                <input value={teachInput} onChange={e => setTeachInput(e.target.value)} onKeyDown={addTeach} className="bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1 min-w-[60px] py-1 text-sm" placeholder="Type topic..." />
+                {teachInput.trim() && (
+                  <button type="button" onClick={() => addTeach({ key: 'Enter', preventDefault: () => {} })} className="text-xs bg-[#7C3AED] text-white px-3 py-1 rounded-full font-semibold whitespace-nowrap hover:bg-[#6D28D9] transition-colors">Add</button>
+                )}
+              </div>
             </div>
           </div>
           {/* Learns */}
@@ -290,7 +296,12 @@ const EditProfileModal = ({ user, skillGraph, onClose, onSave, uploadingPhoto, o
                   {l} <X size={12} className="cursor-pointer" onClick={() => setLearns(learns.filter(x => x !== l))} />
                 </span>
               ))}
-              <input value={learnInput} onChange={e => setLearnInput(e.target.value)} onKeyDown={addLearn} className="bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1 min-w-[80px] py-1 text-sm" placeholder="+ Add topic" />
+              <div className="flex flex-1 items-center gap-2 min-w-[120px]">
+                <input value={learnInput} onChange={e => setLearnInput(e.target.value)} onKeyDown={addLearn} className="bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1 min-w-[60px] py-1 text-sm" placeholder="Type topic..." />
+                {learnInput.trim() && (
+                  <button type="button" onClick={() => addLearn({ key: 'Enter', preventDefault: () => {} })} className="text-xs bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 px-3 py-1 rounded-full font-semibold border border-purple-200 dark:border-purple-700 whitespace-nowrap hover:bg-purple-200 dark:hover:bg-purple-900/70 transition-colors">Add</button>
+                )}
+              </div>
             </div>
           </div>
           {/* Social Handles */}
@@ -387,6 +398,7 @@ const Profile = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [topicsModal, setTopicsModal] = useState(null); // { title, topics, color }
   const [showLinksModal, setShowLinksModal] = useState(false);
+  const [showTokenModal, setShowTokenModal] = useState(false);
   const photoInputRef = useRef(null);
   const graphScrollRef = useRef(null);
   const isOwner = currentUser?.uid === uid;
@@ -713,65 +725,76 @@ const Profile = () => {
       {/* ── Profile Header Card (Insta-style) ────────────────────── */}
       <section className="bg-white dark:bg-[#1C1C2E] border border-gray-100 dark:border-transparent rounded-[32px] p-6 relative shadow-sm dark:shadow-lg transition-colors">
         {/* Top row: Avatar + Info */}
-        <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-4">
-          {/* Avatar */}
-          <div className="relative shrink-0">
-            <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)] relative z-10">
-              <img
-                className="w-full h-full object-cover"
-                src={(user.photoUrl && !user.photoUrl.includes('avatar.iran.liara.run')) ? user.photoUrl : getAvatarUrl(user.name, user.gender)}
-                alt={user.name}
-              />
-            </div>
-            {isOwner && (
-              <div className="absolute -bottom-1 -right-1 flex gap-1 z-20">
-                <button
-                  onClick={() => photoInputRef.current?.click()}
-                  disabled={uploadingPhoto}
-                  className="w-7 h-7 bg-[#7C3AED] rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors"
-                >
-                  {uploadingPhoto ? <Loader2 size={12} className="text-white animate-spin" /> : <Edit2 size={12} className="text-white" />}
-                </button>
-                {user.photoUrl && user.photoUrl.length > 0 && (
+        <div className="flex justify-between items-start gap-4">
+          <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-4 flex-1">
+            {/* Avatar */}
+            <div className="relative shrink-0">
+              <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-[#DCFD8B] shadow-[0_0_20px_rgba(220,253,139,0.3)] relative z-10">
+                <img
+                  className="w-full h-full object-cover"
+                  src={(user.photoUrl && !user.photoUrl.includes('avatar.iran.liara.run')) ? user.photoUrl : getAvatarUrl(user.name, user.gender)}
+                  alt={user.name}
+                />
+              </div>
+              {isOwner && (
+                <div className="absolute -bottom-1 -right-1 flex gap-1 z-20">
                   <button
-                    onClick={handleRemovePhoto}
+                    onClick={() => photoInputRef.current?.click()}
                     disabled={uploadingPhoto}
-                    className="w-7 h-7 bg-red-500 rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-red-600 transition-colors"
-                    title="Remove profile photo"
+                    className="w-7 h-7 bg-[#7C3AED] rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-[#6D28D9] transition-colors"
                   >
-                    <Trash2 size={12} className="text-white" />
+                    {uploadingPhoto ? <Loader2 size={12} className="text-white animate-spin" /> : <Edit2 size={12} className="text-white" />}
+                  </button>
+                  {user.photoUrl && user.photoUrl.length > 0 && (
+                    <button
+                      onClick={handleRemovePhoto}
+                      disabled={uploadingPhoto}
+                      className="w-7 h-7 bg-red-500 rounded-full flex items-center justify-center border-2 border-white dark:border-[#1C1C2E] shadow-md hover:bg-red-600 transition-colors"
+                      title="Remove profile photo"
+                    >
+                      <Trash2 size={12} className="text-white" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* User Info (Right of avatar) */}
+            <div className="min-w-0 text-left">
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">{user.name}</h1>
+                {isOwner && (
+                  <button
+                    onClick={() => setShowEditModal(true)}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
+                    title="Edit Profile"
+                  >
+                    <Edit2 size={14} />
                   </button>
                 )}
               </div>
-            )}
+              <p className="mt-1 flex items-center gap-1.5 text-[#7C3AED] font-semibold text-sm leading-snug min-w-0">
+                <GraduationCap size={14} className="shrink-0" />
+                <span className="truncate">{user.college || 'College not added'}</span>
+              </p>
+              <p className="mt-1 flex items-center gap-1.5 text-gray-500 dark:text-gray-400 text-xs font-medium leading-snug min-w-0">
+                <MapPin size={13} className="shrink-0" />
+                <span className="truncate">{user.collegeLocation || 'Location not added'}</span>
+              </p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mt-1 leading-snug truncate">
+                {[user.department, user.year ? `Year ${user.year}` : ''].filter(Boolean).join(' • ')}
+              </p>
+            </div>
           </div>
 
-          {/* User Info (Right of avatar) */}
-          <div className="min-w-0 text-left">
-            <div className="flex items-center gap-2 min-w-0">
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">{user.name}</h1>
-              {isOwner && (
-                <button
-                  onClick={() => setShowEditModal(true)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
-                  title="Edit Profile"
-                >
-                  <Edit2 size={14} />
-                </button>
-              )}
-            </div>
-            <p className="mt-1 flex items-center gap-1.5 text-[#7C3AED] font-semibold text-sm leading-snug min-w-0">
-              <GraduationCap size={14} className="shrink-0" />
-              <span className="truncate">{user.college || 'College not added'}</span>
-            </p>
-            <p className="mt-1 flex items-center gap-1.5 text-gray-500 dark:text-gray-400 text-xs font-medium leading-snug min-w-0">
-              <MapPin size={13} className="shrink-0" />
-              <span className="truncate">{user.collegeLocation || 'Location not added'}</span>
-            </p>
-            <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mt-1 leading-snug truncate">
-              {[user.department, user.year ? `Year ${user.year}` : ''].filter(Boolean).join(' • ')}
-            </p>
-          </div>
+          {/* Tokens Counter */}
+          <button 
+            onClick={() => setShowTokenModal(true)}
+            className="shrink-0 flex items-center bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-3 py-1.5 rounded-full font-bold gap-1.5 shadow-sm border border-yellow-200 dark:border-yellow-900/50 hover:bg-yellow-200 dark:hover:bg-yellow-800/40 transition-colors active:scale-95 cursor-pointer"
+          >
+            <span className="text-lg leading-none">🪙</span>
+            <span>{user.mind_tokens || 0}</span>
+          </button>
         </div>
 
         {/* Action Buttons */}
@@ -1015,6 +1038,10 @@ const Profile = () => {
           onClose={() => setTopicsModal(null)}
         />
       )}
+
+      <AnimatePresence>
+        <MindTokenInfoModal isOpen={showTokenModal} onClose={() => setShowTokenModal(false)} tokenCount={user.mind_tokens || 0} />
+      </AnimatePresence>
       </main>
     </div>
   );

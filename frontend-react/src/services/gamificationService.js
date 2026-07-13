@@ -29,6 +29,11 @@ export const gamificationService = {
     return response.data;
   },
 
+  getLeaderboard: async () => {
+    const response = await api.get('/leaderboard');
+    return response.data;
+  },
+
   awardForumTokens: async (questionId = '') => {
     const response = await api.post('/tokens/award/forum', { questionId });
     return response.data;
