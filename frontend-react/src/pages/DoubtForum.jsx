@@ -4,8 +4,22 @@ import imageCompression from 'browser-image-compression';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { doubtService } from '../services/doubtService';
-import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { voiceService } from '../services/voiceService';
+import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight, Mic, Square } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
+
+const RECORDER_MIME_OPTIONS = [
+  { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
+  { mimeType: 'audio/webm', extension: 'webm' },
+  { mimeType: 'audio/mp4', extension: 'm4a' },
+  { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' },
+  { mimeType: '', extension: 'webm' },
+];
+
+const getSupportedRecorderFormat = () => {
+  if (typeof MediaRecorder === 'undefined') return null;
+  return RECORDER_MIME_OPTIONS.find(({ mimeType }) => !mimeType || MediaRecorder.isTypeSupported(mimeType));
+};
 
 const TAGS = ['#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
 const FILTERS = ['All Doubts', 'My Doubts', '#DSA', '#Math', '#Physics', '#Economics', '#Web Dev', '#Python', '#ML', '#Other'];
@@ -122,6 +136,14 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
   const [images, setImages] = useState([]);
   const [compressingImages, setCompressingImages] = useState(false);
   const [error, setError] = useState('');
+
+  const [recording, setRecording] = useState(false);
+  const [processingVoice, setProcessingVoice] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const recorderFormatRef = useRef({ mimeType: 'audio/webm', extension: 'webm' });
+
   const titleRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -157,6 +179,80 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
       setError('Could not compress this image. Please try another screenshot.');
     } finally {
       setCompressingImages(false);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      setError('');
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        setError('Voice typing is not supported in this browser. Please use Chrome, Edge, or Safari 14.1+.');
+        return;
+      }
+      const recorderFormat = getSupportedRecorderFormat();
+      if (!recorderFormat) {
+        setError('This browser cannot record a supported audio format. Please try Chrome or Edge.');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const options = recorderFormat.mimeType ? { mimeType: recorderFormat.mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      streamRef.current = stream;
+      recorderFormatRef.current = {
+        mimeType: mediaRecorder.mimeType || recorderFormat.mimeType || 'audio/webm',
+        extension: recorderFormat.extension,
+      };
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      mediaRecorder.onstop = async () => {
+        const { mimeType, extension } = recorderFormatRef.current;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        await handleVoiceToText(audioBlob, `doubt-voice.${extension}`);
+        stream.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      };
+
+      mediaRecorder.start();
+      setRecording(true);
+    } catch (err) {
+      console.error('Microphone access denied or error:', err);
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+        setError('Microphone access is required for voice typing. Please allow access in your browser settings.');
+      } else {
+        setError('Microphone access failed: ' + err.message);
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+    }
+  };
+
+  const handleVoiceToText = async (audioBlob, fileName) => {
+    try {
+      setProcessingVoice(true);
+      const response = await voiceService.search(audioBlob, 'en-IN', fileName);
+      const resultData = response.data || response;
+      if (resultData.transcript) {
+        setContent(prev => {
+          const newContent = prev ? prev + ' ' + resultData.transcript : resultData.transcript;
+          return newContent.slice(0, 1000);
+        });
+      }
+    } catch (err) {
+      console.error('Voice to text failed:', err);
+      setError(err.response?.data?.error || 'Voice to text failed. Please try typing.');
+    } finally {
+      setProcessingVoice(false);
     }
   };
 
@@ -267,9 +363,29 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
 
           {/* Content */}
           <div>
-            <label htmlFor="doubt-content" className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              Describe your doubt <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label htmlFor="doubt-content" className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Describe your doubt <span className="text-red-500">*</span>
+              </label>
+              <button
+                type="button"
+                onClick={recording ? stopRecording : startRecording}
+                disabled={processingVoice || loading}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors border ${
+                  recording
+                    ? 'bg-red-50 text-red-600 border-red-200 animate-pulse'
+                    : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700'
+                } disabled:opacity-50`}
+              >
+                {processingVoice ? (
+                  <><Loader2 size={12} className="animate-spin" /> Processing...</>
+                ) : recording ? (
+                  <><Square size={12} fill="currentColor" /> Stop</>
+                ) : (
+                  <><Mic size={12} /> Speak</>
+                )}
+              </button>
+            </div>
             <textarea
               id="doubt-content"
               value={content}
