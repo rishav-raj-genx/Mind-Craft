@@ -115,12 +115,13 @@ class LoginActivity : AppCompatActivity() {
                 firebaseAuthWithGoogle(idToken)
             } else {
                 binding.progressBar.hide()
+                Log.e(Constants.LOG_TAG, "Google Sign-In returned null idToken")
                 Toast.makeText(this, getString(R.string.login_failed), Toast.LENGTH_SHORT).show()
             }
         } catch (e: ApiException) {
-            Log.d(Constants.LOG_TAG, "Google sign-in failed: ${e.message}")
+            Log.e(Constants.LOG_TAG, "Google sign-in failed (status code ${e.statusCode}): ${e.message}", e)
             binding.progressBar.hide()
-            Toast.makeText(this, getString(R.string.login_failed), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "${getString(R.string.login_failed)} (${e.statusCode})", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -137,7 +138,8 @@ class LoginActivity : AppCompatActivity() {
                     authViewModel.checkUserExists(uid)
                 } else {
                     binding.progressBar.hide()
-                    Toast.makeText(this, getString(R.string.login_failed), Toast.LENGTH_SHORT).show()
+                    Log.e(Constants.LOG_TAG, "Firebase auth with credential failed: ${task.exception?.message}", task.exception)
+                    Toast.makeText(this, task.exception?.localizedMessage ?: getString(R.string.login_failed), Toast.LENGTH_SHORT).show()
                 }
             }
     }

@@ -286,8 +286,15 @@ const SignUp = () => {
       const result = await loginWithGoogle();
       await userService.register(buildUserData(result.user));
       navigate('/');
-    } catch {
-      setError('Google signup is restricted for unverified testers. Please create an account with email and password.');
+    } catch (err) {
+      console.error('Google signup error:', err);
+      if (err.code === 'auth/popup-closed-by-user') {
+        setError('Sign-up window was closed before completing.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('Current domain is not authorized in Firebase Console (Authentication > Settings > Authorized domains).');
+      } else {
+        setError(err.message || 'Google signup failed. Please try email/password.');
+      }
     } finally {
       setSubmitting('');
     }

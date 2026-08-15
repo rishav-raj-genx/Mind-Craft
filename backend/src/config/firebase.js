@@ -36,9 +36,10 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
 
 // ── Initialize the Admin app ──────────────────────────────────────────
 if (serviceAccount) {
-  const projectId = serviceAccount.project_id || 'mind-craft-5191e';
+  const projectId = serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID || 'mind-craft-5191e';
   const appConfig = {
     credential: admin.credential.cert(serviceAccount),
+    projectId,
   };
 
   admin.initializeApp(appConfig);
@@ -46,10 +47,11 @@ if (serviceAccount) {
 } else {
   // Initialize without credentials so the app can still start
   // (useful for development when key is not yet set up)
+  const defaultProjectId = process.env.FIREBASE_PROJECT_ID || 'mind-craft-5191e';
   admin.initializeApp({
-    projectId: 'mind-craft-5191e',
+    projectId: defaultProjectId,
   });
-  console.warn('⚠️  Firebase initialized in limited mode (no service account)');
+  console.warn(`⚠️  Firebase initialized in limited mode (project: ${defaultProjectId})`);
 }
 
 // ── Export shared instances ───────────────────────────────────────────

@@ -6,8 +6,8 @@
     <string name="tagline">Craft your mind, one peer at a time. 🚀</string>
     <string name="app_description">Only for verified Indian educational institution members</string>
 
-    <!-- Google Sign-In (Placeholder - replace with your actual web client ID from Firebase console) -->
-    <string name="default_web_client_id">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+    <!-- Google Sign-In Web Client ID from google-services.json -->
+    <string name="default_web_client_id">928966906153-4u9o8r99ggckdsjl1k57q32ccejaalt7.apps.googleusercontent.com</string>
 
     <!-- Login Screen -->
     <string name="sign_in_with_google">Sign in with Google</string>

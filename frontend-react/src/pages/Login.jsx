@@ -34,6 +34,7 @@ const Login = () => {
 
   const handleGoogleLogin = async () => {
     try {
+      setError('');
       setLoading('google');
       const cred = await loginWithGoogle();
       
@@ -41,15 +42,23 @@ const Login = () => {
         await userService.getFullProfile(cred.user.uid);
         navigate('/');
       } catch (err) {
-        await logout();
         if (err.response?.status === 404) {
-          setError('Account not found. Please sign up instead.');
+          // Account exists in Firebase but needs profile setup
+          navigate('/signup');
         } else {
-          setError('Failed to fetch profile. Please try again.');
+          await logout();
+          setError('Failed to fetch profile: ' + (err.response?.data?.error || err.message));
         }
       }
-    } catch {
-      setError('Google login is restricted for unverified testers. Please use email and password below.');
+    } catch (err) {
+      console.error('Google login error:', err);
+      if (err.code === 'auth/popup-closed-by-user') {
+        setError('Sign-in window was closed before completing.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('Current domain is not authorized in Firebase Console (Authentication > Settings > Authorized domains).');
+      } else {
+        setError(err.message || 'Google sign-in failed.');
+      }
     } finally {
       setLoading('');
     }
@@ -66,15 +75,20 @@ const Login = () => {
         await userService.getFullProfile(cred.user.uid);
         navigate('/');
       } catch (err) {
-        await logout();
         if (err.response?.status === 404) {
-          setError('Account not found. Please sign up instead.');
+          navigate('/signup');
         } else {
-          setError('Failed to fetch profile. Please try again.');
+          await logout();
+          setError('Failed to fetch profile: ' + (err.response?.data?.error || err.message));
         }
       }
     } catch (err) {
-      setError('Failed to log in: ' + err.message);
+      console.error('Email login error:', err);
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        setError('Invalid email or password. Please check your credentials or sign up.');
+      } else {
+        setError('Failed to log in: ' + err.message);
+      }
     } finally {
       setLoading('');
     }
