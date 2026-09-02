@@ -1,7 +1,7 @@
 const express  = require('express');
 const { body } = require('express-validator');
 const router   = express.Router();
-const { verifyFirebaseToken }   = require('../middleware/auth');
+const { requireAuth }   = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { completeSession, cancelSession } = require('../services/sessionRouter');
 const { awardSessionComplete }  = require('../services/tokenEconomy');

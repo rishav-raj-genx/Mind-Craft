@@ -2,14 +2,14 @@ const express = require('express');
 const { body } = require('express-validator');
 const router  = express.Router();
 
-const { verifyFirebaseToken } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { getDriver } = require('../config/neo4j');
 const { v4: uuidv4 } = require('uuid');
 const { getPagination } = require('../utils/pagination');
 const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
 
-router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
+router.get('/:matchId/history', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -45,7 +45,7 @@ router.get('/:matchId/history', verifyFirebaseToken, async (req, res, next) => {
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.post('/:matchId/send', verifyFirebaseToken, [body('text').trim().notEmpty()], async (req, res, next) => {
+router.post('/:matchId/send', requireAuth, [body('text').trim().notEmpty()], async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -109,7 +109,7 @@ router.post('/:matchId/send', verifyFirebaseToken, [body('text').trim().notEmpty
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.patch('/:matchId/read', verifyFirebaseToken, async (req, res, next) => {
+router.patch('/:matchId/read', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -134,7 +134,7 @@ router.patch('/:matchId/read', verifyFirebaseToken, async (req, res, next) => {
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.patch('/:matchId/message/:messageId', verifyFirebaseToken, [body('text').trim().notEmpty()], async (req, res, next) => {
+router.patch('/:matchId/message/:messageId', requireAuth, [body('text').trim().notEmpty()], async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -161,7 +161,7 @@ router.patch('/:matchId/message/:messageId', verifyFirebaseToken, [body('text').
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.delete('/:matchId/message/:messageId', verifyFirebaseToken, async (req, res, next) => {
+router.delete('/:matchId/message/:messageId', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -174,7 +174,7 @@ router.delete('/:matchId/message/:messageId', verifyFirebaseToken, async (req, r
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.get('/threads/:uid', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -203,7 +203,7 @@ router.get('/threads/:uid', verifyFirebaseToken, async (req, res, next) => {
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.get('/:matchId/detail', verifyFirebaseToken, async (req, res, next) => {
+router.get('/:matchId/detail', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -224,7 +224,7 @@ router.get('/:matchId/detail', verifyFirebaseToken, async (req, res, next) => {
   } catch (err) { next(err); } finally { await session.close(); }
 });
 
-router.post('/thread', verifyFirebaseToken, async (req, res, next) => {
+router.post('/thread', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {

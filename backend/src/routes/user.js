@@ -2,10 +2,9 @@
  * user.js — User Management Routes
  *
  * CRUD operations for user profiles, syncing directly with the Neo4j graph.
- * All routes require Firebase authentication (for token validation).
+ * All routes require Passport session authentication.
  *
  * Endpoints:
- *   POST   /api/user/register       — Create user profile
  *   GET    /api/user/:uid            — Get user profile
  *   PATCH  /api/user/:uid            — Update user profile
  *   GET    /api/user/:uid/profile    — Full profile (tokens + streak + reviews)
@@ -17,7 +16,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const router  = express.Router();
 
-const { verifyFirebaseToken }   = require('../middleware/auth');
+const { requireAuth }            = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { getDriver }             = require('../config/neo4j');
 const { awardTokens }           = require('../services/tokenEconomy');
@@ -41,122 +40,8 @@ const normalizeUserNumbers = (u) => {
   return u;
 };
 
-// ── POST /api/user/register ───────────────────────────────────────────
-router.post(
-  '/register',
-  verifyFirebaseToken,
-  [
-    body('name').trim().notEmpty().withMessage('Name is required'),
-    body('college').trim().notEmpty().withMessage('College is required'),
-    body('department').trim().notEmpty().withMessage('Department is required'),
-    body('year').trim().notEmpty().withMessage('Year is required'),
-    body('teaches').isArray({ min: 1 }).withMessage('At least one teaching skill is required'),
-    body('learns').isArray({ min: 1 }).withMessage('At least one learning skill is required'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const uid = req.user.uid;
-      const userData = {
-        uid,
-        name:              req.body.name,
-        email:             req.user.email,
-        photoUrl:          req.user.picture || req.body.photoUrl || '',
-        gender:            req.body.gender || '',
-        college:           req.body.college,
-        collegeLocation:   req.body.collegeLocation || '',
-        department:        req.body.department,
-        year:              req.body.year,
-        fcmToken:          req.body.fcmToken || '',
-        latitude:          req.body.latitude  || 0,
-        longitude:         req.body.longitude || 0,
-        lastLocationUpdate: Date.now(),
-        averageRating:     0,
-        totalSessions:     0,
-        tokenBalance:      0,
-        mind_tokens:       0, // Using mind_tokens for AuraDB schema as requested
-        linkedinUsername:   req.body.linkedinUsername   || '',
-        githubUsername:     req.body.githubUsername     || '',
-        leetcodeUsername:   req.body.leetcodeUsername   || '',
-        codeforcesUsername: req.body.codeforcesUsername || '',
-        codechefUsername:   req.body.codechefUsername   || '',
-        createdAt:         Date.now(),
-      };
-
-      const driver = getDriver();
-      const session = driver.session();
-      
-      try {
-        await session.executeWrite(async (tx) => {
-          // 1. Create/update User idempotently
-          await tx.run(
-            `MERGE (u:User { uid: $uid })
-             ON CREATE SET u.createdAt = $props.createdAt
-             SET u += $props`,
-            { uid, props: userData }
-          );
-
-          // 2. College
-          if (userData.college) {
-            await tx.run(
-              `MATCH (u:User {uid: $uid})
-               OPTIONAL MATCH (u)-[old:BELONGS_TO]->(:College)
-               DELETE old
-               MERGE (c:College { name: $college })
-               WITH c MATCH (u:User {uid: $uid})
-               MERGE (u)-[:BELONGS_TO]->(c)`,
-              { college: userData.college, uid }
-            );
-          }
-
-          // 3. Teaches
-          const teaches = req.body.teaches || [];
-          await tx.run(`MATCH (u:User {uid: $uid})-[r:TEACHES]->() DELETE r`, { uid });
-          if (teaches.length > 0) {
-            await tx.run(
-              `MATCH (u:User {uid: $uid})
-               UNWIND $skills AS skillName
-               MERGE (s:Skill {name: skillName})
-               MERGE (u)-[:TEACHES]->(s)`,
-              { uid, skills: teaches }
-            );
-          }
-
-          // 4. Learns
-          const learns = req.body.learns || [];
-          await tx.run(`MATCH (u:User {uid: $uid})-[r:LEARNS]->() DELETE r`, { uid });
-          if (learns.length > 0) {
-            await tx.run(
-              `MATCH (u:User {uid: $uid})
-               UNWIND $skills AS skillName
-               MERGE (s:Skill {name: skillName})
-               MERGE (u)-[:LEARNS]->(s)`,
-              { uid, skills: learns }
-            );
-          }
-        });
-        
-        // Award initial 5 tokens for sign up (acts as first daily login)
-        await awardTokens(uid, 5, 'daily_login');
-        userData.mind_tokens = 5;
-        userData.tokenBalance = 5;
-
-        userData.teaches = req.body.teaches;
-        userData.learns = req.body.learns;
-        res.status(201).json({ success: true, data: userData });
-      } finally {
-        await session.close();
-      }
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
 // ── GET /api/user/metadata/options ────────────────────────────────────
-router.get('/metadata/options', verifyFirebaseToken, async (req, res, next) => {
+router.get('/metadata/options', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -177,7 +62,7 @@ router.get('/metadata/options', verifyFirebaseToken, async (req, res, next) => {
 });
 
 // ── GET /api/user/search ──────────────────────────────────────────────
-router.get('/search', verifyFirebaseToken, async (req, res, next) => {
+router.get('/search', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -222,7 +107,7 @@ router.get('/search', verifyFirebaseToken, async (req, res, next) => {
 });
 
 // ── GET /api/user/:uid ────────────────────────────────────────────────
-router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.get('/:uid', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -253,7 +138,7 @@ router.get('/:uid', verifyFirebaseToken, async (req, res, next) => {
 });
 
 // ── DELETE /api/user/:uid ──────────────────────────────────────────────
-router.delete('/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.delete('/:uid', requireAuth, async (req, res, next) => {
   if (req.user.uid !== req.params.uid) {
     return res.status(403).json({ success: false, error: 'Cannot delete another user\'s profile' });
   }
@@ -277,7 +162,7 @@ router.delete('/:uid', verifyFirebaseToken, async (req, res, next) => {
 });
 
 // ── PATCH /api/user/:uid ──────────────────────────────────────────────
-router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.patch('/:uid', requireAuth, async (req, res, next) => {
   if (req.user.uid !== req.params.uid) {
     return res.status(403).json({ success: false, error: 'Cannot update another user\'s profile' });
   }
@@ -370,7 +255,7 @@ router.patch('/:uid', verifyFirebaseToken, async (req, res, next) => {
 });
 
 // ── GET /api/user/:uid/profile ────────────────────────────────────────
-router.get('/:uid/profile', verifyFirebaseToken, async (req, res, next) => {
+router.get('/:uid/profile', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -486,7 +371,7 @@ async function getReviews(uid) {
 }
 
 // ── POST /api/user/:uid/follow ────────────────────────────────────────
-router.post('/:uid/follow', verifyFirebaseToken, async (req, res, next) => {
+router.post('/:uid/follow', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -512,7 +397,7 @@ router.post('/:uid/follow', verifyFirebaseToken, async (req, res, next) => {
 });
 
 // ── GET /api/user/:uid/following ──────────────────────────────────────
-router.get('/:uid/following', verifyFirebaseToken, async (req, res, next) => {
+router.get('/:uid/following', requireAuth, async (req, res, next) => {
   const driver = getDriver();
   const session = driver.session();
   try {
