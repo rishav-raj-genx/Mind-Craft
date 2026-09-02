@@ -6,7 +6,7 @@
  *
  * Boot sequence:
  *   1. Load environment variables
- *   2. Initialize Firebase Admin SDK
+ *   2. Initialize Passport authentication strategies
  *   3. Initialize Neo4j driver + create uniqueness constraints
  *   4. Mount Express middleware + routes
  *   5. Start WebSocket server for real-time chat
@@ -21,9 +21,10 @@ const helmet   = require('helmet');
 const morgan   = require('morgan');
 const http     = require('http');
 const compression = require('compression');
+const session  = require('express-session');
 
-// ── Config (imported for side-effect initialization) ──────────────────
-require('./src/config/firebase');
+// ── Config ───────────────────────────────────────────────────────────
+const { passport } = require('./src/config/passport');
 const { ensureConstraints, verifyConnectivity, closeDriver } = require('./src/config/neo4j');
 
 // ── Middleware ────────────────────────────────────────────────────────
@@ -51,8 +52,10 @@ app.use(helmet({
   contentSecurityPolicy: false, // API-only, no HTML served
 }));
 
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.CORS_ORIGIN || frontendUrl,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -66,6 +69,22 @@ app.use(compression({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ── Session + Passport ───────────────────────────────────────────────
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'mindcraft-dev-secret-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  },
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 // ── Health check ─────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
