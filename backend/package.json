@@ -13,7 +13,8 @@
     "worker:chat": "node src/workers/chatPersistenceWorker.js",
     "worker:weekly-audit": "node src/workers/weeklyAuditWorker.js",
     "scheduler:weekly-audit": "node src/workers/weeklyAuditWorker.js --scheduler",
-    "db:clear": "node scripts/clearAuraDb.js"
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch"
   },
   "keywords": [
     "mindcraft",
@@ -52,7 +53,9 @@
     "@socket.io/redis-adapter": "^8.3.0",
     "sharp": "^0.35.3",
     "uuid": "^11.0.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "jest": "^30.2.0",
+    "supertest": "^7.1.4"
   },
   "engines": {
     "node": ">=20.0.0"

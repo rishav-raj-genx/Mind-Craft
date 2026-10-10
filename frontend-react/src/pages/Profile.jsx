@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from 'react';
-import { updateProfile } from 'firebase/auth';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/userService';
@@ -459,13 +458,6 @@ const Profile = () => {
       setProfileData(prev => prev ? { ...prev, user: { ...prev.user, photoUrl: compressed } } : prev);
       window.dispatchEvent(new CustomEvent('profile-updated', { detail: { photoUrl: compressed } }));
       await userService.updateProfile(uid, { photoUrl: compressed });
-      if (currentUser) {
-        try {
-          await updateProfile(currentUser, { photoURL: compressed });
-        } catch {
-          console.warn('Firebase Auth photoURL limit exceeded, falling back to backend API only.');
-        }
-      }
     } catch (err) {
       console.error('Photo upload error:', err);
     } finally {
@@ -497,12 +489,6 @@ const Profile = () => {
       },
     } : prev);
     await userService.updateProfile(uid, updates);
-    // Sync name to Firebase Auth displayName so all pages show the updated name
-    if (updates.name && currentUser) {
-      try {
-        await updateProfile(currentUser, { displayName: updates.name });
-      } catch { /* silent */ }
-    }
     window.dispatchEvent(new CustomEvent('profile-updated', { detail: updates }));
   };
 

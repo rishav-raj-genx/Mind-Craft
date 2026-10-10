@@ -125,7 +125,7 @@ GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
 npm start                  # production server
 npm run dev                # watch-mode development server
 npm run workflow:weekly-audit
-npm run db:clear           # guarded AuraDB wipe, requires CONFIRM_CLEAR_AURADB=YES
+npm test
 ```
 
 ## Main API Areas
@@ -148,7 +148,7 @@ When a doubt is posted, the backend:
 2. Requests a short bilingual English/Hindi study hint.
 3. Rejects repeated generic hints and retries with a stricter prompt.
 4. Falls back to a topic-specific local hint if Sarvam times out or fails.
-5. Stores the result directly on the Neo4j `Doubt` node as `aiHint`.
+5. Stores the result through the active doubt persistence path as `aiHint`.
 
 Sarvam requests use bounded timeouts and exponential backoff for transient network,
 rate-limit, and server errors. Invalid audio and oversized uploads are rejected
@@ -168,44 +168,8 @@ Each image is:
 
 1. validated by MIME type and size,
 2. compressed to WebP with `sharp`,
-3. stored on the `Doubt` node as JSON in the `images` property,
+3. stored as JSON in the doubt `images` property,
 4. returned to clients for thumbnail/slideshow display.
-
-## Render Deployment
-
-### If Deploying From The Full Monorepo
-
-Use the root repository containing:
-
-```txt
-backend/
-frontend-react/
-render.yaml
-```
-
-In Render:
-
-- New + -> Blueprint
-- Branch: `main`
-- Blueprint Path: `render.yaml`
-
-The root `render.yaml` already uses:
-
-```yaml
-rootDir: backend
-```
-
-### If Deploying From A Backend-Only Repo
-
-If your GitHub repo only contains backend files like:
-
-```txt
-server.js
-package.json
-src/
-```
-
-then use `backend/render.yaml` as that repo's root `render.yaml`. It intentionally does not use `rootDir: backend`.
 
 ## Pre-Deployment Checks
 
@@ -215,20 +179,5 @@ node --check server.js
 node --check src/routes/doubt.js
 node --check src/services/sarvamAI.js
 node --check src/workflows/weeklyAudit.js
-node --check scripts/clearAuraDb.js
-```
-
-## Clearing AuraDB Before Demo
-
-This is destructive:
-
-```bash
-cd backend
-CONFIRM_CLEAR_AURADB=YES npm run db:clear
-```
-
-It runs:
-
-```cypher
-MATCH (n) DETACH DELETE n;
+pnpm test
 ```

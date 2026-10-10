@@ -1,8 +1,10 @@
 allowBuilds:
   '@clerk/shared': true
   '@firebase/util': true
+  '@parcel/watcher': true
   '@prisma/client': true
   '@prisma/engines': true
   msgpackr-extract: true
   prisma: true
   protobufjs: true
+  unrs-resolver: true
