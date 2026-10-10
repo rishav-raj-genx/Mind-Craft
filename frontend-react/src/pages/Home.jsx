@@ -1,5 +1,8 @@
-import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useProfile } from '../hooks/useUserProfile';
+import { useStreak, useBadges } from '../hooks/useGamification';
+import { useFollowing, usePeerMatches } from '../hooks/usePeerMatches';
+import { useTrendingDoubts } from '../hooks/useDoubtForum';
 import { Link, useNavigate } from 'react-router-dom';
 import { Flame, Trophy, Star, Hash, ChevronRight, Plus, TrendingUp } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
@@ -22,16 +25,23 @@ const CountUp = ({ to, duration = 1.5 }) => {
 const Home = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
-  const { globalData } = useAppContext();
-  
-  const {
-    profileName,
-    streak,
-    badgeCount,
-    topMates,
-    trendingTopics,
-    followedUsers
-  } = globalData;
+  const { data: profileResponse } = useProfile(currentUser?.uid);
+  const { data: streakResponse } = useStreak(currentUser?.uid);
+  const { data: badgesResponse } = useBadges(currentUser?.uid);
+  const { data: matchesResponse } = usePeerMatches(currentUser?.uid);
+  const { data: followingResponse } = useFollowing(currentUser?.uid);
+  const { data: trendingResponse } = useTrendingDoubts();
+  const profile = profileResponse?.data || profileResponse || {};
+  const streak = streakResponse?.data || streakResponse || { currentStreak: 0 };
+  const badgeCount = badgesResponse?.data?.totalEarned || badgesResponse?.totalEarned || 0;
+  const topMates = (matchesResponse?.data || matchesResponse?.matches || []).slice(0, 3).map(item => ({
+    ...(item.tutor || item.user || item),
+    sharedSkills: item.sharedSkills || [],
+    matchScore: item.matchScore || item.activityScore,
+  }));
+  const trendingTopics = trendingResponse?.data || [];
+  const followedUsers = followingResponse?.data || [];
+  const profileName = profile.name || '';
 
   // Color palette for trending topic pills
   const tagColors = [

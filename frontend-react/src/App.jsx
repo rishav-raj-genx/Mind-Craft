@@ -18,7 +18,6 @@ import SessionsDetail from './pages/SessionsDetail';
 import RatingDetail from './pages/RatingDetail';
 import MatesDetail from './pages/MatesDetail';
 import Layout from './components/Layout';
-import LoadingScreen from './components/LoadingScreen';
 import Onboarding from './components/Onboarding';
 
 const ProtectedRoute = ({ children }) => {
@@ -27,12 +26,12 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-import ThemeToggle, { StarsBackground } from './components/ThemeToggle';
+import { StarsBackground } from './components/ThemeToggle';
 import { NotificationProvider } from './context/NotificationContext';
 
 const AppContent = () => {
   const { currentUser } = useAuth();
-  const { isAppLoading, isDark } = useAppContext();
+  const { isDark } = useAppContext();
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(
     localStorage.getItem('hasSeenOnboarding') === 'true'
   );
@@ -53,8 +52,6 @@ const AppContent = () => {
   return (
     <div className={`relative min-h-screen transition-colors ${isDark ? 'bg-[#1C1C2E] text-white' : 'bg-[#FAFAFA] text-gray-900'}`}>
       {isDark && <StarsBackground />}
-      
-      {currentUser && isAppLoading && hasSeenOnboarding && <LoadingScreen />}
       
       <NotificationProvider>
         <Routes>

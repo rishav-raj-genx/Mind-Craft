@@ -1,11 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import imageCompression from 'browser-image-compression';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
-import { doubtService } from '../services/doubtService';
+import {
+  useAddAnswer,
+  useCreateDoubt,
+  useDoubts,
+  useResolveDoubt,
+  useToggleDoubtUpvote,
+} from '../hooks/useDoubtForum';
 import { voiceService } from '../services/voiceService';
-import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Trash2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight, Mic, Square } from 'lucide-react';
+import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight, Mic, Square } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 
 const RECORDER_MIME_OPTIONS = [
@@ -93,6 +99,8 @@ const ImageSlideshowModal = ({ images = [], startIndex = 0, onClose }) => {
   const current = images[index];
 
   useEffect(() => {
+    // The viewer can be reused for a different selected image.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIndex(startIndex);
   }, [startIndex]);
 
@@ -635,129 +643,68 @@ const DoubtForum = () => {
   const { currentUser } = useAuth();
   const { markForumVisited } = useNotifications();
   const [searchParams] = useSearchParams();
-  const [posts, setPosts] = useState([]);
   const [activeFilter, setActiveFilter] = useState('All Doubts');
   const [showModal, setShowModal] = useState(false);
   const [answeringDoubt, setAnsweringDoubt] = useState(null);
   const [resolvingDoubt, setResolvingDoubt] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [answering, setAnswering] = useState(false);
-  const [resolving, setResolving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState('');
-  const [upvotedIds, setUpvotedIds] = useState(new Set());
   const [successMsg, setSuccessMsg] = useState('');
   const [imageViewer, setImageViewer] = useState(null);
-  const aiHintRetryRef = useRef(false);
-
-  const fetchDoubts = async (filter = activeFilter) => {
-    setLoading(true);
-    setFetchError('');
-    try {
-      // For "My Doubts" we fetch all and filter client-side
-      const fetchFilter = (filter === 'My Doubts') ? 'All Doubts' : filter;
-      const res = await doubtService.getAllDoubts(fetchFilter);
-      const data = res.data || [];
-      setPosts(data);
-
-      const hasMissingHints = data.some(d => d.id && (!d.aiHint || d.aiAssistStatus === 'empty' || d.aiAssistStatus === 'failed'));
-      if (hasMissingHints && !aiHintRetryRef.current) {
-        aiHintRetryRef.current = true;
-        setTimeout(() => fetchDoubts(filter), 2500);
-      }
-      
-      const doubtId = searchParams.get('doubtId');
-      if (doubtId && data.length > 0) {
-        const doubtToOpen = data.find(d => d.id === doubtId);
-        if (doubtToOpen) {
-          setAnsweringDoubt(doubtToOpen);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch doubts:', err);
-      setFetchError('Could not load doubts. Please check your connection.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchFilter = activeFilter === 'My Doubts' ? 'All Doubts' : activeFilter;
+  const { data: doubtsResponse, isLoading: loading, isError: queryError, refetch } = useDoubts(fetchFilter);
+  const posts = useMemo(() => doubtsResponse?.data || [], [doubtsResponse]);
+  const createDoubt = useCreateDoubt();
+  const addAnswer = useAddAnswer();
+  const resolveDoubt = useResolveDoubt();
+  const toggleUpvote = useToggleDoubtUpvote();
+  const submitting = createDoubt.isPending;
+  const answering = addAnswer.isPending;
+  const resolving = resolveDoubt.isPending;
+  const fetchError = queryError ? 'Could not load doubts. Please check your connection.' : '';
 
   useEffect(() => {
-    aiHintRetryRef.current = false;
     markForumVisited?.();
-    fetchDoubts(activeFilter);
-  }, [activeFilter, markForumVisited]);
+  }, [markForumVisited]);
+
+  const requestedDoubt = useMemo(
+    () => posts.find(doubt => doubt.id === searchParams.get('doubtId')),
+    [posts, searchParams],
+  );
 
   const handleAddDoubt = async ({ title, content, tag, images = [] }) => {
-    setSubmitting(true);
     try {
-      const res = await doubtService.createDoubt({ title, content, tag, images });
-      setPosts(prev => [res.data, ...prev]);
-      if (!res.data?.aiHint) {
-        setTimeout(() => fetchDoubts(activeFilter), 2500);
-      }
+      await createDoubt.mutateAsync({ title, content, tag, images });
       setShowModal(false);
       setSuccessMsg('Your doubt was posted! 🎉');
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
       console.error('Failed to post doubt:', err);
       throw err;
-    } finally {
-      setSubmitting(false);
     }
   };
 
   const handleAnswerDoubt = async (postId, content) => {
-    setAnswering(true);
     try {
-      const res = await doubtService.addAnswer(postId, content);
-      setPosts(prev => prev.map(p => {
-        if (p.id === postId) {
-          const newAnswers = [...(p.answers || []), res.data];
-          // also update the answeringDoubt in state so the modal updates immediately
-          if (answeringDoubt?.id === postId) {
-            setAnsweringDoubt(curr => ({ ...curr, answers: newAnswers, answerCount: newAnswers.length }));
-          }
-          return { ...p, answers: newAnswers, answerCount: newAnswers.length };
-        }
-        return p;
-      }));
+      await addAnswer.mutateAsync({ doubtId: postId, content });
     } catch (err) {
       console.error('Failed to post answer:', err);
-    } finally {
-      setAnswering(false);
     }
   };
 
   const handleResolveDoubt = async (postId) => {
-    setResolving(true);
     try {
-      await doubtService.resolveDoubt(postId);
-      setPosts(prev => prev.filter(p => p.id !== postId));
+      await resolveDoubt.mutateAsync(postId);
       setResolvingDoubt(null);
       setSuccessMsg('Doubt resolved and removed! ✅');
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
       console.error('Failed to resolve doubt:', err);
       alert(err.response?.data?.error || 'Failed to resolve doubt.');
-    } finally {
-      setResolving(false);
     }
   };
 
   const handleUpvote = async (postId) => {
     try {
-      const res = await doubtService.toggleUpvote(postId);
-      setPosts(prev => prev.map(p =>
-        p.id === postId ? { ...p, upvotes: res.upvotes, upvotedBy: res.upvoted
-          ? [...(p.upvotedBy || []), currentUser?.uid]
-          : (p.upvotedBy || []).filter(id => id !== currentUser?.uid) }
-        : p
-      ));
-      setUpvotedIds(prev => {
-        const next = new Set(prev);
-        if (res.upvoted) next.add(postId); else next.delete(postId);
-        return next;
-      });
+      await toggleUpvote.mutateAsync(postId);
     } catch (err) {
       console.error('Upvote failed:', err);
     }
@@ -821,7 +768,7 @@ const DoubtForum = () => {
             <AlertCircle className="text-red-400" size={40} />
             <p className="text-gray-600 dark:text-gray-400 text-sm">{fetchError}</p>
             <button
-              onClick={() => fetchDoubts(activeFilter)}
+              onClick={() => refetch()}
               className="px-5 py-2 rounded-full bg-[#DCFD8B] text-[#151f00] font-semibold text-sm hover:opacity-90 transition"
             >
               Retry
@@ -971,9 +918,9 @@ const DoubtForum = () => {
           loading={submitting}
         />
       )}
-      {answeringDoubt && (
+      {(answeringDoubt || requestedDoubt) && (
         <AnswerDoubtModal
-          post={answeringDoubt}
+        post={answeringDoubt || requestedDoubt}
           onClose={() => setAnsweringDoubt(null)}
           onSubmit={handleAnswerDoubt}
           loading={answering}

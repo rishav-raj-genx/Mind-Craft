@@ -1,10 +1,11 @@
 /**
  * streakCalculator.js — Daily Consistency Streak Calculator
  *
- * Queries a user's activity log from Neo4j AuraDB to compute streaks.
+ * Queries a user's activity log from PostgreSQL/Prisma to compute streaks.
  */
 
-const { getDriver } = require('../config/neo4j');
+const { prisma } = require('../config/prisma');
+const { calculateStreak: calculatePrismaStreak } = require('./prismaStreakService');
 
 const BADGE_MILESTONES = [
   { days: 3,   name: 'Spark Starter',    emoji: '🌱', icon: 'Sprout',    level: 1, freezeReward: 1 },
@@ -16,50 +17,41 @@ const BADGE_MILESTONES = [
 ];
 
 async function recordCheckIn(uid) {
-  const todayStr = toDateString(new Date());
-  const now = Date.now();
-  const driver = getDriver();
-  const session = driver.session();
-  try {
-    const res = await session.executeWrite(tx => tx.run(`
-      MATCH (u:User {uid: $uid})
-      MERGE (d:Date {date: $todayStr})
-      MERGE (u)-[r:LOGGED_IN_ON]->(d)
-      ON CREATE SET r.types = ['app_open'], r.createdAt = $now
-      ON MATCH SET r.types = CASE
-        WHEN 'app_open' IN coalesce(r.types, []) THEN r.types
-        ELSE coalesce(r.types, []) + 'app_open'
-      END
-      RETURN r.createdAt = $now AS created
-    `, { uid, todayStr, now }));
-    const created = res.records.length > 0 && res.records[0].get('created') === true;
-    return { alreadyCheckedIn: !created };
-  } finally {
-    await session.close();
-  }
+  const user = await prisma.user.findUnique({
+    where: { clerkUserId: uid },
+    select: { id: true },
+  });
+  if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+
+  const activityDate = new Date(`${toDateString(new Date())}T00:00:00.000Z`);
+  const existing = await prisma.activityDay.findUnique({
+    where: { userId_activityDate: { userId: user.id, activityDate } },
+    select: { activityTypes: true },
+  });
+  const activityTypes = Array.from(new Set([...(existing?.activityTypes || []), 'app_open']));
+  await prisma.activityDay.upsert({
+    where: { userId_activityDate: { userId: user.id, activityDate } },
+    update: { activityTypes: { set: activityTypes } },
+    create: { userId: user.id, activityDate, activityTypes },
+  });
+  return { alreadyCheckedIn: Boolean(existing) };
 }
 
 async function calculateStreak(uid) {
-  const now       = new Date();
-  const ninetyAgo = new Date(now);
-  ninetyAgo.setDate(ninetyAgo.getDate() - 90);
-  const cutoffStr = toDateString(ninetyAgo);
+  const user = await prisma.user.findUnique({
+    where: { clerkUserId: uid },
+    select: { id: true },
+  });
+  if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
 
-  const driver = getDriver();
-  const session = driver.session();
-  let activeDates = [];
-  try {
-    const res = await session.executeRead(tx => tx.run(`
-      MATCH (u:User {uid: $uid})-[:LOGGED_IN_ON]->(d:Date)
-      WHERE d.date >= $cutoffStr
-      RETURN d.date AS date
-      ORDER BY date ASC
-    `, { uid, cutoffStr }));
-    activeDates = res.records.map(r => r.get('date'));
-  } finally {
-    await session.close();
-  }
-
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - 90 * 86400000);
+  const rows = await prisma.activityDay.findMany({
+    where: { userId: user.id, activityDate: { gte: cutoff } },
+    select: { activityDate: true },
+    orderBy: { activityDate: 'asc' },
+  });
+  const activeDates = rows.map(row => row.activityDate.toISOString().slice(0, 10));
   const activeDateSet = new Set(activeDates);
   const currentStreak = computeCurrentStreak(activeDateSet, now);
   const longestStreak = computeLongestStreak(activeDates);

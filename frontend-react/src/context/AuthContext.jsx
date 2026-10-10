@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect } from 'react';
 import { useAuth as useClerkAuth, useClerk, useUser } from '@clerk/clerk-react';
 import { setClerkTokenProvider } from '../config/api';
+import { queryClient } from '../config/queryClient';
 
 const AuthContext = createContext({});
 
@@ -55,7 +56,10 @@ export const AuthProvider = ({ children }) => {
     return { user: { uid: result.createdUserId } };
   };
 
-  const logout = () => signOut();
+  const logout = async () => {
+    await signOut();
+    queryClient.clear();
+  };
 
   const value = {
     currentUser,

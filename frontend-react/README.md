@@ -193,3 +193,10 @@ eas submit --platform ios --profile production
 3. Set frontend API URL to the Render backend.
 4. Build/deploy web app if needed.
 5. Build Expo app with EAS using `EXPO_PUBLIC_API_BASE_URL`.
+## Server state
+
+API data is managed with TanStack Query. Resource methods in `src/services`
+remain HTTP-only, while hooks in `src/hooks` own query keys, caching, loading
+states, and mutation invalidation. Context is reserved for Clerk auth, theme,
+and realtime client state. Queries are enabled only after Clerk supplies an
+authenticated user, and logout clears the QueryClient cache.

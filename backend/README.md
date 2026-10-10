@@ -21,6 +21,23 @@ The initial Prisma schema covers users, colleges, departments, skills, doubts, a
 
 Realtime chat uses Socket.io with Clerk bearer-token authentication. Configure `REDIS_URL` to enable the Redis adapter for multi-instance broadcasts. Chat messages are acknowledged immediately as queued, emitted to the thread room, and persisted by the BullMQ `chat-persistence` worker into PostgreSQL. Run the worker separately with `npm run worker:chat`.
 
+## Weekly Warrior audit
+
+The weekly audit runs as a BullMQ job backed by Redis. Start the processor with
+`npm run worker:weekly-audit`; start it with `--scheduler` in one dedicated
+process to register the Sunday-midnight scheduler:
+
+```bash
+npm run scheduler:weekly-audit
+```
+
+The worker reads Prisma `ActivityDay` records, processes non-deleted users in
+cursor-paginated batches, and awards the Weekly Warrior badge and 50 Mind
+Tokens in an idempotent transaction. `WeeklyAuditRun`, `UserBadge`, and the
+token transaction idempotency key allow retries and restarts without duplicate
+rewards. Set `WEEKLY_AUDIT_TIMEZONE` and the process `TZ` to the same IANA
+timezone (for example `Asia/Kolkata`) for the intended midnight boundary.
+
 ## SQL peer matching
 
 Find Mate uses indexed PostgreSQL joins over `UserSkill` rather than graph traversal. A candidate is eligible when they have the same skill as the requester with the opposite direction (`LEARNS` versus `TEACHES`). Results are ranked by complementary skill overlap, reciprocal interest, same-college preference, teaching activity, and rating. Redis caches the first-page feed for 60 seconds when `REDIS_URL` is configured; cache failures fall back to PostgreSQL.

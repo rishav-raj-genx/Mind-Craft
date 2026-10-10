@@ -1,0 +1,15 @@
+export const queryKeys = {
+  profile: (uid) => ['profile', uid],
+  fullProfile: (uid) => ['profile', uid, 'full'],
+  doubts: (filter) => ['doubts', filter],
+  trendingDoubts: ['doubts', 'trending'],
+  matches: (uid, filters = {}) => ['matches', uid, filters],
+  broadMatches: (uid) => ['matches', uid, 'broad'],
+  following: (uid) => ['following', uid],
+  searchUsers: (query) => ['users', 'search', query],
+  metadataOptions: ['users', 'metadata-options'],
+  streak: (uid) => ['streak', uid],
+  badges: (uid) => ['badges', uid],
+  tokens: (uid) => ['tokens', uid],
+  leaderboard: ['leaderboard'],
+};

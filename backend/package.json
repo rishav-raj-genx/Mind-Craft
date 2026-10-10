@@ -11,6 +11,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "workflow:weekly-audit": "node src/workflows/weeklyAudit.js",
     "worker:chat": "node src/workers/chatPersistenceWorker.js",
+    "worker:weekly-audit": "node src/workers/weeklyAuditWorker.js",
+    "scheduler:weekly-audit": "node src/workers/weeklyAuditWorker.js --scheduler",
     "db:clear": "node scripts/clearAuraDb.js"
   },
   "keywords": [
@@ -25,7 +27,6 @@
   "dependencies": {
     "@prisma/client": "^6.17.0",
     "@clerk/clerk-sdk-node": "^5.1.6",
-    "@renderinc/sdk": "^0.6.0",
     "axios": "^1.7.9",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",

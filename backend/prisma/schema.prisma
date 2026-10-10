@@ -57,6 +57,12 @@ enum TokenTransactionType {
   DEBIT
 }
 
+enum WeeklyAuditStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 model User {
   id                 String    @id @default(uuid()) @db.Uuid
   clerkUserId        String    @unique
@@ -99,6 +105,7 @@ model User {
   transactions     TokenTransaction[]
   activityDays     ActivityDay[]
   images           DoubtImage[]       @relation("ImageUploader")
+  badges           UserBadge[]
 
   @@index([collegeId, departmentId])
   @@index([mindTokens])
@@ -356,6 +363,50 @@ model ActivityDay {
 
   @@id([userId, activityDate])
   @@index([activityDate])
+}
+
+model Badge {
+  id          String      @id
+  name        String
+  level       Int         @default(1)
+  emoji       String?
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  users       UserBadge[]
+}
+
+model UserBadge {
+  userId    String   @db.Uuid
+  badgeId   String
+  auditWeek String
+  awardedAt DateTime @default(now())
+  metadata  Json?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, badgeId, auditWeek])
+  @@index([userId, awardedAt])
+  @@index([badgeId, auditWeek])
+}
+
+model WeeklyAuditRun {
+  id             String            @id @default(uuid()) @db.Uuid
+  weekKey        String            @unique
+  weekStart      DateTime          @db.Date
+  weekEnd        DateTime          @db.Date
+  status         WeeklyAuditStatus @default(RUNNING)
+  usersScanned   Int               @default(0)
+  usersEvaluated Int               @default(0)
+  winners        Int               @default(0)
+  newlyAwarded   Int               @default(0)
+  lastUserId     String?           @db.Uuid
+  error          String?
+  startedAt      DateTime          @default(now())
+  completedAt    DateTime?
+  updatedAt      DateTime          @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 model ClerkWebhookEvent {

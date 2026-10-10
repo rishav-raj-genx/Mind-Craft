@@ -1,6 +1,12 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { matchService } from '../services/matchService';
+import {
+  useFollowing,
+  useMetadataOptions,
+  usePeerMatches,
+  useSearchUsers,
+  useFollowUser,
+} from '../hooks/usePeerMatches';
 import { voiceService } from '../services/voiceService';
 import { Search, Mic, MapPin, Star, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
@@ -381,7 +387,6 @@ const FindMate = () => {
   const [selectedLang, setSelectedLang] = useState('en-IN');
   const [searchText, setSearchText] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
-  const [myFollowingUids, setMyFollowingUids] = useState(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
     college: '',
@@ -403,64 +408,24 @@ const FindMate = () => {
   const streamRef = useRef(null);
   const recorderFormatRef = useRef({ mimeType: 'audio/webm', extension: 'webm' });
 
-  const [globalColleges, setGlobalColleges] = useState([]);
-  const [globalDepartments, setGlobalDepartments] = useState([]);
+  const { data: matchesResponse } = usePeerMatches(currentUser?.uid, appliedFilters);
+  const { data: followingResponse } = useFollowing(currentUser?.uid);
+  const { data: metadataResponse } = useMetadataOptions();
+  const { data: searchResponse } = useSearchUsers(activeSearch);
+  const followUser = useFollowUser();
+  const myFollowingUids = new Set((followingResponse?.data || []).map(user => user.uid));
+  const globalColleges = metadataResponse?.data?.colleges || [];
+  const globalDepartments = metadataResponse?.data?.departments || [];
 
   const hasActiveFilters = appliedFilters.college || appliedFilters.department || appliedFilters.year || appliedFilters.minRating > 0 || appliedFilters.sortBy !== 'relevance';
 
-  const loadMetadataOptions = useCallback(async () => {
-    try {
-      const { userService } = await import('../services/userService');
-      const res = await userService.getMetadataOptions();
-      if (res.data) {
-        setGlobalColleges(res.data.colleges || []);
-        setGlobalDepartments(res.data.departments || []);
-      }
-    } catch (err) {
-      console.error('Failed to load metadata options', err);
-    }
-  }, []);
-
-  const loadMyFollowing = useCallback(async () => {
-    if (!currentUser) return;
-    try {
-      const { userService } = await import('../services/userService');
-      const res = await userService.getFollowing(currentUser.uid);
-      const following = (res.data || []).map(u => u.uid);
-      setMyFollowingUids(new Set(following));
-    } catch (err) {
-      console.error(err);
-    }
-  }, [currentUser]);
-
-  const loadInitialMatches = useCallback(async () => {
-    if (!currentUser) return;
-    try {
-      setLoading(true);
-      const data = await matchService.getMatches(currentUser.uid);
-      const normalized = (data.data || data.matches || []).map(normalizeMate);
-      setAllMatches(normalized);
-      setActiveSearch('');
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (currentUser) {
-      queueMicrotask(() => {
-        loadInitialMatches();
-        loadMyFollowing();
-        loadMetadataOptions();
-      });
-    }
-  }, [currentUser, loadInitialMatches, loadMyFollowing, loadMetadataOptions]);
+  const initialMatches = (matchesResponse?.data || matchesResponse?.matches || []).map(normalizeMate);
+  const searchedMatches = (searchResponse?.data || []).map(normalizeMate);
+  const sourceMatches = activeSearch ? searchedMatches : (allMatches.length ? allMatches : initialMatches);
 
   // Whenever allMatches or appliedFilters change, re-compute displayed matches
   const matches = useMemo(() => {
-    let filtered = [...allMatches];
+    let filtered = [...sourceMatches];
 
     if (appliedFilters.college) {
       filtered = filtered.filter(m => m.college && m.college.toLowerCase() === appliedFilters.college.toLowerCase());
@@ -483,7 +448,7 @@ const FindMate = () => {
     }
 
     return filtered;
-  }, [allMatches, appliedFilters]);
+  }, [sourceMatches, appliedFilters]);
 
   const startRecording = async () => {
     try {
@@ -577,12 +542,10 @@ const FindMate = () => {
     try {
       setLoading(true);
       if (query.trim()) {
-        const { userService } = await import('../services/userService');
-        const data = await userService.searchUsers(query.trim());
-        setAllMatches((data.data || []).map(normalizeMate));
         setActiveSearch(query.trim());
       } else {
-        await loadInitialMatches();
+        setAllMatches([]);
+        setActiveSearch('');
       }
     } catch (err) {
       console.error(err);
@@ -593,9 +556,7 @@ const FindMate = () => {
 
   const handleFollow = async (mateUid) => {
     try {
-      const { userService } = await import('../services/userService');
-      await userService.followUser(mateUid);
-      setMyFollowingUids(prev => new Set(prev).add(mateUid));
+      await followUser.mutateAsync(mateUid);
       alert('Successfully followed user!');
     } catch (err) {
       console.error('Failed to follow', err);
