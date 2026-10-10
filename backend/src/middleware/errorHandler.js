@@ -60,6 +60,37 @@ function globalErrorHandler(err, _req, res, _next) {
     });
   }
 
+  if (err.code === 'AUDIO_TOO_LARGE') {
+    return res.status(413).json({
+      success: false,
+      error: err.message || 'Audio file is too large.',
+      code: err.code,
+    });
+  }
+
+  if (err.code === 'SARVAM_TIMEOUT') {
+    return res.status(504).json({
+      success: false,
+      error: 'The Sarvam AI service timed out. Please try again.',
+      code: err.code,
+    });
+  }
+
+  if (err.name === 'ProviderRequestError' && err.provider === 'Sarvam AI') {
+    const statusCode = err.providerStatus === 400 || err.providerStatus === 401
+      || err.providerStatus === 403 || err.providerStatus === 413
+      || err.providerStatus === 415
+      ? err.providerStatus
+      : (err.statusCode || 503);
+    return res.status(statusCode).json({
+      success: false,
+      error: statusCode < 500
+        ? 'Sarvam AI rejected the request. Please check the submitted data.'
+        : 'Sarvam AI is temporarily unavailable. Please try again.',
+      code: err.code,
+    });
+  }
+
   // Firebase auth errors
   if (err.code && err.code.startsWith('auth/')) {
     return res.status(401).json({

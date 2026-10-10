@@ -42,8 +42,9 @@ const doubtRoutes        = require('./src/routes/doubt');
 const authRoutes         = require('./src/routes/auth');
 
 // ── Services ─────────────────────────────────────────────────────────
-const { initWebSocketServer } = require('./src/services/chatService');
 const { disconnectPrisma } = require('./src/config/prisma');
+const { initSocketServer, closeSocketServer } = require('./src/config/socket');
+const { closeRedis } = require('./src/config/redis');
 
 // ── Express app ──────────────────────────────────────────────────────
 const app  = express();
@@ -132,8 +133,8 @@ async function boot() {
     console.warn('⚠️  Neo4j unavailable — graph features will be degraded');
   }
 
-  // 2. WebSocket server for real-time chat
-  initWebSocketServer(httpServer);
+  // 2. Socket.io server for horizontally scalable realtime chat
+  initSocketServer(httpServer);
 
   // 3. Start listening
   httpServer.listen(PORT, () => {
@@ -152,6 +153,8 @@ async function boot() {
       console.log('   ✔ HTTP server closed');
     });
 
+    await closeSocketServer();
+    await closeRedis();
     await closeDriver();
     await disconnectPrisma();
     console.log('   ✔ All connections closed. Goodbye! 👋\n');

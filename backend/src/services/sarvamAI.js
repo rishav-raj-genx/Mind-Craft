@@ -8,10 +8,16 @@
 
 const axios    = require('axios');
 const FormData = require('form-data');
+const {
+  isTimeoutError,
+  requestWithRetry,
+  withAxiosTimeout,
+} = require('../utils/resilientRequest');
 
 const STT_URL  = process.env.SARVAM_STT_URL  || 'https://api.sarvam.ai/speech-to-text';
 const CHAT_URL = process.env.SARVAM_CHAT_URL || 'https://api.sarvam.ai/v1/chat/completions';
 const API_KEY  = process.env.SARVAM_API_KEY  || '';
+const MAX_AUDIO_BYTES = Number(process.env.SARVAM_MAX_AUDIO_BYTES || 10 * 1024 * 1024);
 
 const extractChatContent = (data) => {
   const message = data?.choices?.[0]?.message;
@@ -370,6 +376,18 @@ async function transcribeAudio(audioBuffer, originalName, mimeType, options = {}
     model        = 'saaras:v3',
   } = options;
 
+  if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length === 0) {
+    throw Object.assign(new Error('Audio payload is empty.'), {
+      statusCode: 400,
+      code: 'AUDIO_EMPTY',
+    });
+  }
+  if (audioBuffer.length > MAX_AUDIO_BYTES) {
+    throw Object.assign(new Error(`Audio file too large. Maximum size is ${Math.floor(MAX_AUDIO_BYTES / (1024 * 1024))} MB.`), {
+      statusCode: 413,
+      code: 'AUDIO_TOO_LARGE',
+    });
+  }
   if (!API_KEY) {
     throw Object.assign(
       new Error('Sarvam AI API key not configured. Set SARVAM_API_KEY in .env'),
@@ -388,14 +406,22 @@ async function transcribeAudio(audioBuffer, originalName, mimeType, options = {}
   form.append('with_timestamps', 'false');
 
   try {
-    const response = await axios.post(STT_URL, form, {
-      headers: {
-        ...form.getHeaders(),
-        'api-subscription-key': API_KEY,
+    const response = await requestWithRetry(
+      () => axios.post(STT_URL, form, withAxiosTimeout({
+        headers: {
+          ...form.getHeaders(),
+          'api-subscription-key': API_KEY,
+        },
+        maxContentLength: 20 * 1024 * 1024,
+      }, Number(process.env.SARVAM_STT_TIMEOUT_MS || 30_000))),
+      {
+        attempts: Number(process.env.SARVAM_STT_MAX_ATTEMPTS || 2),
+        baseDelayMs: Number(process.env.SARVAM_RETRY_BASE_DELAY_MS || 250),
+        maxDelayMs: Number(process.env.SARVAM_RETRY_MAX_DELAY_MS || 3000),
+        provider: 'Sarvam AI',
+        operationName: 'speech-to-text',
       },
-      timeout: 30_000, // 30 s timeout
-      maxContentLength: 20 * 1024 * 1024, // 20 MB max response
-    });
+    );
 
     const data = response.data;
 
@@ -405,26 +431,15 @@ async function transcribeAudio(audioBuffer, originalName, mimeType, options = {}
       confidence:   data.confidence   || null,
     };
   } catch (err) {
-    if (err.response) {
-      const status = err.response.status;
-      const body   = err.response.data;
-
-      console.error(`❌ Sarvam AI API error (${status}):`, body);
-
-      throw Object.assign(
-        new Error(
-          `Sarvam AI transcription failed: ${body?.message || body?.error || 'Unknown error'}`,
-        ),
-        { statusCode: status >= 500 ? 503 : 400 },
-      );
+    console.error('Sarvam AI speech-to-text request failed:', {
+      code: err.code,
+      status: err.providerStatus || err.statusCode,
+      attempts: err.attempts,
+    });
+    if (isTimeoutError(err)) {
+      err.statusCode = 504;
     }
-
-    // Network / timeout error
-    console.error('❌ Sarvam AI network error:', err.message);
-    throw Object.assign(
-      new Error('Unable to reach Sarvam AI service. Please try again.'),
-      { statusCode: 503 },
-    );
+    throw err;
   }
 }
 
@@ -472,7 +487,7 @@ async function generateStudyHint(doubt, options = {}) {
 
   const callSarvamChat = async (selectedModel, attempt = 'primary') => {
     const isSpecificRetry = attempt === 'specific-retry';
-    const response = await axios.post(CHAT_URL, {
+    const request = () => axios.post(CHAT_URL, {
       model: selectedModel,
       messages: [
         {
@@ -514,7 +529,14 @@ async function generateStudyHint(doubt, options = {}) {
         'api-subscription-key': API_KEY,
         'Content-Type': 'application/json',
       },
-      timeout: Number(process.env.SARVAM_CHAT_TIMEOUT_MS || 10_000),
+    }, withAxiosTimeout({}, Number(process.env.SARVAM_CHAT_TIMEOUT_MS || 10_000)));
+
+    const response = await requestWithRetry(request, {
+      attempts: Number(process.env.SARVAM_CHAT_MAX_ATTEMPTS || 3),
+      baseDelayMs: Number(process.env.SARVAM_RETRY_BASE_DELAY_MS || 250),
+      maxDelayMs: Number(process.env.SARVAM_RETRY_MAX_DELAY_MS || 3000),
+      provider: 'Sarvam AI',
+      operationName: 'study-hint',
     });
 
     const data = response.data;

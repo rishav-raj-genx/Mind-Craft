@@ -1,211 +1,298 @@
-/**
- * matchingEngine.js — Graph-Based Tutor Matching via Neo4j
- *
- * Traverses the Neo4j graph to find the best tutor matches for a
- * student. Matches are ranked by:
- *   1. Same college (hard filter)
- *   2. Number of shared syllabus topics (skill overlap)
- *   3. Tutor activity score (total TEACHES relationships)
- *   4. Average rating (tiebreaker)
- *
- * This is the read-path that queries the graph built by neo4jSync.js.
- */
+const { Prisma } = require('@prisma/client');
+const { prisma } = require('../config/prisma');
+const { getCachedFeed, setCachedFeed } = require('./matchingCache');
 
-const { getDriver } = require('../config/neo4j');
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 50;
 
-/**
- * Finds the best tutor matches for a student within their own college.
- *
- * The Cypher query:
- *   1. Starts from the requesting student
- *   2. Traverses LEARNS|TEACHES to find tutors who complement the skills
- *   3. Filters to same college only
- *   4. Counts shared skills and tutor activity (total teaching edges)
- *   5. Sorts by activity score DESC, shared skills DESC, rating DESC
- *
- * @param {string} uid — The requesting student's Firebase UID
- * @param {object} [options]
- * @param {number} [options.limit=20]    — Max results to return
- * @param {number} [options.offset=0]    — Offset for paged results
- * @param {string} [options.skillFilter] — Optional: match only this skill
- * @returns {Promise<Array<object>>} Ranked list of tutor matches
- */
+function clampLimit(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_LIMIT) : DEFAULT_LIMIT;
+}
+
+function normalizeMatch(row) {
+  return {
+    tutor: {
+      id: row.id,
+      uid: row.clerkUserId,
+      name: row.name,
+      email: row.email,
+      photoUrl: row.photoUrl,
+      collegeId: row.collegeId,
+      departmentId: row.departmentId,
+      year: row.year,
+      averageRating: Number(row.averageRating || 0),
+      totalSessions: Number(row.totalSessions || 0),
+      latitude: row.latitude === null ? null : Number(row.latitude),
+      longitude: row.longitude === null ? null : Number(row.longitude),
+    },
+    sharedSkills: row.sharedSkills || [],
+    sharedSkillCount: Number(row.sharedSkillCount || 0),
+    activityScore: Number(row.activityScore || 0),
+    sameCollege: Boolean(row.sameCollege),
+    compatibilityScore: Number(row.compatibilityScore || 0),
+  };
+}
+
+function encodeCursor(row) {
+  return Buffer.from(JSON.stringify({
+    score: row.compatibilityScore,
+    sharedSkillCount: row.sharedSkillCount,
+    totalSessions: row.tutor.totalSessions,
+    averageRating: row.tutor.averageRating,
+    id: row.tutor.id,
+  })).toString('base64url');
+}
+
+function decodeCursor(cursor) {
+  if (!cursor) return null;
+  try {
+    const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (!value.id || !Number.isFinite(Number(value.score))) return null;
+    return value;
+  } catch (_error) {
+    return null;
+  }
+}
+
 async function findMatches(uid, options = {}) {
-  const { limit = 20, offset = 0, skillFilter = null } = options;
-  const driver  = getDriver();
-  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
-
-  try {
-    // Build the Cypher query with optional skill filter
-    const skillClause = skillFilter
-      ? 'AND skill.name = $skillFilter'
-      : '';
-
-    const result = await session.run(
-      `MATCH (student:User { uid: $uid })-[r1:LEARNS|TEACHES]->(skill:Skill)<-[r2:TEACHES|LEARNS]-(tutor:User)
-       WHERE tutor.college = student.college
-         AND tutor.uid <> student.uid
-         AND type(r1) <> type(r2)
-         ${skillClause}
-       WITH tutor,
-            collect(DISTINCT skill.name) AS sharedSkills,
-            SIZE([(tutor)-[:TEACHES]->(s:Skill) | s]) AS activityScore
-       RETURN tutor {
-         .uid, .name, .email, .photoUrl, .college, .department,
-         .year, .averageRating, .totalSessions, .latitude, .longitude
-       } AS tutorData,
-       sharedSkills,
-       activityScore
-       ORDER BY activityScore DESC, SIZE(sharedSkills) DESC, tutor.averageRating DESC
-       SKIP $offset
-       LIMIT $limit`,
-      {
-        uid,
-        limit: neo4jInt(limit),
-        offset: neo4jInt(offset),
-        ...(skillFilter ? { skillFilter } : {}),
-      },
-    );
-
-    return result.records.map((record) => ({
-      tutor:         record.get('tutorData'),
-      sharedSkills:  record.get('sharedSkills'),
-      activityScore: toNumber(record.get('activityScore')),
-    }));
-  } catch (err) {
-    console.error('❌ Match query failed:', err.message);
-    throw err;
-  } finally {
-    await session.close();
-  }
+  return queryMatches(uid, { ...options, sameCollegeOnly: true });
 }
 
-/**
- * Finds matches across ALL colleges (broader search fallback).
- *
- * Used when same-college matching returns too few results.
- *
- * @param {string} uid
- * @param {number} [limit=20]
- * @returns {Promise<Array<object>>}
- */
-async function findBroadMatches(uid, limit = 20, offset = 0) {
-  const driver  = getDriver();
-  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
-
-  try {
-    const result = await session.run(
-      `MATCH (student:User { uid: $uid })-[r1:LEARNS|TEACHES]->(skill:Skill)<-[r2:TEACHES|LEARNS]-(tutor:User)
-       WHERE tutor.uid <> student.uid
-         AND type(r1) <> type(r2)
-       WITH tutor,
-            collect(DISTINCT skill.name) AS sharedSkills,
-            SIZE([(tutor)-[:TEACHES]->(s:Skill) | s]) AS activityScore,
-            CASE WHEN tutor.college = student.college THEN 1 ELSE 0 END AS sameCollege
-       RETURN tutor {
-         .uid, .name, .email, .photoUrl, .college, .department,
-         .year, .averageRating, .totalSessions, .latitude, .longitude
-       } AS tutorData,
-       sharedSkills,
-       activityScore,
-       sameCollege
-       ORDER BY sameCollege DESC, activityScore DESC, SIZE(sharedSkills) DESC
-       SKIP $offset
-       LIMIT $limit`,
-      { uid, limit: neo4jInt(limit), offset: neo4jInt(offset) },
-    );
-
-    return result.records.map((record) => ({
-      tutor:         record.get('tutorData'),
-      sharedSkills:  record.get('sharedSkills'),
-      activityScore: toNumber(record.get('activityScore')),
-      sameCollege:   toNumber(record.get('sameCollege')) === 1,
-    }));
-  } catch (err) {
-    console.error('❌ Broad match query failed:', err.message);
-    throw err;
-  } finally {
-    await session.close();
-  }
+async function findBroadMatches(uid, limit = DEFAULT_LIMIT, offset = 0, skillFilter = null) {
+  return queryMatches(uid, {
+    limit,
+    offset,
+    skillFilter,
+    sameCollegeOnly: false,
+  });
 }
 
-/**
- * Final fallback: any active users (highest rated)
- * Used when broad matches are also empty.
- */
-async function findAnyMatches(uid, limit = 20, offset = 0) {
-  const driver  = getDriver();
-  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
+async function findAnyMatches(uid, limit = DEFAULT_LIMIT, offset = 0) {
+  const user = await prisma.user.findUnique({
+    where: { clerkUserId: uid },
+    select: { id: true },
+  });
+  if (!user) return [];
 
-  try {
-    const result = await session.run(
-      `MATCH (tutor:User)
-       WHERE tutor.uid <> $uid
-       RETURN tutor {
-         .uid, .name, .email, .photoUrl, .college, .department,
-         .year, .averageRating, .totalSessions, .latitude, .longitude
-       } AS tutorData
-       ORDER BY tutor.averageRating DESC, tutor.totalSessions DESC
-       SKIP $offset
-       LIMIT $limit`,
-      { uid, limit: neo4jInt(limit), offset: neo4jInt(offset) },
-    );
+  const rows = await prisma.user.findMany({
+    where: {
+      id: { not: user.id },
+      deletedAt: null,
+    },
+    orderBy: [
+      { averageRating: 'desc' },
+      { totalSessions: 'desc' },
+      { id: 'asc' },
+    ],
+    skip: Math.max(Number(offset) || 0, 0),
+    take: clampLimit(limit),
+    select: {
+      id: true,
+      clerkUserId: true,
+      name: true,
+      email: true,
+      photoUrl: true,
+      collegeId: true,
+      departmentId: true,
+      year: true,
+      averageRating: true,
+      totalSessions: true,
+      latitude: true,
+      longitude: true,
+    },
+  });
 
-    return result.records.map((record) => ({
-      tutor:         record.get('tutorData'),
-      sharedSkills:  [],
-      activityScore: 0,
-      sameCollege:   false,
-    }));
-  } catch (err) {
-    console.error('❌ Any match query failed:', err.message);
-    throw err;
-  } finally {
-    await session.close();
-  }
+  return rows.map((row) => normalizeMatch({
+    ...row,
+    sharedSkills: [],
+    sharedSkillCount: 0,
+    activityScore: 0,
+    sameCollege: false,
+    compatibilityScore: 0,
+  }));
 }
 
-/**
- * Retrieves the skill graph for a single user (what they teach + learn).
- * Useful for the profile page.
- *
- * @param {string} uid
- * @returns {Promise<{ teaches: string[], learns: string[] }>}
- */
 async function getUserSkillGraph(uid) {
-  const driver  = getDriver();
-  const session = driver.session({ database: process.env.NEO4J_DATABASE || 'neo4j', defaultAccessMode: 'READ' });
+  const user = await prisma.user.findUnique({
+    where: { clerkUserId: uid },
+    select: {
+      skills: {
+        select: { kind: true, skill: { select: { name: true } } },
+      },
+    },
+  });
 
-  try {
-    const result = await session.run(
-      `MATCH (u:User { uid: $uid })
-       OPTIONAL MATCH (u)-[:TEACHES]->(ts:Skill)
-       OPTIONAL MATCH (u)-[:LEARNS]->(ls:Skill)
-       RETURN collect(DISTINCT ts.name) AS teaches,
-              collect(DISTINCT ls.name) AS learns`,
-      { uid },
-    );
-
-    const record = result.records[0];
-    return {
-      teaches: record ? record.get('teaches').filter(Boolean) : [],
-      learns:  record ? record.get('learns').filter(Boolean)  : [],
-    };
-  } finally {
-    await session.close();
-  }
+  return {
+    teaches: (user?.skills || []).filter((item) => item.kind === 'TEACHES').map((item) => item.skill.name),
+    learns: (user?.skills || []).filter((item) => item.kind === 'LEARNS').map((item) => item.skill.name),
+  };
 }
 
-// ── Neo4j integer helpers ─────────────────────────────────────────────
-const neo4j = require('neo4j-driver');
+async function queryMatches(uid, options = {}) {
+  const limit = clampLimit(options.limit);
+  const offset = Math.max(Number(options.offset) || 0, 0);
+  const skillFilter = options.skillFilter || null;
+  const sameCollegeOnly = Boolean(options.sameCollegeOnly);
+  const cursor = decodeCursor(options.cursor);
 
-function neo4jInt(value) {
-  return neo4j.int(value);
-}
+  const requester = await prisma.user.findUnique({
+    where: { clerkUserId: uid },
+    select: { id: true, updatedAt: true },
+  });
+  if (!requester) return [];
 
-function toNumber(value) {
-  if (neo4j.isInt(value)) return value.toNumber();
-  return typeof value === 'number' ? value : Number(value);
+  const cacheKey = [
+    'match-feed:v1',
+    uid,
+    requester.updatedAt.getTime(),
+    sameCollegeOnly ? 'strict' : 'broad',
+    skillFilter || 'all',
+    options.cursor || offset,
+  ].join(':');
+  const cached = await getCachedFeed(cacheKey);
+  if (cached) return cached;
+
+  const cursorParams = cursor
+    ? Prisma.sql`
+      AND (
+        score.compatibility_score < ${Number(cursor.score)}
+        OR (
+          score.compatibility_score = ${Number(cursor.score)}
+          AND score.shared_skill_count < ${Number(cursor.sharedSkillCount)}
+        )
+        OR (
+          score.compatibility_score = ${Number(cursor.score)}
+          AND score.shared_skill_count = ${Number(cursor.sharedSkillCount)}
+          AND score.total_sessions < ${Number(cursor.totalSessions)}
+        )
+        OR (
+          score.compatibility_score = ${Number(cursor.score)}
+          AND score.shared_skill_count = ${Number(cursor.sharedSkillCount)}
+          AND score.total_sessions = ${Number(cursor.totalSessions)}
+          AND score.average_rating < ${Number(cursor.averageRating)}
+        )
+        OR (
+          score.compatibility_score = ${Number(cursor.score)}
+          AND score.shared_skill_count = ${Number(cursor.sharedSkillCount)}
+          AND score.total_sessions = ${Number(cursor.totalSessions)}
+          AND score.average_rating = ${Number(cursor.averageRating)}
+          AND score.id > ${cursor.id}
+        )
+      )
+    `
+    : Prisma.empty;
+
+  const rows = await prisma.$queryRaw(Prisma.sql`
+    WITH requester AS (
+      SELECT
+        u.id,
+        u."collegeId" AS college_id,
+        COUNT(us."skillId") FILTER (WHERE us.kind = 'LEARNS')::numeric AS learning_count,
+        COUNT(us."skillId") FILTER (WHERE us.kind = 'TEACHES')::numeric AS teaching_count
+      FROM "User" u
+      LEFT JOIN "UserSkill" us ON us."userId" = u.id
+      WHERE u.id = ${requester.id}::uuid
+      GROUP BY u.id
+    ),
+    overlap AS (
+      SELECT
+        candidate."userId" AS candidate_id,
+        candidate."skillId" AS skill_id,
+        skill.name,
+        candidate.kind
+      FROM "UserSkill" requested
+      JOIN "UserSkill" candidate
+        ON candidate."skillId" = requested."skillId"
+       AND candidate.kind <> requested.kind
+      JOIN "Skill" skill ON skill.id = candidate."skillId"
+      WHERE requested."userId" = ${requester.id}::uuid
+        AND candidate."userId" <> ${requester.id}::uuid
+        AND (${skillFilter}::text IS NULL OR skill.name = ${skillFilter})
+    ),
+    grouped AS (
+      SELECT
+        candidate_id,
+        COUNT(DISTINCT skill_id)::numeric AS shared_skill_count,
+        ARRAY_AGG(DISTINCT name ORDER BY name) AS shared_skills
+      FROM overlap
+      GROUP BY candidate_id
+    ),
+    score AS (
+      SELECT
+        u.id,
+        u."clerkUserId",
+        u.email,
+        u.name,
+        u."photoUrl",
+        u."collegeId" AS college_id,
+        u."departmentId" AS department_id,
+        u.year,
+        u."averageRating"::numeric AS average_rating,
+        u."totalSessions" AS total_sessions,
+        u.latitude,
+        u.longitude,
+        grouped.shared_skills,
+        grouped.shared_skill_count,
+        (u."collegeId" = requester.college_id) AS same_college,
+        LEAST(COUNT(teaching."skillId")::numeric / 10, 1) AS activity_score,
+        (
+          0.45 * LEAST(
+            grouped.shared_skill_count /
+            GREATEST(requester.learning_count + requester.teaching_count, 1),
+            1
+          )
+          + 0.25 * LEAST(
+            grouped.shared_skill_count /
+            GREATEST((requester.learning_count + requester.teaching_count) * 2, 1),
+            1
+          )
+          + 0.15 * CASE WHEN u."collegeId" = requester.college_id THEN 1 ELSE 0 END
+          + 0.10 * LEAST(COUNT(teaching."skillId")::numeric / 10, 1)
+          + 0.05 * LEAST(u."averageRating"::numeric / 5, 1)
+        ) AS compatibility_score
+      FROM grouped
+      JOIN "User" u ON u.id = grouped.candidate_id
+      CROSS JOIN requester
+      LEFT JOIN "UserSkill" teaching
+        ON teaching."userId" = u.id
+       AND teaching.kind = 'TEACHES'
+      WHERE u."deletedAt" IS NULL
+        AND (${sameCollegeOnly}::boolean = false OR u."collegeId" = requester.college_id)
+      GROUP BY
+        u.id, requester.college_id, requester.learning_count,
+        requester.teaching_count, grouped.shared_skills,
+        grouped.shared_skill_count
+    )
+    SELECT
+      id,
+      "clerkUserId" AS "clerkUserId",
+      email,
+      name,
+      "photoUrl" AS "photoUrl",
+      college_id AS "collegeId",
+      department_id AS "departmentId",
+      year,
+      average_rating AS "averageRating",
+      total_sessions AS "totalSessions",
+      latitude,
+      longitude,
+      shared_skills AS "sharedSkills",
+      shared_skill_count AS "sharedSkillCount",
+      same_college AS "sameCollege",
+      activity_score AS "activityScore",
+      compatibility_score AS "compatibilityScore"
+    FROM score
+    ${cursorParams}
+    ORDER BY compatibility_score DESC, shared_skill_count DESC,
+      total_sessions DESC, average_rating DESC, id ASC
+    OFFSET ${cursor ? 0 : offset}
+    LIMIT ${limit}
+  `);
+
+  const result = rows.map(normalizeMatch);
+  await setCachedFeed(cacheKey, result);
+  return result;
 }
 
 module.exports = {
@@ -213,4 +300,5 @@ module.exports = {
   findBroadMatches,
   findAnyMatches,
   getUserSkillGraph,
+  encodeCursor,
 };

@@ -221,6 +221,7 @@ CREATE TABLE "ChatMessage" (
     "id" UUID NOT NULL,
     "threadId" UUID NOT NULL,
     "senderId" UUID NOT NULL,
+    "clientMessageId" TEXT,
     "text" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "editedAt" TIMESTAMP(3),
@@ -368,6 +369,9 @@ CREATE INDEX "ChatMessage_threadId_createdAt_id_idx" ON "ChatMessage"("threadId"
 
 -- CreateIndex
 CREATE INDEX "ChatMessage_senderId_createdAt_idx" ON "ChatMessage"("senderId", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ChatMessage_senderId_clientMessageId_key" ON "ChatMessage"("senderId", "clientMessageId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TutoringSession_completionKey_key" ON "TutoringSession"("completionKey");

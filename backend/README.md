@@ -17,6 +17,14 @@ Production backend for Mindcraft, built with Node.js, Express, PostgreSQL, Prism
 
 The initial Prisma schema covers users, colleges, departments, skills, doubts, answers, tags, votes, chat threads, participants, messages, match requests, tutoring sessions, token transactions, and activity days. Existing route and service modules still use Neo4j until each feature is migrated and validated.
 
+## Socket.io chat
+
+Realtime chat uses Socket.io with Clerk bearer-token authentication. Configure `REDIS_URL` to enable the Redis adapter for multi-instance broadcasts. Chat messages are acknowledged immediately as queued, emitted to the thread room, and persisted by the BullMQ `chat-persistence` worker into PostgreSQL. Run the worker separately with `npm run worker:chat`.
+
+## SQL peer matching
+
+Find Mate uses indexed PostgreSQL joins over `UserSkill` rather than graph traversal. A candidate is eligible when they have the same skill as the requester with the opposite direction (`LEARNS` versus `TEACHES`). Results are ranked by complementary skill overlap, reciprocal interest, same-college preference, teaching activity, and rating. Redis caches the first-page feed for 60 seconds when `REDIS_URL` is configured; cache failures fall back to PostgreSQL.
+
 ## Local Setup
 
 ```bash
@@ -59,6 +67,13 @@ FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 SARVAM_API_KEY=your-sarvam-api-key
 SARVAM_STT_URL=https://api.sarvam.ai/speech-to-text
 SARVAM_CHAT_URL=https://api.sarvam.ai/v1/chat/completions
+SARVAM_MAX_AUDIO_BYTES=10485760
+SARVAM_STT_TIMEOUT_MS=30000
+SARVAM_STT_MAX_ATTEMPTS=2
+SARVAM_CHAT_TIMEOUT_MS=10000
+SARVAM_CHAT_MAX_ATTEMPTS=3
+SARVAM_RETRY_BASE_DELAY_MS=250
+SARVAM_RETRY_MAX_DELAY_MS=3000
 
 CORS_ORIGIN=*
 ```
@@ -117,6 +132,12 @@ When a doubt is posted, the backend:
 3. Rejects repeated generic hints and retries with a stricter prompt.
 4. Falls back to a topic-specific local hint if Sarvam times out or fails.
 5. Stores the result directly on the Neo4j `Doubt` node as `aiHint`.
+
+Sarvam requests use bounded timeouts and exponential backoff for transient network,
+rate-limit, and server errors. Invalid audio and oversized uploads are rejected
+without retrying. Speech requests return a provider timeout/unavailable response
+when retries are exhausted. Study hints use the existing topic-specific local
+fallback so doubt creation does not leave the user waiting on Sarvam.
 
 ## Doubt Image Uploads
 
