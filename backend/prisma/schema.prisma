@@ -1,0 +1,369 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SkillKind {
+  TEACHES
+  LEARNS
+}
+
+enum DoubtStatus {
+  ACTIVE
+  CLOSED
+  DELETED
+}
+
+enum AiAssistStatus {
+  SKIPPED
+  GENERATED
+  FALLBACK
+  FAILED
+  EMPTY
+}
+
+enum ChatParticipantRole {
+  MEMBER
+  OWNER
+}
+
+enum MatchRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
+enum SessionStatus {
+  PENDING
+  UPCOMING
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+enum SessionMode {
+  ONLINE
+  IN_PERSON
+}
+
+enum TokenTransactionType {
+  CREDIT
+  DEBIT
+}
+
+model User {
+  id                 String    @id @default(uuid()) @db.Uuid
+  clerkUserId        String    @unique
+  email              String    @unique
+  name               String
+  photoUrl           String?
+  bannerUrl          String?
+  gender             String?
+  collegeId          String?   @db.Uuid
+  collegeLocation    String?
+  departmentId       String?   @db.Uuid
+  year               String?
+  latitude           Decimal?  @db.Decimal(9, 6)
+  longitude          Decimal?  @db.Decimal(9, 6)
+  lastLocationUpdate DateTime?
+  averageRating      Decimal   @default(0) @db.Decimal(3, 2)
+  totalSessions      Int       @default(0)
+  mindTokens         Int       @default(0)
+  currentStreak      Int       @default(0)
+  longestStreak      Int       @default(0)
+  totalActiveDays    Int       @default(0)
+  profileComplete    Boolean   @default(false)
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  college          College?           @relation(fields: [collegeId], references: [id])
+  department       Department?        @relation(fields: [departmentId], references: [id])
+  skills           UserSkill[]
+  authoredDoubts   Doubt[]            @relation("DoubtAuthor")
+  answers          DoubtAnswer[]
+  votes            DoubtVote[]
+  participants     ChatParticipant[]
+  messages         ChatMessage[]
+  lastSentThreads  ChatThread[]       @relation("LastMessageSender")
+  sentRequests     MatchRequest[]     @relation("MatchRequester")
+  receivedRequests MatchRequest[]     @relation("MatchRecipient")
+  teachingSessions TutoringSession[]  @relation("SessionTeacher")
+  learningSessions TutoringSession[]  @relation("SessionLearner")
+  transactions     TokenTransaction[]
+  activityDays     ActivityDay[]
+  images           DoubtImage[]       @relation("ImageUploader")
+
+  @@index([collegeId, departmentId])
+  @@index([mindTokens])
+  @@index([deletedAt])
+}
+
+model College {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  location  String?
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Department {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Skill {
+  id        String      @id @default(uuid()) @db.Uuid
+  name      String      @unique
+  users     UserSkill[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([name])
+}
+
+model UserSkill {
+  userId  String    @db.Uuid
+  skillId String    @db.Uuid
+  kind    SkillKind
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill   Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([userId, skillId, kind])
+  @@index([skillId, kind, userId])
+  @@index([userId, kind])
+}
+
+model Doubt {
+  id                  String         @id @default(uuid()) @db.Uuid
+  authorId            String         @db.Uuid
+  title               String
+  content             String
+  primaryTag          String?
+  status              DoubtStatus    @default(ACTIVE)
+  upvoteCount         Int            @default(0)
+  answerCount         Int            @default(0)
+  aiHint              String?
+  aiAssistProvider    String?
+  aiAssistModel       String?
+  aiAssistStatus      AiAssistStatus @default(SKIPPED)
+  aiAssistUsage       Json?
+  aiAssistGeneratedAt DateTime?
+  aiAssistError       String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  deletedAt           DateTime?
+
+  author  User                 @relation("DoubtAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  answers DoubtAnswer[]
+  images  DoubtImage[]
+  tags    DoubtTagAssignment[]
+  votes   DoubtVote[]
+
+  @@index([status, createdAt])
+  @@index([primaryTag, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model DoubtAnswer {
+  id         String    @id @default(uuid()) @db.Uuid
+  doubtId    String    @db.Uuid
+  authorId   String    @db.Uuid
+  content    String
+  isAccepted Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  doubt  Doubt @relation(fields: [doubtId], references: [id], onDelete: Cascade)
+  author User  @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([doubtId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model DoubtImage {
+  id         String   @id @default(uuid()) @db.Uuid
+  doubtId    String   @db.Uuid
+  uploadedBy String   @db.Uuid
+  objectKey  String
+  mimeType   String
+  fileName   String?
+  width      Int?
+  height     Int?
+  sizeBytes  Int
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  doubt    Doubt @relation(fields: [doubtId], references: [id], onDelete: Cascade)
+  uploader User  @relation("ImageUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@index([doubtId, sortOrder])
+}
+
+model DoubtTag {
+  id        String               @id @default(uuid()) @db.Uuid
+  name      String               @unique
+  doubts    DoubtTagAssignment[]
+  createdAt DateTime             @default(now())
+}
+
+model DoubtTagAssignment {
+  doubtId String   @db.Uuid
+  tagId   String   @db.Uuid
+  doubt   Doubt    @relation(fields: [doubtId], references: [id], onDelete: Cascade)
+  tag     DoubtTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([doubtId, tagId])
+  @@index([tagId, doubtId])
+}
+
+model DoubtVote {
+  doubtId   String   @db.Uuid
+  userId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  doubt     Doubt    @relation(fields: [doubtId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([doubtId, userId])
+  @@index([userId, createdAt])
+}
+
+model MatchRequest {
+  id          String             @id @default(uuid()) @db.Uuid
+  requesterId String             @db.Uuid
+  recipientId String             @db.Uuid
+  sharedSkill String
+  status      MatchRequestStatus @default(PENDING)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  respondedAt DateTime?
+
+  requester User        @relation("MatchRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  recipient User        @relation("MatchRecipient", fields: [recipientId], references: [id], onDelete: Restrict)
+  thread    ChatThread?
+
+  @@index([recipientId, status, createdAt])
+  @@index([requesterId, status, createdAt])
+  @@index([requesterId, recipientId, status])
+}
+
+model ChatThread {
+  id             String    @id @default(uuid()) @db.Uuid
+  matchRequestId String?   @unique @db.Uuid
+  lastMessage    String?
+  lastMessageAt  DateTime?
+  lastSenderId   String?   @db.Uuid
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  archivedAt     DateTime?
+
+  matchRequest MatchRequest?     @relation(fields: [matchRequestId], references: [id], onDelete: SetNull)
+  lastSender   User?             @relation("LastMessageSender", fields: [lastSenderId], references: [id], onDelete: SetNull)
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+  sessions     TutoringSession[]
+
+  @@index([updatedAt])
+}
+
+model ChatParticipant {
+  threadId   String              @db.Uuid
+  userId     String              @db.Uuid
+  role       ChatParticipantRole @default(MEMBER)
+  lastReadAt DateTime?
+  joinedAt   DateTime            @default(now())
+  leftAt     DateTime?
+  thread     ChatThread          @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, userId])
+  @@index([userId, joinedAt])
+}
+
+model ChatMessage {
+  id        String     @id @default(uuid()) @db.Uuid
+  threadId  String     @db.Uuid
+  senderId  String     @db.Uuid
+  text      String
+  createdAt DateTime   @default(now())
+  editedAt  DateTime?
+  deletedAt DateTime?
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender    User       @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([threadId, createdAt, id])
+  @@index([senderId, createdAt])
+}
+
+model TutoringSession {
+  id            String        @id @default(uuid()) @db.Uuid
+  teacherId     String        @db.Uuid
+  learnerId     String        @db.Uuid
+  threadId      String?       @db.Uuid
+  title         String?
+  mode          SessionMode   @default(ONLINE)
+  status        SessionStatus @default(PENDING)
+  scheduledFor  DateTime?
+  completedAt   DateTime?
+  completionKey String?       @unique
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  teacher User        @relation("SessionTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+  learner User        @relation("SessionLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  thread  ChatThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+
+  @@index([teacherId, status, scheduledFor])
+  @@index([learnerId, status, scheduledFor])
+}
+
+model TokenTransaction {
+  id             String               @id @default(uuid()) @db.Uuid
+  userId         String               @db.Uuid
+  amount         Int
+  type           TokenTransactionType
+  reason         String
+  idempotencyKey String?
+  metadata       Json?
+  createdAt      DateTime             @default(now())
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, reason, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([reason, idempotencyKey])
+}
+
+model ActivityDay {
+  userId        String   @db.Uuid
+  activityDate  DateTime @db.Date
+  activityTypes String[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, activityDate])
+  @@index([activityDate])
+}
+
+model ClerkWebhookEvent {
+  id           String    @id @default(uuid()) @db.Uuid
+  clerkEventId String    @unique
+  eventType    String
+  processedAt  DateTime?
+  failedAt     DateTime?
+  error        String?
+  createdAt    DateTime  @default(now())
+
+  @@index([eventType, createdAt])
+}

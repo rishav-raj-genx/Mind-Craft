@@ -1,23 +1,25 @@
 import axios from 'axios';
-import { auth } from './firebase';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://mindcraft-backend-g2hj.onrender.com";
-export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || "wss://mindcraft-backend-g2hj.onrender.com";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://mindcraft-backend-g2hj.onrender.com';
+export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'wss://mindcraft-backend-g2hj.onrender.com';
+
+let clerkTokenProvider = null;
+
+export function setClerkTokenProvider(provider) {
+  clerkTokenProvider = provider;
+}
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
-  timeout: 60_000, // 60s — prevents infinite hangs, handles Render cold starts
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: 60_000,
+  headers: { 'Content-Type': 'application/json' },
 });
 
 api.interceptors.request.use(
   async (config) => {
-    const user = auth.currentUser;
-    if (user) {
-      const token = await user.getIdToken();
-      config.headers.Authorization = `Bearer ${token}`;
+    if (clerkTokenProvider) {
+      const token = await clerkTokenProvider();
+      if (token) config.headers.Authorization = `Bearer ${token}`;
     }
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];
@@ -25,22 +27,17 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
-// ── Global response error interceptor ─────────────────────────────────
-// Catches network errors & timeouts so the app never fails silently
-// or shows a white screen on a flaky mobile connection.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (!error.response) {
-      // Network error or timeout — no response from server
       const message = error.code === 'ECONNABORTED'
         ? 'Waking up server... (this can take up to 60 seconds on the free tier)'
         : 'Network error. Please check your internet connection.';
-      console.error('🌐 Network error:', error.message);
-      // Show a non-blocking toast / alert so the user knows what happened
+      console.error('Network error:', error.message);
       if (typeof window !== 'undefined' && !window.__mindcraft_network_toast_active) {
         window.__mindcraft_network_toast_active = true;
         alert(message);
@@ -48,7 +45,7 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(error);
-  }
+  },
 );
 
 export default api;

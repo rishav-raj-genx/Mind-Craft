@@ -7,7 +7,7 @@
 
 const { WebSocketServer } = require('ws');
 const url                  = require('url');
-const { auth }             = require('../config/firebase');
+const { verifyToken }      = require('@clerk/clerk-sdk-node');
 const { getDriver }        = require('../config/neo4j');
 
 const rooms = new Map();
@@ -32,11 +32,13 @@ function initWebSocketServer(httpServer) {
 
     let user;
     try {
-      const decoded = await auth.verifyIdToken(token);
+      const decoded = await verifyToken(token, {
+        secretKey: process.env.CLERK_SECRET_KEY,
+      });
       user = {
-        uid:   decoded.uid,
+        uid:   decoded.sub,
         email: decoded.email || '',
-        name:  decoded.name  || '',
+        name:  decoded.name || '',
       };
     } catch (_err) {
       ws.close(4003, 'Invalid authentication token');

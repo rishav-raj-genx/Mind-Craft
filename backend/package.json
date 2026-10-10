@@ -1,11 +1,14 @@
 {
   "name": "mindcraft-backend",
   "version": "1.0.0",
-  "description": "Production-grade Express.js backend for Mindcraft P2P college tutoring platform",
+  "description": "Production-grade Express.js and Prisma backend for Mindcraft P2P college tutoring platform",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
     "workflow:weekly-audit": "node src/workflows/weeklyAudit.js",
     "db:clear": "node scripts/clearAuraDb.js"
   },
@@ -19,6 +22,8 @@
   "author": "Mindcraft Team",
   "license": "MIT",
   "dependencies": {
+    "@prisma/client": "^6.17.0",
+    "@clerk/clerk-sdk-node": "^5.1.6",
     "@renderinc/sdk": "^0.6.0",
     "axios": "^1.7.9",
     "bcryptjs": "^3.0.3",
@@ -37,6 +42,8 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-local": "^1.0.0",
+    "prisma": "^6.17.0",
+    "svix": "^1.76.0",
     "sharp": "^0.35.3",
     "uuid": "^11.0.5",
     "ws": "^8.18.0"

@@ -29,6 +29,7 @@ const { ensureConstraints, verifyConnectivity, closeDriver } = require('./src/co
 
 // ── Middleware ────────────────────────────────────────────────────────
 const { globalErrorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
+const clerkWebhookRoutes = require('./src/routes/clerkWebhook');
 
 // ── Routes ───────────────────────────────────────────────────────────
 const userRoutes         = require('./src/routes/user');
@@ -42,6 +43,7 @@ const authRoutes         = require('./src/routes/auth');
 
 // ── Services ─────────────────────────────────────────────────────────
 const { initWebSocketServer } = require('./src/services/chatService');
+const { disconnectPrisma } = require('./src/config/prisma');
 
 // ── Express app ──────────────────────────────────────────────────────
 const app  = express();
@@ -67,6 +69,8 @@ app.use(compression({
   level: 6,
 }));
 
+// Clerk signs webhook requests against the unparsed payload.
+app.use('/api/webhooks/clerk', clerkWebhookRoutes);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -149,6 +153,7 @@ async function boot() {
     });
 
     await closeDriver();
+    await disconnectPrisma();
     console.log('   ✔ All connections closed. Goodbye! 👋\n');
     process.exit(0);
   };

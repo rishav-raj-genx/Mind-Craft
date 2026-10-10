@@ -1,42 +1,68 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../config/firebase';
+import { createContext, useContext, useEffect } from 'react';
+import { useAuth as useClerkAuth, useClerk, useUser } from '@clerk/clerk-react';
+import { setClerkTokenProvider } from '../config/api';
 
 const AuthContext = createContext({});
 
+// This context intentionally exports its hook alongside the provider for the app's legacy API.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
+  const { isLoaded, isSignedIn, signIn, signUp, getToken, signOut, setActive } = useClerkAuth();
+  const { user } = useUser();
+  const clerk = useClerk();
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      setLoading(false);
+    if (isLoaded) {
+      setClerkTokenProvider(getToken);
+    }
+  }, [getToken, isLoaded]);
+
+  const currentUser = user
+    ? {
+      ...user,
+      uid: user.id,
+      email: user.primaryEmailAddress?.emailAddress || '',
+      name: user.fullName || user.username || '',
+      photoURL: user.imageUrl,
+    }
+    : null;
+
+  const loginWithGoogle = async () => {
+    await signIn.authenticateWithRedirect({
+      strategy: 'oauth_google',
+      redirectUrl: '/login/sso-callback',
+      redirectUrlComplete: '/',
     });
-    return unsubscribe;
-  }, []);
-
-  const loginWithGoogle = () => {
-    const provider = new GoogleAuthProvider();
-    return signInWithPopup(auth, provider);
+    return null;
   };
 
-  const loginWithEmail = (email, password) => {
-    return signInWithEmailAndPassword(auth, email, password);
+  const loginWithEmail = async (email, password) => {
+    const result = await signIn.create({ identifier: email, password });
+    if (result.status !== 'complete') {
+      throw new Error('Additional sign-in verification is required.');
+    }
+    await setActive({ session: result.createdSessionId });
+    return { user: { uid: result.createdUserId || user?.id } };
   };
 
-  const registerWithEmail = (email, password) => {
-    return createUserWithEmailAndPassword(auth, email, password);
+  const registerWithEmail = async (email, password) => {
+    const result = await signUp.create({ emailAddress: email, password });
+    if (result.status !== 'complete') {
+      throw new Error('Additional sign-up verification is required.');
+    }
+    await setActive({ session: result.createdSessionId });
+    return { user: { uid: result.createdUserId } };
   };
 
-  const logout = () => {
-    return signOut(auth);
-  };
+  const logout = () => signOut();
 
   const value = {
     currentUser,
+    isLoaded,
+    isSignedIn,
+    clerk,
+    getToken,
     loginWithGoogle,
     loginWithEmail,
     registerWithEmail,
@@ -45,7 +71,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {isLoaded ? children : null}
     </AuthContext.Provider>
   );
 };

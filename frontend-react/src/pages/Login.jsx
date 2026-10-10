@@ -36,29 +36,10 @@ const Login = () => {
     try {
       setError('');
       setLoading('google');
-      const cred = await loginWithGoogle();
-      
-      try {
-        await userService.getFullProfile(cred.user.uid);
-        navigate('/');
-      } catch (err) {
-        if (err.response?.status === 404) {
-          // Account exists in Firebase but needs profile setup
-          navigate('/signup');
-        } else {
-          await logout();
-          setError('Failed to fetch profile: ' + (err.response?.data?.error || err.message));
-        }
-      }
+      await loginWithGoogle();
     } catch (err) {
       console.error('Google login error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setError('Sign-in window was closed before completing.');
-      } else if (err.code === 'auth/unauthorized-domain') {
-        setError('Current domain is not authorized in Firebase Console (Authentication > Settings > Authorized domains).');
-      } else {
-        setError(err.message || 'Google sign-in failed.');
-      }
+      setError(err.message || 'Google sign-in failed.');
     } finally {
       setLoading('');
     }
@@ -69,26 +50,11 @@ const Login = () => {
     try {
       setError('');
       setLoading('email');
-      const cred = await loginWithEmail(email, password);
-      
-      try {
-        await userService.getFullProfile(cred.user.uid);
-        navigate('/');
-      } catch (err) {
-        if (err.response?.status === 404) {
-          navigate('/signup');
-        } else {
-          await logout();
-          setError('Failed to fetch profile: ' + (err.response?.data?.error || err.message));
-        }
-      }
+      await loginWithEmail(email, password);
+      navigate('/');
     } catch (err) {
       console.error('Email login error:', err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
-        setError('Invalid email or password. Please check your credentials or sign up.');
-      } else {
-        setError('Failed to log in: ' + err.message);
-      }
+      setError('Failed to log in: ' + err.message);
     } finally {
       setLoading('');
     }
