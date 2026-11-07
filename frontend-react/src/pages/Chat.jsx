@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { chatService } from '../services/chatService';
 import { sessionService } from '../services/sessionService';
-import { ArrowLeft, Send, Phone, Video, Info, Check, CheckCheck, Clock, CalendarPlus, Star, X, Loader2, MessageSquare, Plus } from 'lucide-react';
+import { ArrowLeft, Send, Check, CheckCheck, Clock, CalendarPlus, Star, X, Loader2, MessageSquare, Plus } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { readCache, writeCache } from '../utils/cache';
@@ -223,24 +223,34 @@ const Chat = () => {
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
+  const loadSessions = useCallback(async () => {
+    if (!currentUser?.uid || !matchId) return;
+    try {
+      const res = await sessionService.getSessions(currentUser.uid);
+      const matchSessions = (res.data || []).filter(s => s.matchId === matchId);
+      setSessions(matchSessions);
+    } catch (err) {
+      console.error("Failed to load sessions", err);
+    }
+  }, [currentUser, matchId]);
+
   useEffect(() => {
     if (!matchId) return;
     if (!currentUser) return;
-    
+
     const historyCacheKey = `chat-history:${matchId}`;
     const detailCacheKey = `chat-detail:${matchId}`;
-    const cachedMessages = readCache(historyCacheKey, []);
-    const cachedDetail = readCache(detailCacheKey, null);
-    if (cachedMessages.length > 0) setMessages(cachedMessages);
-    if (cachedDetail?.partner && !partner) setPartner(cachedDetail.partner);
 
     const initChat = async () => {
       try {
+        const cachedMessages = readCache(historyCacheKey, []);
+        const cachedDetail = readCache(detailCacheKey, null);
+        if (cachedMessages.length > 0) setMessages(cachedMessages);
+        if (cachedDetail?.partner) setPartner(prev => prev || cachedDetail.partner);
+
         // Fetch history
         const history = await chatService.getHistory(matchId);
-        console.log("HISTORY FETCHED:", history);
         const historyMessages = Array.isArray(history) ? history : (history.data || history.messages || []);
-        console.log("HISTORY MESSAGES SETTING:", historyMessages);
         if (historyMessages.length > 0 || cachedMessages.length === 0) {
           setMessages(historyMessages);
           writeCache(historyCacheKey, historyMessages);
@@ -330,7 +340,7 @@ const Chat = () => {
     });
 
     return () => unsubscribe();
-  }, [matchId, currentUser]);
+  }, [matchId, currentUser, globalMarkRead, subscribeToChat, loadSessions]);
 
   useEffect(() => {
     const container = document.getElementById('messages-container');
@@ -340,17 +350,8 @@ const Chat = () => {
     if (matchId && messages.length > 0) {
       writeCache(`chat-history:${matchId}`, messages);
     }
-  }, [messages, isTyping]);
+  }, [messages, isTyping, matchId]);
 
-  async function loadSessions() {
-    try {
-      const res = await sessionService.getSessions(currentUser.uid);
-      const matchSessions = (res.data || []).filter(s => s.matchId === matchId);
-      setSessions(matchSessions);
-    } catch (err) {
-      console.error("Failed to load sessions", err);
-    }
-  }
 
   const handleStartPress = (msg) => {
     if (msg.senderUid !== currentUser.uid && msg.senderId !== currentUser.uid) return;
@@ -414,7 +415,7 @@ const Chat = () => {
       // Fallback if WS fails
       try {
         await chatService.sendMessage(matchId, text);
-      } catch(err) {
+      } catch {
         setMessages(prev => prev.map(m => m.localId === localId ? {...m, status: 'error'} : m));
       }
     }

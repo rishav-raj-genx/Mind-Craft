@@ -2,52 +2,40 @@
  * server.js — Mindcraft Backend Entry Point
  *
  * Production-grade Express.js REST API for the Mindcraft P2P college
- * tutoring platform. Zero view engines or templating — pure JSON API.
- *
- * Boot sequence:
- *   1. Load environment variables
- *   2. Initialize Passport authentication strategies
- *   3. Initialize Neo4j driver + create uniqueness constraints
- *   4. Mount Express middleware + routes
- *   5. Start WebSocket server for real-time chat
- *   6. Listen on configured port
+ * tutoring platform. Pure JSON API powered by Prisma (PostgreSQL),
+ * Clerk Authentication, Socket.io, and BullMQ.
  */
 
 require('dotenv').config();
 
-const express  = require('express');
-const cors     = require('cors');
-const helmet   = require('helmet');
-const morgan   = require('morgan');
-const http     = require('http');
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const http = require('http');
 const compression = require('compression');
-const session  = require('express-session');
-
-// ── Config ───────────────────────────────────────────────────────────
-const { passport } = require('./src/config/passport');
-const { ensureConstraints, verifyConnectivity, closeDriver } = require('./src/config/neo4j');
 
 // ── Middleware ────────────────────────────────────────────────────────
 const { globalErrorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 const clerkWebhookRoutes = require('./src/routes/clerkWebhook');
 
 // ── Routes ───────────────────────────────────────────────────────────
-const userRoutes         = require('./src/routes/user');
-const matchRoutes        = require('./src/routes/match');
-const voiceSearchRoutes  = require('./src/routes/voiceSearch');
+const userRoutes = require('./src/routes/user');
+const matchRoutes = require('./src/routes/match');
+const voiceSearchRoutes = require('./src/routes/voiceSearch');
 const gamificationRoutes = require('./src/routes/gamification');
-const chatRoutes         = require('./src/routes/chat');
-const sessionRoutes      = require('./src/routes/session');
-const doubtRoutes        = require('./src/routes/doubt');
-const authRoutes         = require('./src/routes/auth');
+const chatRoutes = require('./src/routes/chat');
+const sessionRoutes = require('./src/routes/session');
+const doubtRoutes = require('./src/routes/doubt');
+const authRoutes = require('./src/routes/auth');
 
-// ── Services ─────────────────────────────────────────────────────────
+// ── Services & DB ────────────────────────────────────────────────────
 const { disconnectPrisma } = require('./src/config/prisma');
 const { initSocketServer, closeSocketServer } = require('./src/config/socket');
 const { closeRedis } = require('./src/config/redis');
 
 // ── Express app ──────────────────────────────────────────────────────
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Global middleware ────────────────────────────────────────────────
@@ -75,48 +63,32 @@ app.use('/api/webhooks/clerk', clerkWebhookRoutes);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ── Session + Passport ───────────────────────────────────────────────
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'mindcraft-dev-secret-change-in-production',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-  },
-}));
-
-app.use(passport.initialize());
-app.use(passport.session());
-
 // ── Health check ─────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
   res.json({
     success: true,
     service: 'mindcraft-backend',
     version: '1.0.0',
-    uptime:  process.uptime(),
+    uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
 });
 
 // ── API routes ───────────────────────────────────────────────────────
-app.use('/api/user',         userRoutes);
-app.use('/api/match',        matchRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/match', matchRoutes);
 app.use('/api/voice-search', voiceSearchRoutes);
-app.use('/api',              gamificationRoutes);
-app.use('/api/chat',         chatRoutes);
-app.use('/api/session',      sessionRoutes);
-app.use('/api/doubt',        doubtRoutes);
-app.use('/api/auth',         authRoutes);
+app.use('/api', gamificationRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/session', sessionRoutes);
+app.use('/api/doubt', doubtRoutes);
+app.use('/api/auth', authRoutes);
 
 // ── 404 + error handling ─────────────────────────────────────────────
 app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
-// ── Create HTTP server (shared with WebSocket) ───────────────────────
+// ── Create HTTP server (shared with Socket.io) ─────────────────────────
 const httpServer = http.createServer(app);
 
 // ── Boot sequence ────────────────────────────────────────────────────
@@ -125,23 +97,15 @@ async function boot() {
   console.log('   MINDCRAFT BACKEND — Starting up…');
   console.log('══════════════════════════════════════════════\n');
 
-  // 1. Neo4j — verify connectivity + create constraints
-  const neo4jConnected = await verifyConnectivity();
-  if (neo4jConnected) {
-    await ensureConstraints();
-  } else {
-    console.warn('⚠️  Neo4j unavailable — graph features will be degraded');
-  }
-
-  // 2. Socket.io server for horizontally scalable realtime chat
+  // 1. Socket.io server with Redis adapter
   initSocketServer(httpServer);
 
-  // 3. Start listening
+  // 2. Start listening
   httpServer.listen(PORT, () => {
     console.log(`\n🚀 Mindcraft backend listening on port ${PORT}`);
     console.log(`   Health:        http://localhost:${PORT}/health`);
     console.log(`   API base:      http://localhost:${PORT}/api`);
-    console.log(`   WebSocket:     ws://localhost:${PORT}/ws`);
+    console.log(`   Socket.io:     http://localhost:${PORT}/socket.io`);
     console.log(`   Environment:   ${process.env.NODE_ENV || 'development'}\n`);
   });
 
@@ -155,17 +119,20 @@ async function boot() {
 
     await closeSocketServer();
     await closeRedis();
-    await closeDriver();
     await disconnectPrisma();
     console.log('   ✔ All connections closed. Goodbye! 👋\n');
     process.exit(0);
   };
 
+  process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT',  () => shutdown('SIGINT'));
 }
 
-boot().catch((err) => {
-  console.error('❌ Fatal boot error:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  boot().catch((err) => {
+    console.error('Fatal boot error:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, httpServer, boot };

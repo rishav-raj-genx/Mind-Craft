@@ -291,7 +291,7 @@ const SignUp = () => {
       if (err.code === 'auth/popup-closed-by-user') {
         setError('Sign-up window was closed before completing.');
       } else if (err.code === 'auth/unauthorized-domain') {
-        setError('Current domain is not authorized in Firebase Console (Authentication > Settings > Authorized domains).');
+        setError('Current domain is not authorized in Clerk Console (Settings > Allowed domains).');
       } else {
         setError(err.message || 'Google signup failed. Please try email/password.');
       }
@@ -315,7 +315,7 @@ const SignUp = () => {
         user = result.user;
       } catch (err) {
         if (err.code === 'auth/email-already-in-use') {
-          // Deadlock fix: They have a Firebase account but no DB profile. 
+          // They have an account but no DB profile. 
           // Log them in to complete the DB registration.
           const result = await loginWithEmail(email.trim(), password);
           user = result.user;

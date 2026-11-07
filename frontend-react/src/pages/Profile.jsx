@@ -402,38 +402,46 @@ const Profile = () => {
   const graphScrollRef = useRef(null);
   const isOwner = currentUser?.uid === uid;
 
-  const fetchAll = async () => {
-    setLoading(true);
-    try {
-      const profileRes = await userService.getFullProfile(uid);
-      setProfileData(profileRes.data);
-      if (profileRes.data?.streak) setStreakData(profileRes.data.streak);
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const profileRes = await userService.getFullProfile(uid);
+        if (!isMounted) return;
+        setProfileData(profileRes.data);
+        if (profileRes.data?.streak) setStreakData(profileRes.data.streak);
 
-      if (currentUser && currentUser.uid !== uid) {
-        try {
-          const followingRes = await userService.getFollowing(currentUser.uid);
-          if (followingRes.data && followingRes.data.some(u => u.uid === uid)) {
-            setIsConnected(true);
-          }
-        } catch { /* ignore */ }
+        if (currentUser && currentUser.uid !== uid) {
+          try {
+            const followingRes = await userService.getFollowing(currentUser.uid);
+            if (followingRes.data && followingRes.data.some(u => u.uid === uid)) {
+              setIsConnected(true);
+            }
+          } catch { /* ignore */ }
+        }
+      } catch (err) {
+        console.error('Profile fetch error', err);
       }
-    } catch (err) {
-      console.error('Profile fetch error', err);
-    }
-    try {
-      const [streakRes, badgeRes] = await Promise.all([
-        gamificationService.getStreak(uid),
-        gamificationService.getBadges(uid),
-      ]);
-      if (streakRes?.data) setStreakData(streakRes.data);
-      if (badgeRes?.data) setBadgeData(badgeRes.data);
-    } catch (err) {
-      console.error('Gamification fetch error', err);
-    }
-    setLoading(false);
-  };
+      try {
+        const [streakRes, badgeRes] = await Promise.all([
+          gamificationService.getStreak(uid),
+          gamificationService.getBadges(uid),
+        ]);
+        if (!isMounted) return;
+        if (streakRes?.data) setStreakData(streakRes.data);
+        if (badgeRes?.data) setBadgeData(badgeRes.data);
+      } catch (err) {
+        console.error('Gamification fetch error', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
 
-  useEffect(() => { fetchAll(); }, [uid]);
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [uid, currentUser]);
 
   // Auto-scroll consistency graph to the right (current month) when data loads
   useEffect(() => {

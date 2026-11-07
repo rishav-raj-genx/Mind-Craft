@@ -1,22 +1,39 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppContext } from '../context/AppContext';
 
+const STARS = Array.from({ length: 50 }, (_, i) => {
+  const seed1 = ((i * 9301 + 49297) % 233280) / 233280;
+  const seed2 = (((i + 1) * 9301 + 49297) % 233280) / 233280;
+  const seed3 = (((i + 2) * 9301 + 49297) % 233280) / 233280;
+  const seed4 = (((i + 3) * 9301 + 49297) % 233280) / 233280;
+  return {
+    id: i,
+    width: `${seed1 * 2 + 1}px`,
+    height: `${seed1 * 2 + 1}px`,
+    top: `${seed2 * 100}%`,
+    left: `${seed3 * 100}%`,
+    opacity: seed4 * 0.8 + 0.2,
+    duration: seed1 * 3 + 2,
+    delay: seed2 * 2,
+  };
+});
+
 export const StarsBackground = () => (
   <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-    {[...Array(50)].map((_, i) => (
+    {STARS.map((star) => (
       <motion.div
-        key={i}
+        key={star.id}
         className="absolute bg-white rounded-full"
         style={{
-          width: Math.random() * 2 + 1 + 'px',
-          height: Math.random() * 2 + 1 + 'px',
-          top: Math.random() * 100 + '%',
-          left: Math.random() * 100 + '%',
-          opacity: Math.random() * 0.8 + 0.2,
-          boxShadow: '0 0 8px #fff'
+          width: star.width,
+          height: star.height,
+          top: star.top,
+          left: star.left,
+          opacity: star.opacity,
+          boxShadow: '0 0 8px #fff',
         }}
-        animate={{ opacity: [Math.random() * 0.8 + 0.2, 1, Math.random() * 0.8 + 0.2] }}
-        transition={{ duration: Math.random() * 3 + 2, repeat: Infinity, ease: 'easeInOut', delay: Math.random() * 2 }}
+        animate={{ opacity: [star.opacity, 1, star.opacity] }}
+        transition={{ duration: star.duration, repeat: Infinity, ease: 'easeInOut', delay: star.delay }}
       />
     ))}
   </div>

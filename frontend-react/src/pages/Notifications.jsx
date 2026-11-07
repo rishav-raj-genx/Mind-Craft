@@ -6,7 +6,7 @@ import { sessionService } from '../services/sessionService';
 import { gamificationService } from '../services/gamificationService';
 import { doubtService } from '../services/doubtService';
 import { chatService } from '../services/chatService';
-import { ArrowLeft, Check, X, MessageCircle, Flame, Calendar, Bell, MessageSquare, Loader2, Clock, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Check, X, MessageCircle, Flame, Calendar, Bell, MessageSquare, Loader2, CheckCircle2 } from 'lucide-react';
 
 const Notifications = () => {
   const navigate = useNavigate();
@@ -35,15 +35,9 @@ const Notifications = () => {
 
   const tabs = ['All', 'Messages', 'Forum', 'Sessions', 'Gamification', 'Social'];
 
-  useEffect(() => {
-    if (!currentUser) return;
-    clearUnreadNotifications?.();
-    buildNotifications();
-  }, [currentUser]);
-
   // Build dynamic notifications from real data sources (REST fallback)
-  const buildNotifications = async () => {
-    setLoading(true);
+  const buildNotifications = useCallback(async () => {
+    if (!currentUser) return;
     const notifs = [];
 
     try {
@@ -103,7 +97,9 @@ const Notifications = () => {
           });
         }
       });
-    } catch (err) {}
+    } catch {
+      // Ignore background fetch error
+    }
 
     try {
       const streakRes = await gamificationService.getStreak(currentUser.uid);
@@ -124,9 +120,9 @@ const Notifications = () => {
           route: '/streak'
         });
       }
-    } catch (err) {}
-
-
+    } catch {
+      // Ignore background fetch error
+    }
 
     try {
       const doubtsRes = await doubtService.getAllDoubts('All Doubts');
@@ -161,7 +157,9 @@ const Notifications = () => {
           route: `/forum?doubtId=${d.id}`
         });
       });
-    } catch (err) {}
+    } catch {
+      // Ignore background fetch error
+    }
 
     try {
       const threadsRes = await chatService.getThreads(currentUser.uid);
@@ -182,11 +180,28 @@ const Notifications = () => {
           });
         }
       });
-    } catch (err) {}
+    } catch {
+      // Ignore background fetch error
+    }
 
     setRestNotifications(notifs);
     setLoading(false);
-  };
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let isMounted = true;
+    const run = async () => {
+      await buildNotifications();
+      if (isMounted) {
+        clearUnreadNotifications?.();
+      }
+    };
+    run();
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser, clearUnreadNotifications, buildNotifications]);
 
   // Handle local "mark as read" for REST items
   const handleMarkRead = useCallback((notif) => {
@@ -265,15 +280,8 @@ const Notifications = () => {
 
   const formatTime = (ts) => {
     if (!ts) return '';
-    const diff = Date.now() - ts;
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const d = new Date(Number(ts));
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const handleAcceptSession = async (e, sessionId) => {
@@ -284,8 +292,8 @@ const Notifications = () => {
       try {
         const authRes = await sessionService.getGoogleAuthUrl();
         if (authRes.data?.authUrl) {
-          googleTokens = await new Promise((resolve, reject) => {
-            const popup = window.open(authRes.data.authUrl, 'googleAuth', 'width=500,height=600');
+          googleTokens = await new Promise((resolve) => {
+            window.open(authRes.data.authUrl, 'googleAuth', 'width=500,height=600');
             const handleMessage = (event) => {
               if (event.data?.googleTokens) {
                 window.removeEventListener('message', handleMessage);
@@ -299,7 +307,9 @@ const Notifications = () => {
             }, 120000);
           });
         }
-      } catch (calErr) {}
+      } catch {
+        // Ignore calendar auth error
+      }
 
       await sessionService.acceptSession(sessionId, googleTokens);
       alert('Session accepted! 🎉');
@@ -319,7 +329,7 @@ const Notifications = () => {
       await sessionService.rejectSession(sessionId);
       alert('Session rejected.');
       buildNotifications();
-    } catch (err) {
+    } catch {
       alert('Failed to reject session.');
     } finally {
       setActionLoading(prev => ({ ...prev, [sessionId]: false }));

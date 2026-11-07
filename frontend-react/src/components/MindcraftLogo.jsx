@@ -1,8 +1,8 @@
 import { Brain } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 
-const MindcraftLogo = ({ size = 'md', showIcon = true, variant = 'default', className = '' }) => {
+const MindcraftLogo = ({ size = 'md', showIcon = true, className = '' }) => {
   const [isSplit, setIsSplit] = useState(false);
 
   // Auto split after 30 minutes

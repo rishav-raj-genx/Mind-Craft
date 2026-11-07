@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { sessionService } from '../services/sessionService';
@@ -184,7 +184,6 @@ const SessionsDetail = () => {
   useEffect(() => {
     if (currentUser) {
       const status = filter === 'all' ? null : filter;
-      setLoading(true);
       sessionService.getSessions(currentUser.uid, status)
         .then(res => setSessions(res.data || []))
         .catch(err => console.error('Sessions fetch error', err))

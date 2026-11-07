@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Star, Medal, Coins, Trophy } from 'lucide-react';
+import { ArrowLeft, Medal, Coins, Trophy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAvatarUrl } from '../utils/avatar';
 import { gamificationService } from '../services/gamificationService';

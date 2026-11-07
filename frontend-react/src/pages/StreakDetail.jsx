@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { gamificationService } from '../services/gamificationService';
-import { ArrowLeft, Flame, Shield, Sparkles, BookOpen, X, Trophy, Zap, Crown, Diamond, Sprout, Loader2, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Flame, Shield, Sparkles, BookOpen, X, Loader2, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence, animate, useMotionValue, useTransform } from 'framer-motion';
 
 // ─── CountUp Component ────────────────────────────────────────────────────────
@@ -19,16 +19,33 @@ const CountUp = ({ to, duration = 1.5 }) => {
 };
 
 // ─── Confetti Particle ────────────────────────────────────────────────────────
-const Particle = ({ x, y, color, delay }) => (
+const CELEBRATION_COLORS = ['#DCFD8B', '#A78BFA', '#FB923C', '#34D399', '#F472B6', '#60A5FA'];
+const STATIC_PARTICLES = Array.from({ length: 28 }, (_, i) => {
+  const seed1 = ((i * 9301 + 49297) % 233280) / 233280;
+  const seed2 = (((i + 1) * 9301 + 49297) % 233280) / 233280;
+  const seed3 = (((i + 2) * 9301 + 49297) % 233280) / 233280;
+  return {
+    id: i,
+    x: (seed1 - 0.5) * 220,
+    destX: (seed1 - 0.5) * 220 + (seed2 - 0.5) * 200,
+    destY: 250 + seed3 * 100,
+    rotate: seed1 * 360,
+    borderRadius: seed2 > 0.5 ? '50%' : 2,
+    color: CELEBRATION_COLORS[i % CELEBRATION_COLORS.length],
+    delay: seed3 * 0.4,
+  };
+});
+
+const Particle = ({ p }) => (
   <motion.div
-    initial={{ x, y: 0, opacity: 1, scale: 1, rotate: 0 }}
-    animate={{ x: x + (Math.random() - 0.5) * 200, y: y + 250 + Math.random() * 100, opacity: 0, scale: 0, rotate: Math.random() * 360 }}
-    transition={{ duration: 1.4, delay, ease: 'easeOut' }}
+    initial={{ x: p.x, y: 0, opacity: 1, scale: 1, rotate: 0 }}
+    animate={{ x: p.destX, y: p.destY, opacity: 0, scale: 0, rotate: p.rotate }}
+    transition={{ duration: 1.4, delay: p.delay, ease: 'easeOut' }}
     style={{
       position: 'absolute',
       width: 8, height: 8,
-      borderRadius: Math.random() > 0.5 ? '50%' : 2,
-      backgroundColor: color,
+      borderRadius: p.borderRadius,
+      backgroundColor: p.color,
       top: '40%', left: '50%',
       pointerEvents: 'none',
     }}
@@ -37,15 +54,6 @@ const Particle = ({ x, y, color, delay }) => (
 
 // ─── Streak Celebration Overlay ───────────────────────────────────────────────
 const StreakCelebration = ({ streak, onDismiss }) => {
-  const colors = ['#DCFD8B', '#A78BFA', '#FB923C', '#34D399', '#F472B6', '#60A5FA'];
-  const particles = Array.from({ length: 28 }, (_, i) => ({
-    id: i,
-    x: (Math.random() - 0.5) * 220,
-    y: 0,
-    color: colors[i % colors.length],
-    delay: Math.random() * 0.4,
-  }));
-
   useEffect(() => {
     const timer = setTimeout(onDismiss, 3000);
     return () => clearTimeout(timer);
@@ -57,13 +65,11 @@ const StreakCelebration = ({ streak, onDismiss }) => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={onDismiss}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)' }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 cursor-pointer"
     >
       <div className="relative flex flex-col items-center gap-4 select-none">
-        {/* Confetti particles */}
-        {particles.map(p => (
-          <Particle key={p.id} x={p.x} y={p.y} color={p.color} delay={p.delay} />
+        {STATIC_PARTICLES.map((p) => (
+          <Particle key={p.id} p={p} />
         ))}
 
         {/* Flame burst */}
@@ -115,20 +121,6 @@ const StreakCelebration = ({ streak, onDismiss }) => {
       </div>
     </motion.div>
   );
-};
-
-// ─── Badge Icon Mapper ────────────────────────────────────────────────────────
-const BadgeIcon = ({ icon, size = 20, className = '' }) => {
-  const icons = {
-    Sprout: Sprout,
-    Zap: Zap,
-    Flame: Flame,
-    Trophy: Trophy,
-    Diamond: Diamond,
-    Crown: Crown,
-  };
-  const IconComp = icons[icon] || Shield;
-  return <IconComp size={size} className={className} />;
 };
 
 // ─── Earned Badge Card ────────────────────────────────────────────────────────
@@ -203,7 +195,7 @@ const StreakDetail = () => {
         try {
           const checkInRes = await gamificationService.checkIn();
           data = checkInRes.data || checkInRes;
-        } catch (_) {
+        } catch {
           // Fallback to GET if check-in fails
           const res = await gamificationService.getStreak(currentUser.uid);
           data = res.data || res;
@@ -336,7 +328,6 @@ const StreakDetail = () => {
   const nextBadge = badges.next;
   const earnedBadges = badges.earned || [];
   const currentLevel = earnedBadges.length;
-  const currentBadge = earnedBadges.length > 0 ? earnedBadges[earnedBadges.length - 1] : null;
 
   return (
     <>

@@ -1,4 +1,4 @@
-const { verifyToken } = require('@clerk/clerk-sdk-node');
+const { verifyToken } = require('@clerk/express');
 const { prisma } = require('../config/prisma');
 
 function getBearerToken(req) {
@@ -69,12 +69,8 @@ async function optionalAuth(req, _res, next) {
   return next();
 }
 
-// Compatibility export for routes that have not yet been renamed from Firebase.
-const verifyFirebaseToken = requireAuth;
-
 module.exports = {
   requireAuth,
   optionalAuth,
-  verifyFirebaseToken,
   getBearerToken,
 };

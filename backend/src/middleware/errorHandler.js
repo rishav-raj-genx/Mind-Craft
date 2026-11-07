@@ -91,19 +91,23 @@ function globalErrorHandler(err, _req, res, _next) {
     });
   }
 
-  // Firebase auth errors
-  if (err.code && err.code.startsWith('auth/')) {
-    return res.status(401).json({
+  // Prisma database errors
+  if (err.code && typeof err.code === 'string' && err.code.startsWith('P')) {
+    if (err.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: 'A unique constraint was violated.',
+      });
+    }
+    if (err.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        error: 'Record not found.',
+      });
+    }
+    return res.status(400).json({
       success: false,
-      error: err.message,
-    });
-  }
-
-  // Neo4j errors
-  if (err.code && (err.code.startsWith('Neo.') || err.code === 'ServiceUnavailable')) {
-    return res.status(503).json({
-      success: false,
-      error: 'Graph database temporarily unavailable. Please retry.',
+      error: 'Database operation failed.',
     });
   }
 

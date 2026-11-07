@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { gamificationService } from '../services/gamificationService';
 import {
   ArrowLeft, Flame, Code, Moon, Bug, BookOpen, GraduationCap,
-  Trophy, Star, Users, Loader2, ChevronDown, ChevronUp, Clock, Coins,
+  Trophy, Star, Users, Loader2, ChevronDown, ChevronUp, Coins,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -321,7 +321,7 @@ const BadgeProgress = () => {
                     transition={{ duration: 0.5 }}
                     className={`w-14 h-14 rounded-xl bg-gradient-to-br ${badge.color} flex items-center justify-center border ${badge.borderColor} flex-shrink-0`}
                   >
-                    <span className="text-2xl">{badge.emoji}</span>
+                    <span className="text-2xl">{badge.emoji || <IconComp size={24} />}</span>
                   </motion.div>
 
                   {/* Badge Info */}

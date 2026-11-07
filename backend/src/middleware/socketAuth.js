@@ -1,4 +1,4 @@
-const { verifyToken } = require('@clerk/clerk-sdk-node');
+const { verifyToken } = require('@clerk/express');
 const { prisma } = require('../config/prisma');
 
 async function socketAuth(socket, next) {

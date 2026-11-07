@@ -6,7 +6,7 @@
  * @param {string} [gender] - 'Male', 'Female', or undefined/other
  * @returns {string} Avatar URL
  */
-export function getAvatarUrl(name, gender) {
+export function getAvatarUrl(name) {
   const encoded = encodeURIComponent(name || 'User');
   // Since avatar.iran.liara.run is down globally and DiceBear v9 avataaars broke the 'top' param,
   // we use standard avataaars. The seed inherently generates a unique but random gender-agnostic avatar.

@@ -16,19 +16,22 @@ const Login = () => {
   // Handle users who navigate to /login while already authenticated
   useEffect(() => {
     if (currentUser) {
-      setLoading('init');
+      let isMounted = true;
       userService.getFullProfile(currentUser.uid)
         .then(() => {
-          navigate('/');
+          if (isMounted) navigate('/');
         })
         .catch(async (err) => {
+          if (!isMounted) return;
           if (err.response?.status === 404) {
             // Not registered yet, force log out so they can sign up properly
             await logout();
             setError('Account not found. Please sign up instead.');
           }
-        })
-        .finally(() => setLoading(''));
+        });
+      return () => {
+        isMounted = false;
+      };
     }
   }, [currentUser, navigate, logout]);
 

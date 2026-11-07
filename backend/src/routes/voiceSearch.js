@@ -3,7 +3,7 @@
  *
  * Receives audio blobs via multipart upload, validates MIME type and
  * file size at the API gate, transcribes via Sarvam AI, extracts the
- * skill intent, and feeds it into the Neo4j matching engine.
+ * skill intent, and feeds it into the peer matching engine.
  *
  * Endpoints:
  *   POST /api/voice-search — Upload audio → transcript → skill → matches
@@ -13,7 +13,7 @@ const express = require('express');
 const multer  = require('multer');
 const router  = express.Router();
 
-const { verifyFirebaseToken } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { transcribeAudio, SUPPORTED_LANGUAGES } = require('../services/sarvamAI');
 const { extractSkillIntent }  = require('../services/intentParser');
 const { findMatches }         = require('../services/matchingEngine');
@@ -74,7 +74,7 @@ function validateAudioHeaders(req, res, next) {
 // ── POST /api/voice-search ────────────────────────────────────────────
 router.post(
   '/',
-  verifyFirebaseToken,
+  requireAuth,
   validateAudioHeaders,
   upload.single('audio'),
   async (req, res, next) => {
@@ -108,7 +108,7 @@ router.post(
       // ── Step 2: Extract skill intent from transcript ────────────
       const intent = extractSkillIntent(transcription.transcript);
 
-      // ── Step 3: Query Neo4j if skill detected ───────────────────
+      // ── Step 3: Query matching engine if skill detected ─────────
       let matches = [];
       if (intent.skill) {
         try {
@@ -117,7 +117,7 @@ router.post(
             skillFilter: intent.skill,
           });
         } catch (err) {
-          console.warn('⚠️  Neo4j match query skipped:', err.message);
+          console.warn('⚠️  Match query skipped:', err.message);
         }
       }
 

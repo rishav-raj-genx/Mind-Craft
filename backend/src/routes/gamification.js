@@ -1,22 +1,8 @@
-/**
- * gamification.js — Token Economy, Streak & Badge Routes
- *
- * Endpoints for the Mind Token system, daily consistency streaks, and badges.
- *
- * Endpoints:
- *   GET  /api/tokens/:uid              — Get token balance + recent transactions
- *   POST /api/tokens/award/forum       — Award tokens for forum answer
- *   POST /api/tokens/award/session     — Award tokens for session completion
- *   GET  /api/streak/:uid              — Get streak data + grid + badges
- *   POST /api/streak/checkin           — Record daily check-in (app open)
- *   GET  /api/badges/:uid              — Get dynamic badge progress
- */
-
 const express = require('express');
 const { body } = require('express-validator');
-const router  = express.Router();
+const router = express.Router();
 
-const { verifyFirebaseToken }    = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const {
   awardForumAnswer,
@@ -25,23 +11,26 @@ const {
   getBalance,
   getTransactionHistory,
   awardTokens,
+  getLeaderboard,
 } = require('../services/tokenEconomy');
 const { calculateStreak, recordCheckIn } = require('../services/streakCalculator');
 const { calculateBadges, recordBadgeEarned } = require('../services/badgeCalculator');
 const { getPagination } = require('../utils/pagination');
 const { TOKENS_DAILY_LOGIN, TOKENS_BADGE_EARNED } = require('../utils/constants');
+const { broadcastToGlobal } = require('../services/chatService');
 
-// ── GET /api/tokens/:uid ──────────────────────────────────────────────
-router.get('/tokens/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.get('/tokens/:uid', requireAuth, async (req, res, next) => {
   try {
-    const uid   = req.params.uid;
-    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s token wallet' });
+    const { uid } = req.params;
+    if (uid !== req.user.clerkUserId && uid !== req.user.id) {
+      return res.status(403).json({ success: false, error: "Cannot fetch another user's token wallet" });
+    }
     const { limit } = getPagination(req.query);
     const after = req.query.after || null;
 
     const [balance, transactions] = await Promise.all([
-      getBalance(uid),
-      getTransactionHistory(uid, limit, after),
+      getBalance(req.user.clerkUserId),
+      getTransactionHistory(req.user.clerkUserId, limit, after),
     ]);
 
     res.json({
@@ -58,46 +47,37 @@ router.get('/tokens/:uid', verifyFirebaseToken, async (req, res, next) => {
   }
 });
 
-// ── POST /api/tokens/award/forum ──────────────────────────────────────
-router.post(
-  '/tokens/award/forum',
-  verifyFirebaseToken,
-  [],
-  async (req, res, next) => {
-    try {
-      const errors = formatValidationErrors(req);
-      if (errors) return res.status(400).json(errors);
-
-      const { questionId } = req.body;
-      const uid = req.body.uid || req.user.uid;
-      if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot award forum tokens to another user' });
-      const result = await awardForumAnswer(uid, questionId || '');
-
-      // Check and award streak bonus
-      const streak = await calculateStreak(uid);
-      let streakBonus = null;
-      if ([5, 10, 30].includes(streak.currentStreak)) {
-        streakBonus = await awardStreakBonus(uid, streak.currentStreak);
-      }
-
-      res.json({
-        success: true,
-        data: {
-          ...result,
-          streakBonus,
-          currentStreak: streak.currentStreak,
-        },
-      });
-    } catch (err) {
-      next(err);
+router.post('/tokens/award/forum', requireAuth, async (req, res, next) => {
+  try {
+    const { questionId } = req.body;
+    const uid = req.body.uid || req.user.clerkUserId;
+    if (uid !== req.user.clerkUserId && uid !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Cannot award forum tokens to another user' });
     }
-  },
-);
+    const result = await awardForumAnswer(req.user.clerkUserId, questionId || '');
 
-// ── POST /api/tokens/award/session ────────────────────────────────────
+    const streak = await calculateStreak(req.user.clerkUserId);
+    let streakBonus = null;
+    if ([5, 10, 30].includes(streak.currentStreak)) {
+      streakBonus = await awardStreakBonus(req.user.clerkUserId, streak.currentStreak);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        streakBonus,
+        currentStreak: streak.currentStreak,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post(
   '/tokens/award/session',
-  verifyFirebaseToken,
+  requireAuth,
   [
     body('teacherUid').trim().notEmpty().withMessage('Teacher UID is required'),
     body('learnerUid').trim().notEmpty().withMessage('Learner UID is required'),
@@ -118,20 +98,13 @@ router.post(
   },
 );
 
-// ── POST /api/streak/checkin ──────────────────────────────────────────
-// Records that the user opened the app today. Idempotent — safe to
-// call multiple times per day without creating duplicate entries.
-router.post('/streak/checkin', verifyFirebaseToken, async (req, res, next) => {
+router.post('/streak/checkin', requireAuth, async (req, res, next) => {
   try {
-    const uid = req.user.uid;
+    const uid = req.user.clerkUserId;
 
-    // Record today's check-in (idempotent)
     const checkInResult = await recordCheckIn(uid);
-
-    // Return full updated streak data
     const streak = await calculateStreak(uid);
 
-    // Check and award streak bonus at milestones
     let streakBonus = null;
     let loginTokens = null;
     if (!checkInResult.alreadyCheckedIn) {
@@ -140,20 +113,19 @@ router.post('/streak/checkin', verifyFirebaseToken, async (req, res, next) => {
         if ([5, 10, 30].includes(streak.currentStreak)) {
           streakBonus = await awardStreakBonus(uid, streak.currentStreak);
         }
-      const { broadcastToGlobal } = require('../services/chatService');
-      broadcastToGlobal(uid, {
-        type: 'global_new_message',
-        notification: {
-          title: 'Streak Increased! 🔥',
-          body: `You're now on a ${streak.currentStreak} day streak! Keep going!`,
-        },
-        data: {
-          type: 'streak_update',
-          id: `streak-${streak.currentStreak}`,
-          route: '/streak',
-          matchId: '',
-        }
-      });
+        broadcastToGlobal(uid, {
+          type: 'global_new_message',
+          notification: {
+            title: 'Streak Increased! 🔥',
+            body: `You're now on a ${streak.currentStreak} day streak! Keep going!`,
+          },
+          data: {
+            type: 'streak_update',
+            id: `streak-${streak.currentStreak}`,
+            route: '/streak',
+            matchId: '',
+          },
+        });
       }
     }
 
@@ -171,22 +143,23 @@ router.post('/streak/checkin', verifyFirebaseToken, async (req, res, next) => {
   }
 });
 
-// ── GET /api/streak/:uid ──────────────────────────────────────────────
-router.get('/streak/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.get('/streak/:uid', requireAuth, async (req, res, next) => {
   try {
-    const uid    = req.params.uid;
-    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s streak' });
-    const streak = await calculateStreak(uid);
+    const { uid } = req.params;
+    if (uid !== req.user.clerkUserId && uid !== req.user.id) {
+      return res.status(403).json({ success: false, error: "Cannot fetch another user's streak" });
+    }
+    const streak = await calculateStreak(req.user.clerkUserId);
 
     res.json({
       success: true,
       data: {
-        currentStreak:   streak.currentStreak,
-        longestStreak:   streak.longestStreak,
-        activeDates:     streak.activeDates,
-        grid:            streak.grid,
-        badges:          streak.badges,
-        streakFreezes:   streak.streakFreezes,
+        currentStreak: streak.currentStreak,
+        longestStreak: streak.longestStreak,
+        activeDates: streak.activeDates,
+        grid: streak.grid,
+        badges: streak.badges,
+        streakFreezes: streak.streakFreezes,
         totalActiveDays: streak.totalActiveDays,
       },
     });
@@ -195,21 +168,20 @@ router.get('/streak/:uid', verifyFirebaseToken, async (req, res, next) => {
   }
 });
 
-// ── GET /api/badges/:uid ──────────────────────────────────────────────
-router.get('/badges/:uid', verifyFirebaseToken, async (req, res, next) => {
+router.get('/badges/:uid', requireAuth, async (req, res, next) => {
   try {
-    const uid = req.params.uid;
-    if (uid !== req.user.uid) return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s badges' });
-    const result = await calculateBadges(uid);
+    const { uid } = req.params;
+    if (uid !== req.user.clerkUserId && uid !== req.user.id) {
+      return res.status(403).json({ success: false, error: "Cannot fetch another user's badges" });
+    }
+    const result = await calculateBadges(req.user.clerkUserId);
 
-    // Record any newly earned badges in history
-    const { broadcastToGlobal } = require('../services/chatService');
     for (const badge of result.badges) {
       if (badge.level > 0) {
         try {
-          const isNew = await recordBadgeEarned(uid, badge.id, badge.name, badge.level);
+          const isNew = await recordBadgeEarned(req.user.clerkUserId, badge.id, badge.name, badge.level);
           if (isNew) {
-            broadcastToGlobal(uid, {
+            broadcastToGlobal(req.user.clerkUserId, {
               type: 'global_new_message',
               notification: {
                 title: 'Badge Unlocked! 🏅',
@@ -220,28 +192,26 @@ router.get('/badges/:uid', verifyFirebaseToken, async (req, res, next) => {
                 id: `badge-${badge.id}-${badge.level}`,
                 route: '/badges',
                 matchId: '',
-              }
+              },
             });
-            await awardTokens(uid, TOKENS_BADGE_EARNED, 'badge_earned', { badgeId: badge.id, level: badge.level });
+            await awardTokens(req.user.clerkUserId, TOKENS_BADGE_EARNED, 'badge_earned', {
+              badgeId: badge.id,
+              level: badge.level,
+            });
           }
-        } catch (_) { /* non-critical */ }
+        } catch (_err) {}
       }
     }
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
 });
 
-// ── GET /api/leaderboard ──────────────────────────────────────────────
-router.get('/leaderboard', verifyFirebaseToken, async (req, res, next) => {
+router.get('/leaderboard', requireAuth, async (req, res, next) => {
   try {
-    const { getLeaderboard } = require('../services/tokenEconomy');
-    const result = await getLeaderboard(req.user.uid);
+    const result = await getLeaderboard(req.user.clerkUserId);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

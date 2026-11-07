@@ -1,81 +1,111 @@
-const { admin }  = require('../config/firebase');
-const { getDriver } = require('../config/neo4j');
-const { SESSION_COMPLETED, SESSION_CANCELLED } = require('../utils/constants');
+const { prisma } = require('../config/prisma');
+
+async function findUser(uid) {
+  if (!uid) return null;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
+  return prisma.user.findFirst({
+    where: {
+      OR: [
+        { clerkUserId: uid },
+        ...(isUuid ? [{ id: uid }] : []),
+      ],
+      deletedAt: null,
+    },
+  });
+}
 
 async function completeSession(sessionId) {
-  const driver = getDriver();
-  const session = driver.session();
-  let learnerUid, sessionData;
-  try {
-    const res = await session.executeWrite(tx => tx.run(`
-      MATCH (s:Session {sessionId: $sessionId})
-      WITH s, s.status AS previousStatus
-      SET s.status = $status, s.completedAt = timestamp()
-      WITH s MATCH (u:User)-[:ATTENDS]->(s)
-      RETURN u.uid AS learnerUid, s, previousStatus
-    `, { sessionId, status: SESSION_COMPLETED }));
-    if(res.records.length === 0) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
-    
-    learnerUid = res.records[0].get('learnerUid');
-    sessionData = res.records[0].get('s').properties;
-    sessionData.alreadyCompleted = res.records[0].get('previousStatus') === SESSION_COMPLETED;
-  } finally { await session.close(); }
-  
-  let notificationSent = false;
-  if (!sessionData.alreadyCompleted) {
-    try { notificationSent = await sendRatingNotification(learnerUid, sessionData); } catch(err) {}
+  const session = await prisma.tutoringSession.findUnique({
+    where: { id: sessionId },
+    include: { teacher: true, learner: true },
+  });
+
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 });
   }
-  return { success: true, notificationSent, alreadyCompleted: sessionData.alreadyCompleted };
+
+  const alreadyCompleted = session.status === 'COMPLETED';
+
+  if (!alreadyCompleted) {
+    await prisma.$transaction([
+      prisma.tutoringSession.update({
+        where: { id: sessionId },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      }),
+      prisma.user.update({
+        where: { id: session.teacherId },
+        data: { totalSessions: { increment: 1 } },
+      }),
+      prisma.user.update({
+        where: { id: session.learnerId },
+        data: { totalSessions: { increment: 1 } },
+      }),
+    ]);
+  }
+
+  let notificationSent = false;
+  if (!alreadyCompleted) {
+    notificationSent = await sendRatingNotification(session.learner.clerkUserId, {
+      sessionId: session.id,
+      matchId: session.threadId,
+      skill: session.title,
+      teacherName: session.teacher.name,
+    });
+  }
+
+  return { success: true, notificationSent, alreadyCompleted };
 }
 
 async function cancelSession(sessionId) {
-  const driver = getDriver();
-  const session = driver.session();
-  try {
-    const res = await session.executeWrite(tx => tx.run(`
-      MATCH (s:Session {sessionId: $sessionId})
-      SET s.status = $status, s.cancelledAt = timestamp()
-      RETURN s
-    `, { sessionId, status: SESSION_CANCELLED }));
-    if(res.records.length === 0) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
-  } finally { await session.close(); }
+  const session = await prisma.tutoringSession.findUnique({
+    where: { id: sessionId },
+  });
+
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 });
+  }
+
+  await prisma.tutoringSession.update({
+    where: { id: sessionId },
+    data: { status: 'CANCELLED' },
+  });
+
   return { success: true };
 }
 
 async function sendRatingNotification(learnerUid, sessionData) {
-  const driver = getDriver();
-  const session = driver.session();
-  let fcmToken, teacherName = 'your tutor';
-  try {
-    const res = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $learnerUid}) RETURN u.fcmToken AS token`, { learnerUid }));
-    if(res.records.length > 0) fcmToken = res.records[0].get('token');
-    
-    if(sessionData.teacherUid) {
-      const tRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $tUid}) RETURN u.name AS name`, { tUid: sessionData.teacherUid }));
-      if(tRes.records.length > 0) teacherName = tRes.records[0].get('name') || teacherName;
-    }
-  } finally { await session.close(); }
-  if(!fcmToken) return false;
-  
-  const message = {
-    token: fcmToken,
-    notification: { title: '⭐ Rate Your Session', body: `How was your ${sessionData.skill || ''} session with ${teacherName}? Tap to leave a rating.` },
-    data: { type: 'rate_session', sessionId: sessionData.sessionId || '', matchId: sessionData.matchId || '' },
-    android: { priority: 'high', notification: { channelId: 'mindcraft_sessions', clickAction: 'OPEN_SESSION', defaultSound: true, defaultVibrateTimings: true } }
-  };
-  try { await admin.messaging().send(message); return true; } catch(err) { return false; }
+  const title = '⭐ Rate Your Session';
+  const body = `How was your ${sessionData.skill || ''} session with ${sessionData.teacherName || 'your tutor'}? Tap to leave a rating.`;
+  return sendNotification(learnerUid, title, body, {
+    type: 'rate_session',
+    sessionId: sessionData.sessionId || '',
+    matchId: sessionData.matchId || '',
+  });
 }
 
 async function sendNotification(uid, title, body, data = {}) {
-  const driver = getDriver();
-  const session = driver.session();
-  let fcmToken;
   try {
-    const res = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $uid}) RETURN u.fcmToken AS token`, { uid }));
-    if(res.records.length > 0) fcmToken = res.records[0].get('token');
-  } finally { await session.close(); }
-  if(!fcmToken) return false;
-  try { await admin.messaging().send({ token: fcmToken, notification: { title, body }, data, android: { priority: 'high' } }); return true; } catch(err) { return false; }
+    const user = await findUser(uid);
+    if (!user) return false;
+
+    const { emitToUser } = require('../config/socket');
+    emitToUser(user.id, 'global_notification', {
+      type: 'global_notification',
+      subType: data.type || 'notification',
+      notification: { title, body },
+      data,
+      sessionId: data.sessionId || null,
+      timestamp: Date.now(),
+    });
+    return true;
+  } catch (_err) {
+    return false;
+  }
 }
 
-module.exports = { completeSession, cancelSession, sendRatingNotification, sendNotification };
+module.exports = {
+  completeSession,
+  cancelSession,
+  sendRatingNotification,
+  sendNotification,
+};

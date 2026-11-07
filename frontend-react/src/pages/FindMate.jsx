@@ -217,7 +217,7 @@ const MatchCard = ({ mate, index, onFollow, onChat, isFollowed }) => {
         {showGraph ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
       </button>
 
-      {/* Neo4j graph panel */}
+      {/* Compatibility graph panel */}
       <AnimatePresence>
         {showGraph && <MatchGraph mate={mate} onClose={() => setShowGraph(false)} />}
       </AnimatePresence>

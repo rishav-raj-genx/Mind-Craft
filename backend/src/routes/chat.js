@@ -1,263 +1,381 @@
 const express = require('express');
 const { body } = require('express-validator');
-const router  = express.Router();
+const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
-const { getDriver } = require('../config/neo4j');
-const { v4: uuidv4 } = require('uuid');
+const { prisma } = require('../config/prisma');
 const { getPagination } = require('../utils/pagination');
-const toNumber = (val) => (val && val.toNumber ? val.toNumber() : val);
+const { emitToThread } = require('../config/socket');
+const { broadcastToGlobal } = require('../services/chatService');
+const { assertParticipant, persistMessage, markThreadRead } = require('../services/chatPersistenceService');
+
+async function findUser(uid) {
+  if (!uid) return null;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
+  return prisma.user.findFirst({
+    where: {
+      OR: [
+        { clerkUserId: uid },
+        ...(isUuid ? [{ id: uid }] : []),
+      ],
+      deletedAt: null,
+    },
+  });
+}
 
 router.get('/:matchId/history', requireAuth, async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
     const { matchId } = req.params;
     const { limit, offset } = getPagination(req.query);
     const before = req.query.before ? parseInt(req.query.before, 10) : null;
-    
-    let query = `
-      MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
-      MATCH (m:Message)-[:IN_THREAD]->(t)
-    `;
-    let params = { matchId, uid: req.user.uid };
-    if (before) { query += ` WHERE m.timestamp < $before`; params.before = before; }
-    query += ` RETURN m ORDER BY m.timestamp DESC SKIP toInteger($offset) LIMIT toInteger($limit)`;
-    params.limit = limit;
-    params.offset = offset;
-    
-    const result = await session.executeRead(tx => tx.run(query, params));
-    if (result.records.length === 0) {
-      const access = await session.executeRead(tx => tx.run(`
-        MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(:ChatThread {id: $matchId})
-        RETURN 1
-      `, { uid: req.user.uid, matchId }));
-      if (access.records.length === 0) return res.status(403).json({ success: false, error: 'Not a participant in this chat thread' });
-    }
-    const messages = result.records.map(r => {
-      const m = r.get('m').properties;
-      m.timestamp = toNumber(m.timestamp);
-      return m;
-    }).reverse();
-    
-    res.json({ success: true, count: messages.length, limit, offset, hasMore: messages.length === limit, data: messages });
-  } catch (err) { next(err); } finally { await session.close(); }
+
+    const user = await findUser(req.user.clerkUserId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    await assertParticipant(matchId, user.id);
+
+    const messages = await prisma.chatMessage.findMany({
+      where: {
+        threadId: matchId,
+        deletedAt: null,
+        ...(before ? { createdAt: { lt: new Date(before) } } : {}),
+      },
+      include: { sender: true },
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+    });
+
+    const formatted = messages.map((m) => ({
+      messageId: m.id,
+      senderUid: m.sender.clerkUserId,
+      text: m.text,
+      timestamp: new Date(m.createdAt).getTime(),
+      read: true,
+      isEdited: Boolean(m.editedAt),
+    })).reverse();
+
+    res.json({
+      success: true,
+      count: formatted.length,
+      limit,
+      offset,
+      hasMore: formatted.length === limit,
+      data: formatted,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/:matchId/send', requireAuth, [body('text').trim().notEmpty()], async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
     const errors = formatValidationErrors(req);
-    if(errors) return res.status(400).json(errors);
+    if (errors) return res.status(400).json(errors);
+
     const { matchId } = req.params;
     const { text } = req.body;
-    const senderUid = req.user.uid;
-    const messageId = uuidv4();
-    const timestamp = Date.now();
-    
-    const sendResult = await session.executeWrite(tx => tx.run(`
-      MATCH (u:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
-      CREATE (m:Message {messageId: $messageId, senderUid: $uid, text: $text, timestamp: $timestamp, read: false, isEdited: false})
-      CREATE (u)-[:SENT]->(m)-[:IN_THREAD]->(t)
-      SET t.lastMessage = $text, t.lastMessageTime = $timestamp, t.lastMessageSender = $uid, t.unread = true
-      WITH m, t, u
-      OPTIONAL MATCH (p:User)-[:PARTICIPATES_IN]->(t)
-      WHERE p.uid <> $uid
-      RETURN m, p.uid AS recipientUid, p.fcmToken AS fcmToken, coalesce(u.name, u.email, 'Study Partner') AS senderName
-    `, { matchId, uid: senderUid, text, messageId, timestamp }));
-    if (sendResult.records.length === 0) return res.status(403).json({ success: false, error: 'Not a participant in this chat thread' });
+    const user = await findUser(req.user.clerkUserId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-    const recipientUid = sendResult.records[0].get('recipientUid');
-    const fcmToken = sendResult.records[0].get('fcmToken');
-    const senderName = sendResult.records[0].get('senderName');
-    if (recipientUid) {
-      const { broadcastToGlobal } = require('../services/chatService');
-      broadcastToGlobal(recipientUid, {
+    await assertParticipant(matchId, user.id);
+
+    const message = await persistMessage({
+      threadId: matchId,
+      senderId: user.id,
+      clientMessageId: req.body.clientMessageId || undefined,
+      text,
+      createdAt: new Date(),
+    });
+
+    const timestamp = new Date(message.createdAt).getTime();
+
+    // Broadcast message to thread
+    try {
+      emitToThread(matchId, 'chat:message', {
+        messageId: message.id,
+        threadId: matchId,
+        senderId: user.id,
+        senderName: user.name,
+        text,
+        createdAt: message.createdAt.toISOString(),
+      });
+    } catch (_err) {}
+
+    // Notify other participants
+    const thread = await prisma.chatThread.findUnique({
+      where: { id: matchId },
+      include: { participants: { include: { user: true } } },
+    });
+
+    const otherParticipants = (thread?.participants || []).filter((p) => p.userId !== user.id);
+    for (const p of otherParticipants) {
+      broadcastToGlobal(p.user.clerkUserId, {
         type: 'global_new_message',
         matchId,
-        messageId,
-        senderUid,
-        senderName,
+        messageId: message.id,
+        senderUid: user.clerkUserId,
+        senderName: user.name,
         text,
         timestamp,
       });
-
-      if (fcmToken) {
-        try {
-          const { admin } = require('../config/firebase');
-          await admin.messaging().send({
-            token: fcmToken,
-            notification: { title: senderName, body: text },
-            data: {
-              type: 'chat',
-              matchId,
-              messageId,
-              senderUid,
-              timestamp: String(timestamp),
-              url: `/chat/${matchId}`,
-            },
-          });
-        } catch (pushErr) {
-          console.warn('Chat REST FCM push skipped:', pushErr.message);
-        }
-      }
     }
-    
-    res.status(201).json({ success: true, data: { messageId, senderUid, text, timestamp, read: false } });
-  } catch (err) { next(err); } finally { await session.close(); }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        messageId: message.id,
+        senderUid: user.clerkUserId,
+        text,
+        timestamp,
+        read: false,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.patch('/:matchId/read', requireAuth, async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
     const { matchId } = req.params;
-    const uid = req.user.uid;
+    const user = await findUser(req.user.clerkUserId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-    const result = await session.executeWrite(tx => tx.run(`
-      MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
-      OPTIONAL MATCH (m:Message)-[:IN_THREAD]->(t)
-      WHERE NOT (m)<-[:SENT]-(:User {uid: $uid}) AND coalesce(m.read, false) = false
-      SET m.read = true
-      WITH t
-      SET t.unread = false
-      RETURN t.id AS matchId
-    `, { matchId, uid }));
+    await markThreadRead(matchId, user.id);
 
-    if (result.records.length === 0) {
-      return res.status(403).json({ success: false, error: 'Not a participant in this chat thread' });
-    }
+    try {
+      emitToThread(matchId, 'chat:read', {
+        threadId: matchId,
+        userId: user.id,
+        readAt: new Date().toISOString(),
+      });
+    } catch (_err) {}
 
     res.json({ success: true });
-  } catch (err) { next(err); } finally { await session.close(); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.patch('/:matchId/message/:messageId', requireAuth, [body('text').trim().notEmpty()], async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
     const errors = formatValidationErrors(req);
-    if(errors) return res.status(400).json(errors);
+    if (errors) return res.status(400).json(errors);
+
     const { matchId, messageId } = req.params;
     const { text } = req.body;
-    const senderUid = req.user.uid;
-    
-    const result = await session.executeWrite(tx => tx.run(`
-      MATCH (u:User {uid: $uid})-[:SENT]->(m:Message {messageId: $messageId})-[:IN_THREAD]->(t:ChatThread {id: $matchId})
-      SET m.text = $text, m.isEdited = true
-      RETURN m, t
-    `, { uid: senderUid, messageId, matchId, text }));
-    if(result.records.length === 0) return res.status(403).json({ success: false, error: 'Unauthorized or not found' });
-    
-    const msg = result.records[0].get('m').properties;
-    const thread = result.records[0].get('t').properties;
-    
-    if(thread.lastMessageSender === senderUid && Math.abs(toNumber(thread.lastMessageTime) - toNumber(msg.timestamp)) < 5000) {
-      await session.executeWrite(tx => tx.run(`MATCH (t:ChatThread {id: $matchId}) SET t.lastMessage = $text`, { matchId, text }));
+    const user = await findUser(req.user.clerkUserId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const message = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message || message.threadId !== matchId || message.senderId !== user.id) {
+      return res.status(403).json({ success: false, error: 'Unauthorized or not found' });
     }
+
+    await prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { text, editedAt: new Date() },
+    });
+
+    try {
+      emitToThread(matchId, 'message_edited', { messageId, text, matchId });
+    } catch (_err) {}
+
     res.json({ success: true });
-  } catch (err) { next(err); } finally { await session.close(); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.delete('/:matchId/message/:messageId', requireAuth, async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
-    const result = await session.executeWrite(tx => tx.run(`
-      MATCH (u:User {uid: $uid})-[:SENT]->(m:Message {messageId: $messageId})-[:IN_THREAD]->(t:ChatThread {id: $matchId})
-      DETACH DELETE m RETURN m
-    `, { uid: req.user.uid, messageId: req.params.messageId, matchId: req.params.matchId }));
-    if(result.records.length === 0) return res.status(403).json({ success: false, error: 'Unauthorized or not found' });
+    const { matchId, messageId } = req.params;
+    const user = await findUser(req.user.clerkUserId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const message = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message || message.threadId !== matchId || message.senderId !== user.id) {
+      return res.status(403).json({ success: false, error: 'Unauthorized or not found' });
+    }
+
+    await prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { deletedAt: new Date() },
+    });
+
+    try {
+      emitToThread(matchId, 'message_deleted', { messageId, matchId });
+    } catch (_err) {}
+
     res.json({ success: true });
-  } catch (err) { next(err); } finally { await session.close(); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get('/threads/:uid', requireAuth, async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
-    if (req.params.uid !== req.user.uid) {
-      return res.status(403).json({ success: false, error: 'Cannot fetch another user\'s chat threads' });
+    const { uid } = req.params;
+    const user = await findUser(uid);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    if (user.clerkUserId !== req.user.clerkUserId) {
+      return res.status(403).json({ success: false, error: "Cannot fetch another user's chat threads" });
     }
+
     const { limit, offset } = getPagination(req.query);
-    const result = await session.executeRead(tx => tx.run(`
-      MATCH (u:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread)<-[:PARTICIPATES_IN]-(p:User)
-      RETURN t, p ORDER BY t.lastMessageTime DESC
-      SKIP toInteger($offset) LIMIT toInteger($limit)
-    `, { uid: req.params.uid, limit, offset }));
-    const threads = result.records.map(r => {
-      const t = r.get('t').properties;
-      const p = r.get('p').properties;
+
+    const participants = await prisma.chatParticipant.findMany({
+      where: { userId: user.id, leftAt: null },
+      include: {
+        thread: {
+          include: {
+            participants: {
+              where: { userId: { not: user.id } },
+              include: { user: true },
+            },
+            lastSender: true,
+          },
+        },
+      },
+      orderBy: { thread: { updatedAt: 'desc' } },
+      skip: offset,
+      take: limit,
+    });
+
+    const threads = participants.map((p) => {
+      const t = p.thread;
+      const partnerUser = t.participants[0]?.user;
+      const lastMessageTime = t.lastMessageAt ? new Date(t.lastMessageAt).getTime() : new Date(t.createdAt).getTime();
+      const unread = p.lastReadAt && t.lastMessageAt ? new Date(p.lastReadAt) < new Date(t.lastMessageAt) : Boolean(t.lastMessage);
+
       return {
         matchId: t.id,
-        partner: p,
+        partner: partnerUser ? {
+          uid: partnerUser.clerkUserId,
+          name: partnerUser.name,
+          email: partnerUser.email,
+          photoUrl: partnerUser.photoUrl,
+        } : { uid: '', name: 'Study Partner' },
         lastMessage: t.lastMessage || '',
-        lastMessageTime: toNumber(t.lastMessageTime) || 0,
-        lastMessageSender: t.lastMessageSender || '',
-        unread: t.unread || false,
+        lastMessageTime,
+        lastMessageSender: t.lastSender?.clerkUserId || '',
+        unread,
       };
     });
-    res.json({ success: true, count: threads.length, limit, offset, hasMore: threads.length === limit, data: threads });
-  } catch (err) { next(err); } finally { await session.close(); }
+
+    res.json({
+      success: true,
+      count: threads.length,
+      limit,
+      offset,
+      hasMore: threads.length === limit,
+      data: threads,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get('/:matchId/detail', requireAuth, async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
-    const result = await session.executeRead(tx => tx.run(`
-      MATCH (:User {uid: $uid})-[:PARTICIPATES_IN]->(t:ChatThread {id: $matchId})
-      MATCH (t)<-[:PARTICIPATES_IN]-(p:User)
-      WHERE p.uid <> $uid
-      RETURN t, p LIMIT 1
-    `, { matchId: req.params.matchId, uid: req.user.uid }));
-    
-    if(result.records.length === 0) {
-      // Fallback if thread exists but no partner or not fetched
+    const { matchId } = req.params;
+    const user = await findUser(req.user.clerkUserId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const thread = await prisma.chatThread.findUnique({
+      where: { id: matchId },
+      include: {
+        participants: {
+          include: { user: true },
+        },
+      },
+    });
+
+    if (!thread || !thread.participants.some((p) => p.userId === user.id)) {
       return res.status(404).json({ success: false, error: 'Thread not found' });
     }
-    const t = result.records[0].get('t').properties;
-    const p = result.records[0].get('p').properties;
-    res.json({ success: true, data: { matchId: t.id, partner: p, lastMessage: t.lastMessage || '', lastMessageTime: toNumber(t.lastMessageTime) || 0 } });
-  } catch (err) { next(err); } finally { await session.close(); }
+
+    const partner = thread.participants.find((p) => p.userId !== user.id)?.user;
+    const lastMessageTime = thread.lastMessageAt ? new Date(thread.lastMessageAt).getTime() : 0;
+
+    res.json({
+      success: true,
+      data: {
+        matchId: thread.id,
+        partner: partner ? {
+          uid: partner.clerkUserId,
+          name: partner.name,
+          email: partner.email,
+          photoUrl: partner.photoUrl,
+        } : { uid: '', name: 'Study Partner' },
+        lastMessage: thread.lastMessage || '',
+        lastMessageTime,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/thread', requireAuth, async (req, res, next) => {
-  const driver = getDriver();
-  const session = driver.session();
   try {
-    const fromUid = req.user.uid;
+    const fromUid = req.user.clerkUserId;
     const { partnerUid } = req.body;
-    if(!partnerUid) return res.status(400).json({ success: false, error: 'partnerUid is required' });
-    
-    const checkRes = await session.executeRead(tx => tx.run(`
-      MATCH (u1:User {uid: $fromUid})-[:PARTICIPATES_IN]->(t:ChatThread)<-[:PARTICIPATES_IN]-(u2:User {uid: $partnerUid})
-      RETURN t LIMIT 1
-    `, { fromUid, partnerUid }));
-    
-    if(checkRes.records.length > 0) {
-      const t = checkRes.records[0].get('t').properties;
-      const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: partnerUid }));
-      const p = pRes.records.length > 0 ? pRes.records[0].get('u').properties : { uid: partnerUid, name: 'Study Partner' };
-      return res.json({ success: true, matchId: t.id, data: { match: { matchId: t.id, ...t }, partner: p } });
+    if (!partnerUid) return res.status(400).json({ success: false, error: 'partnerUid is required' });
+
+    const [me, partner] = await Promise.all([
+      findUser(fromUid),
+      findUser(partnerUid),
+    ]);
+
+    if (!me || !partner) {
+      return res.status(404).json({ success: false, error: 'Partner not found' });
     }
-    
-    const matchId = uuidv4();
-    const createRes = await session.executeWrite(tx => tx.run(`
-      MATCH (u1:User {uid: $fromUid}), (u2:User {uid: $partnerUid})
-      CREATE (t:ChatThread {id: $matchId, createdAt: timestamp(), lastMessage: '', lastMessageTime: 0})
-      CREATE (u1)-[:PARTICIPATES_IN]->(t)
-      CREATE (u2)-[:PARTICIPATES_IN]->(t)
-      RETURN t
-    `, { fromUid, partnerUid, matchId }));
-    if (createRes.records.length === 0) return res.status(404).json({ success: false, error: 'Partner not found' });
-    
-    const pRes = await session.executeRead(tx => tx.run(`MATCH (u:User {uid: $p}) RETURN u`, { p: partnerUid }));
-    const p = pRes.records.length > 0 ? pRes.records[0].get('u').properties : { uid: partnerUid, name: 'Study Partner' };
-    res.json({ success: true, matchId, data: { match: { matchId }, partner: p } });
-  } catch (err) { next(err); } finally { await session.close(); }
+
+    let thread = await prisma.chatThread.findFirst({
+      where: {
+        AND: [
+          { participants: { some: { userId: me.id } } },
+          { participants: { some: { userId: partner.id } } },
+        ],
+      },
+    });
+
+    if (!thread) {
+      thread = await prisma.chatThread.create({
+        data: {
+          participants: {
+            create: [{ userId: me.id }, { userId: partner.id }],
+          },
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      matchId: thread.id,
+      data: {
+        match: { matchId: thread.id, id: thread.id },
+        partner: {
+          uid: partner.clerkUserId,
+          name: partner.name,
+          email: partner.email,
+          photoUrl: partner.photoUrl,
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;
