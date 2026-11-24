@@ -1,32 +1,56 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { SignUp as ClerkSignUp } from '@clerk/clerk-react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
-import { User, MapPin, X, Rocket, GraduationCap, Building2, Moon, Sun, Camera, Edit2, Loader2, Link2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  User,
+  MapPin,
+  X,
+  Rocket,
+  GraduationCap,
+  Building2,
+  Moon,
+  Sun,
+  Camera,
+  Edit2,
+  Loader2,
+  Link2,
+  LogOut,
+} from 'lucide-react';
 import { userService } from '../services/userService';
+import { useFullProfile } from '../hooks/useUserProfile';
 import { useAppContext } from '../context/AppContext';
+import { clerkAppearance } from '../config/clerkAppearance';
 
-const GithubIcon = ({ size = 24, className = "" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3-.3 6-1.5 6-6.5a5.5 5.5 0 0 0-1.5-3.8 5.5 5.5 0 0 0-.2-3.8s-1.2-.4-3.9 1.4a13.3 13.3 0 0 0-7 0C6.2 1.6 5 2 5 2a5.5 5.5 0 0 0-.2 3.8A5.5 5.5 0 0 0 3 9.5c0 5 3 6.2 6 6.5a4.8 4.8 0 0 0-1 3.2v4"></path><path d="M9 18c-4.5 1.5-5-2.5-7-3"></path></svg>
+const GithubIcon = ({ size = 24, className = '' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3-.3 6-1.5 6-6.5a5.5 5.5 0 0 0-1.5-3.8 5.5 5.5 0 0 0-.2-3.8s-1.2-.4-3.9 1.4a13.3 13.3 0 0 0-7 0C6.2 1.6 5 2 5 2a5.5 5.5 0 0 0-.2 3.8A5.5 5.5 0 0 0 3 9.5c0 5 3 6.2 6 6.5a4.8 4.8 0 0 0-1 3.2v4"></path>
+    <path d="M9 18c-4.5 1.5-5-2.5-7-3"></path>
+  </svg>
 );
 
-const LinkedinIcon = ({ size = 24, className = "" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
+const LinkedinIcon = ({ size = 24, className = '' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
+    <rect x="2" y="9" width="4" height="12"></rect>
+    <circle cx="4" cy="4" r="2"></circle>
+  </svg>
 );
 
-const LeetCodeIcon = ({ size = 18, className = "" }) => (
+const LeetCodeIcon = ({ size = 18, className = '' }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
     <path d="M13.483 0a1.374 1.374 0 0 0-.961.438L7.116 6.226l-3.854 4.126a5.266 5.266 0 0 0-1.209 2.104 5.35 5.35 0 0 0-.125.513 5.527 5.527 0 0 0 .062 2.362 5.83 5.83 0 0 0 .349 1.017 5.938 5.938 0 0 0 1.271 1.818l4.277 4.193.039.038c2.248 2.165 5.852 2.133 8.063-.074l2.396-2.392c.54-.54.54-1.414.003-1.955a1.378 1.378 0 0 0-1.951-.003l-2.396 2.392a3.021 3.021 0 0 1-4.205.038l-.02-.019-4.276-4.193c-.652-.64-.972-1.469-.948-2.263a2.68 2.68 0 0 1 .066-.523 2.545 2.545 0 0 1 .619-1.164L9.13 8.114c1.058-1.134 3.204-1.27 4.43-.278l3.501 2.831c.593.48 1.461.387 1.94-.207a1.384 1.384 0 0 0-.207-1.943l-3.5-2.831c-.8-.647-1.766-1.045-2.774-1.202l2.015-2.158A1.384 1.384 0 0 0 13.483 0zm-2.866 12.815a1.38 1.38 0 0 0-1.38 1.382 1.38 1.38 0 0 0 1.38 1.382H20.79a1.38 1.38 0 0 0 1.38-1.382 1.38 1.38 0 0 0-1.38-1.382z"/>
   </svg>
 );
 
-const CodeforcesIcon = ({ size = 18, className = "" }) => (
+const CodeforcesIcon = ({ size = 18, className = '' }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
     <path d="M4.5 7.5C5.328 7.5 6 8.172 6 9v10.5c0 .828-.672 1.5-1.5 1.5h-3C.672 21 0 20.328 0 19.5V9c0-.828.672-1.5 1.5-1.5h3zm9-4.5c.828 0 1.5.672 1.5 1.5v15c0 .828-.672 1.5-1.5 1.5h-3c-.828 0-1.5-.672-1.5-1.5v-15c0-.828.672-1.5 1.5-1.5h3zm9 7.5c.828 0 1.5.672 1.5 1.5v7.5c0 .828-.672 1.5-1.5 1.5h-3c-.828 0-1.5-.672-1.5-1.5V12c0-.828.672-1.5 1.5-1.5h3z"/>
   </svg>
 );
 
-const CodeChefIcon = ({ size = 18, className = "" }) => (
+const CodeChefIcon = ({ size = 18, className = '' }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
     <path d="M11.257.004c-.513.039-1.07.205-1.632.53-.89.515-1.387 1.237-1.727 1.977-.228.498-.384 1.023-.52 1.478-.093.312-.18.588-.268.781-.09.198-.156.263-.21.304-.114.088-.358.164-.96.164H5.534c-.237 0-.467.018-.694.045C2.82 5.52 1.166 7.06.502 9.104c-.207.635-.3 1.323-.324 1.965-.023.643.018 1.244.037 1.67L.222 12.8c.003.066.015.304.015.304l.075 1.16c.063.754.173 1.61.442 2.44.537 1.656 1.68 3.194 3.76 3.95C5.59 21.022 6.927 21.42 8.386 21.63c.467.067.944.113 1.427.14.396 1.16 1.206 2.223 2.607 2.223h.16c1.4 0 2.21-1.063 2.606-2.223.483-.027.96-.073 1.427-.14 1.46-.21 2.797-.608 3.873-.975 2.08-.756 3.222-2.294 3.76-3.95.268-.83.378-1.686.44-2.44l.076-1.16s.013-.238.016-.304l.007-.06c.02-.427.06-1.028.037-1.671-.024-.642-.117-1.33-.324-1.965-.664-2.044-2.318-3.583-4.34-3.82a5.93 5.93 0 0 0-.694-.045h-.406c-.602 0-.846-.076-.96-.164-.054-.04-.12-.106-.21-.304-.088-.193-.175-.469-.268-.78-.136-.456-.292-.98-.52-1.48-.34-.74-.838-1.46-1.727-1.976A3.32 3.32 0 0 0 12.58 0c-.223 0-.445.017-.66.036l-.663-.032z"/>
   </svg>
@@ -79,14 +103,13 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
     if (links.leetcode && !validateLink(links.leetcode, 'leetcode.com')) return setError('Invalid LeetCode URL (must be a proper leetcode.com link)');
     if (links.codeforces && !validateLink(links.codeforces, 'codeforces.com')) return setError('Invalid Codeforces URL (must be a proper codeforces.com link)');
     if (links.codechef && !validateLink(links.codechef, 'codechef.com')) return setError('Invalid CodeChef URL (must be a proper codechef.com link)');
-    
-    // Extract usernames from full URLs to save to DB
+
     const extract = (val) => {
       if (!val) return '';
       try {
         const u = new URL(val.startsWith('http') ? val : `https://${val}`);
         const parts = u.pathname.split('/').filter(Boolean);
-        return parts[parts.length - 1]; // E.g., 'in/username' -> 'username' for LinkedIn might be tricky, but works for most. For robust extraction, we just assume the last part is the username.
+        return parts[parts.length - 1];
       } catch {
         return val.trim();
       }
@@ -102,17 +125,17 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
   };
 
   return createPortal(
-    <div 
+    <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div 
+      <div
         className="bg-white dark:bg-surface-container rounded-3xl p-6 w-full max-w-sm flex flex-col relative animate-[slideUp_0.2s_ease-out] shadow-2xl border border-surface-raised my-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <button 
+        <button
           type="button"
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-500 dark:text-on-surface hover:text-gray-900 dark:hover:text-white"
@@ -120,53 +143,58 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
           <X size={20} />
         </button>
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Add Social Profiles</h3>
-        
+
         {error && <div className="text-red-500 text-sm mb-4 bg-red-100 dark:bg-red-900/30 p-2 rounded-lg">{error}</div>}
 
         <div className="flex flex-col gap-4 overflow-y-auto max-h-[60vh] pb-4 hide-scrollbar">
           <div className="relative">
             <LinkedinIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-[#0077B5]" size={18} />
-            <input 
-              value={links.linkedin} onChange={(e) => setLinks({...links, linkedin: e.target.value})}
-              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-              placeholder="https://linkedin.com/in/username" 
+            <input
+              value={links.linkedin}
+              onChange={(e) => setLinks({ ...links, linkedin: e.target.value })}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+              placeholder="https://linkedin.com/in/username"
             />
           </div>
           <div className="relative">
             <GithubIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface" size={18} />
-            <input 
-              value={links.github} onChange={(e) => setLinks({...links, github: e.target.value})}
-              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-              placeholder="https://github.com/username" 
+            <input
+              value={links.github}
+              onChange={(e) => setLinks({ ...links, github: e.target.value })}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+              placeholder="https://github.com/username"
             />
           </div>
           <div className="relative">
             <LeetCodeIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-500" size={18} />
-            <input 
-              value={links.leetcode} onChange={(e) => setLinks({...links, leetcode: e.target.value})}
-              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-              placeholder="https://leetcode.com/u/username" 
+            <input
+              value={links.leetcode}
+              onChange={(e) => setLinks({ ...links, leetcode: e.target.value })}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+              placeholder="https://leetcode.com/u/username"
             />
           </div>
           <div className="relative">
             <CodeforcesIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
-            <input 
-              value={links.codeforces} onChange={(e) => setLinks({...links, codeforces: e.target.value})}
-              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-              placeholder="https://codeforces.com/profile/username" 
+            <input
+              value={links.codeforces}
+              onChange={(e) => setLinks({ ...links, codeforces: e.target.value })}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+              placeholder="https://codeforces.com/profile/username"
             />
           </div>
           <div className="relative">
             <CodeChefIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-700" size={18} />
-            <input 
-              value={links.codechef} onChange={(e) => setLinks({...links, codechef: e.target.value})}
-              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm" 
-              placeholder="https://www.codechef.com/users/username" 
+            <input
+              value={links.codechef}
+              onChange={(e) => setLinks({ ...links, codechef: e.target.value })}
+              className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+              placeholder="https://www.codechef.com/users/username"
             />
           </div>
         </div>
 
-        <button 
+        <button
           type="button"
           onClick={handleSave}
           className="w-full mt-4 bg-success-lime text-[#151f00] font-bold py-3 rounded-xl hover:bg-[#b3d266] transition-colors"
@@ -180,50 +208,20 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
 };
 
 const SignUp = () => {
-  const { currentUser, loginWithGoogle, loginWithEmail, registerWithEmail, isLoaded } = useAuth();
+  const { currentUser, isLoaded, logout } = useAuth();
   const { isDark, setIsDark } = useAppContext();
   const navigate = useNavigate();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [photoUrl, setPhotoUrl] = useState('');
-  
-  // Handle users who navigate to /signup while already fully registered or after SSO redirect
-  useEffect(() => {
-    if (currentUser) {
-      const pending = localStorage.getItem('mindcraft_pending_signup_profile');
-      if (pending) {
-        try {
-          const parsed = JSON.parse(pending);
-          userService.register({
-            ...parsed,
-            name: parsed.name || currentUser.name,
-            photoUrl: parsed.photoUrl || currentUser.photoURL || '',
-          })
-            .then(() => {
-              localStorage.removeItem('mindcraft_pending_signup_profile');
-              navigate('/');
-            })
-            .catch((err) => {
-              console.error('Failed to complete SSO profile registration:', err);
-            });
-          return;
-        } catch {
-          localStorage.removeItem('mindcraft_pending_signup_profile');
-        }
-      }
 
-      userService.getFullProfile(currentUser.uid)
-        .then(() => {
-          navigate('/');
-        })
-        .catch(() => {
-          if (currentUser.name && !name) setName(currentUser.name);
-          if (currentUser.photoURL && !photoUrl) setPhotoUrl(currentUser.photoURL);
-        });
-    }
-  }, [currentUser, navigate, name, photoUrl]);
+  const {
+    isLoading: isCheckingProfile,
+    isSuccess: isProfileComplete,
+  } = useFullProfile(currentUser?.uid, {
+    retry: false,
+    enabled: Boolean(currentUser?.uid),
+  });
+
+  const [enteredName, setEnteredName] = useState('');
+  const [customPhotoUrl, setCustomPhotoUrl] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [gender, setGender] = useState('');
   const [college, setCollege] = useState('');
@@ -241,20 +239,30 @@ const SignUp = () => {
   const [codechefUsername, setCodechefUsername] = useState('');
   const [showSocials, setShowSocials] = useState(false);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [collegeOptions, setCollegeOptions] = useState([]);
   const [departmentOptions, setDepartmentOptions] = useState([]);
 
-  // Fetch global college/department suggestions
+  const name = enteredName !== '' ? enteredName : (currentUser?.name || '');
+  const photoUrl = customPhotoUrl !== '' ? customPhotoUrl : (currentUser?.photoURL || '');
+
+  // Redirect if profile already fully exists
+  useEffect(() => {
+    if (isProfileComplete) {
+      navigate('/');
+    }
+  }, [isProfileComplete, navigate]);
+
+  // Fetch taxonomy dropdown suggestions
   useEffect(() => {
     userService.getMetadataOptions()
-      .then(res => {
+      .then((res) => {
         if (res.data) {
           setCollegeOptions(res.data.colleges || []);
           setDepartmentOptions(res.data.departments || []);
         }
       })
-      .catch(() => { /* silent - suggestions just won't show */ });
+      .catch(() => {});
   }, []);
 
   const photoInputRef = useRef(null);
@@ -265,7 +273,7 @@ const SignUp = () => {
     setUploadingPhoto(true);
     try {
       const compressedDataUrl = await compressImage(file);
-      setPhotoUrl(compressedDataUrl);
+      setCustomPhotoUrl(compressedDataUrl);
     } catch {
       setError('Failed to process image');
     } finally {
@@ -290,7 +298,7 @@ const SignUp = () => {
   };
 
   const buildUserData = (authUser) => {
-    let finalPhotoUrl = photoUrl || authUser?.photoURL || '';
+    const finalPhotoUrl = photoUrl || authUser?.photoURL || '';
 
     return {
       name: name.trim(),
@@ -310,65 +318,19 @@ const SignUp = () => {
     };
   };
 
-  const handleGoogleSignup = async (e) => {
+  const handleCompleteProfile = async (e) => {
     e.preventDefault();
     if (!validateProfile()) return;
     try {
+      setSubmitting(true);
       setError('');
-      setSubmitting('google');
-      localStorage.setItem('mindcraft_pending_signup_profile', JSON.stringify(buildUserData({})));
-      await loginWithGoogle({ mode: 'sign_up' });
-    } catch (err) {
-      console.error('Google signup error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setError('Sign-up window was closed before completing.');
-      } else if (err.code === 'auth/unauthorized-domain') {
-        setError('Current domain is not authorized in Clerk Console (Settings > Allowed domains).');
-      } else {
-        setError(err.message || 'Google signup failed. Please try email/password.');
-      }
-    } finally {
-      setSubmitting('');
-    }
-  };
-
-  const handleEmailSignup = async (e) => {
-    e.preventDefault();
-    if (!email.trim() || password.length < 6) {
-      setError('Enter a valid email and a password with at least 6 characters.');
-      return;
-    }
-    if (!validateProfile()) return;
-    try {
-      setSubmitting('email');
-      let user;
-      try {
-        const result = await registerWithEmail(email.trim(), password);
-        user = result.user;
-      } catch (err) {
-        if (err.code === 'auth/email-already-in-use' || err.code === 'form_identifier_exists') {
-          // They have an account but no DB profile. 
-          // Log them in to complete the DB registration.
-          const result = await loginWithEmail(email.trim(), password);
-          user = result.user;
-        } else {
-          throw err;
-        }
-      }
-      await userService.register(buildUserData(user));
+      await userService.register(buildUserData(currentUser));
       navigate('/');
     } catch (err) {
-      if (
-        err.code === 'auth/wrong-password' ||
-        err.code === 'auth/invalid-credential' ||
-        err.code === 'form_password_incorrect'
-      ) {
-        setError('This email is already registered. If you used Google earlier, please click "Continue with Google" above. Otherwise, check your password.');
-      } else {
-        setError('Failed to sign up with email: ' + err.message);
-      }
+      console.error('Profile registration error:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to complete profile registration.');
     } finally {
-      setSubmitting('');
+      setSubmitting(false);
     }
   };
 
@@ -392,60 +354,61 @@ const SignUp = () => {
     }
   };
 
-  const removeTeach = (topic) => setTeaches(teaches.filter(t => t !== topic));
-  const removeLearn = (topic) => setLearns(learns.filter(t => t !== topic));
+  const removeTeach = (topic) => setTeaches(teaches.filter((t) => t !== topic));
+  const removeLearn = (topic) => setLearns(learns.filter((t) => t !== topic));
 
+  if (!isLoaded || (currentUser && isCheckingProfile)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background-deep text-on-background">
+        <Loader2 className="animate-spin text-success-lime" size={36} />
+      </div>
+    );
+  }
+
+  // ── Step 1: If user is not yet signed up with Clerk, render official Clerk <SignUp /> ──
+  if (!currentUser || isProfileComplete) {
+    return (
+      <div className="bg-background-deep text-on-background min-h-screen flex flex-col justify-center items-center font-body-md overflow-x-hidden relative p-4">
+        <div className="blob-bg">
+          <div className="blob blob-1"></div>
+          <div className="blob blob-2"></div>
+          <div className="blob blob-3"></div>
+        </div>
+
+        <div className="relative z-10 w-full max-w-md flex flex-col items-center">
+          <div className="mb-6 flex flex-col items-center">
+            <h1 className="font-headline-xl text-headline-xl text-success-lime tracking-tighter mb-1">Mindcraft</h1>
+            <p className="font-body-sm text-body-sm text-on-surface-variant text-center">Level up your learning together.</p>
+          </div>
+
+          <ClerkSignUp
+            routing="path"
+            path="/signup"
+            signInUrl="/login"
+            forceRedirectUrl="/signup"
+            appearance={clerkAppearance}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 2: User is signed in with Clerk, now complete Mindcraft profile onboarding ──
   return (
-    <div className="bg-background text-on-background min-h-screen font-body-md flex flex-col items-center justify-center p-margin-mobile md:p-margin-desktop antialiased">
-      <main className="w-full max-w-[480px] bg-surface-container rounded-xl p-8 shadow-[0px_10px_30px_rgba(0,0,0,0.4)] border border-surface-raised relative overflow-hidden">
-        {/* Decorative Header Elements */}
-        <div className="absolute -top-10 -right-10 w-32 h-32 bg-secondary-container rounded-full blur-3xl opacity-20"></div>
-        <div className="absolute top-20 -left-10 w-24 h-24 bg-primary-container rounded-full blur-2xl opacity-10"></div>
-
-        <header className="text-center mb-8 relative z-10">
-          <h1 className="font-headline-xl text-headline-xl text-success-lime tracking-tighter mb-2">Mindcraft</h1>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">Level up your learning together.</p>
+    <div className="bg-background text-on-background min-h-screen font-body-md flex flex-col items-center justify-center p-4 sm:p-8 antialiased">
+      <main className="w-full max-w-[500px] bg-surface-container rounded-3xl p-6 sm:p-8 shadow-[0px_10px_30px_rgba(0,0,0,0.5)] border border-surface-raised relative overflow-hidden">
+        <header className="text-center mb-6 relative z-10">
+          <h1 className="font-headline-xl text-headline-xl text-success-lime tracking-tighter mb-1">Welcome to Mindcraft</h1>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">Complete your profile to connect with campus study mates.</p>
         </header>
 
-        {error && <div className="text-red-500 mb-4 z-10 relative text-sm">{error}</div>}
+        {error && <div className="text-red-500 mb-4 z-10 relative text-sm bg-red-950/40 border border-red-900/50 p-3 rounded-xl">{error}</div>}
 
-        <form onSubmit={handleEmailSignup} className="space-y-5 relative z-10">
+        <form onSubmit={handleCompleteProfile} className="space-y-4 relative z-10">
           <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="relative sm:col-span-2">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50"
-                placeholder="Email address"
-                required
-              />
-            </div>
-            <div className="relative sm:col-span-2">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={6}
-                className="glass-input w-full rounded-full py-3 pl-12 pr-12 text-on-surface placeholder:text-on-surface-variant/50"
-                placeholder="Password (6+ characters)"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-success-lime"
-              >
-                {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
-              </button>
-            </div>
-          </div>
-          
+
           {/* Profile Picture Upload */}
-          <div className="flex flex-col items-center mb-6">
+          <div className="flex flex-col items-center mb-4">
             <div className="relative shrink-0">
               <div className="w-24 h-24 rounded-full overflow-hidden border-[3px] border-success-lime shadow-[0_0_15px_rgba(220,253,139,0.2)] bg-surface-raised flex items-center justify-center">
                 {photoUrl ? (
@@ -466,15 +429,16 @@ const SignUp = () => {
             <span className="text-xs font-label-sm text-on-surface-variant mt-2">Add Profile Picture</span>
           </div>
 
-          {/* Name */}
+          {/* Preferred Name */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Preferred Name *</label>
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">Preferred Name *</label>
             <div className="relative">
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
-              <input 
-                value={name} onChange={(e) => setName(e.target.value)}
-                className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50" 
-                placeholder="What should we call you?" 
+              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
+              <input
+                value={name}
+                onChange={(e) => setEnteredName(e.target.value)}
+                className="glass-input w-full rounded-full py-2.5 pl-11 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+                placeholder="What should we call you?"
                 required
               />
             </div>
@@ -482,14 +446,14 @@ const SignUp = () => {
 
           {/* Gender */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Gender *</label>
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">Gender *</label>
             <div className="flex gap-2">
-              {['Male', 'Female', 'Other'].map(g => (
+              {['Male', 'Female', 'Other'].map((g) => (
                 <button
                   key={g}
                   type="button"
                   onClick={() => setGender(g)}
-                  className={`flex-1 py-2.5 rounded-full text-sm font-semibold border transition-all ${
+                  className={`flex-1 py-2 rounded-full text-xs font-semibold border transition-all ${
                     gender === g
                       ? 'bg-success-lime text-[#151f00] border-success-lime shadow-[0_0_10px_rgba(220,253,139,0.3)]'
                       : 'bg-background-deep text-on-surface-variant border-surface-raised hover:border-success-lime/50'
@@ -501,72 +465,75 @@ const SignUp = () => {
             </div>
           </div>
 
-          {/* College Name with autocomplete */}
+          {/* College Name */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">College Name *</label>
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">College Name *</label>
             <div className="relative">
-              <GraduationCap className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
-              <input 
+              <GraduationCap className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
+              <input
                 list="college-options"
-                value={college} onChange={(e) => setCollege(e.target.value)}
-                className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50" 
-                placeholder="e.g., IIT Delhi" 
+                value={college}
+                onChange={(e) => setCollege(e.target.value)}
+                className="glass-input w-full rounded-full py-2.5 pl-11 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+                placeholder="e.g., IIT Delhi"
                 required
               />
               <datalist id="college-options">
-                {collegeOptions.map(c => <option key={c} value={c} />)}
+                {collegeOptions.map((c) => <option key={c} value={c} />)}
               </datalist>
             </div>
           </div>
 
           {/* College Location */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">College Location *</label>
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">College Location *</label>
             <div className="relative">
-              <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
-              <input 
-                value={collegeLocation} onChange={(e) => setCollegeLocation(e.target.value)}
-                className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50" 
-                placeholder="e.g., New Delhi, India" 
+              <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
+              <input
+                value={collegeLocation}
+                onChange={(e) => setCollegeLocation(e.target.value)}
+                className="glass-input w-full rounded-full py-2.5 pl-11 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+                placeholder="e.g., New Delhi, India"
                 required
               />
             </div>
           </div>
 
-          {/* Department with autocomplete */}
+          {/* Department */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Department *</label>
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">Department *</label>
             <div className="relative">
-              <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
-              <input 
+              <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
+              <input
                 list="department-options"
-                value={department} onChange={(e) => setDepartment(e.target.value)}
-                className="glass-input w-full rounded-full py-3 pl-12 pr-4 text-on-surface placeholder:text-on-surface-variant/50" 
-                placeholder="e.g., Computer Science" 
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                className="glass-input w-full rounded-full py-2.5 pl-11 pr-4 text-on-surface placeholder:text-on-surface-variant/50 text-sm"
+                placeholder="e.g., Computer Science"
                 required
               />
               <datalist id="department-options">
-                {departmentOptions.map(d => <option key={d} value={d} />)}
+                {departmentOptions.map((d) => <option key={d} value={d} />)}
               </datalist>
             </div>
           </div>
 
           {/* Year */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Year *</label>
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">Year of Study *</label>
             <div className="flex gap-2">
-              {['1', '2', '3', '4'].map(y => (
+              {['1', '2', '3', '4'].map((y) => (
                 <button
                   key={y}
                   type="button"
                   onClick={() => setYear(y)}
-                  className={`flex-1 py-2.5 rounded-full text-sm font-semibold border transition-all ${
+                  className={`flex-1 py-2 rounded-full text-xs font-semibold border transition-all ${
                     year === y
                       ? 'bg-success-lime text-[#151f00] border-success-lime shadow-[0_0_10px_rgba(220,253,139,0.3)]'
                       : 'bg-background-deep text-on-surface-variant border-surface-raised hover:border-success-lime/50'
                   }`}
                 >
-                  {y}
+                  Year {y}
                 </button>
               ))}
             </div>
@@ -574,22 +541,30 @@ const SignUp = () => {
 
           {/* Topics I Can Teach */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Topics I Can Teach *</label>
-            <div className="flex flex-wrap gap-2 p-3 bg-background-deep border border-surface-raised rounded-xl min-h-[48px]">
-              {teaches.map(t => (
-                <div key={t} className="inline-flex items-center gap-1 bg-surface-raised text-on-surface px-3 py-1.5 rounded-full font-label-md text-label-md border border-outline-variant">
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">Topics I Can Teach *</label>
+            <div className="flex flex-wrap gap-2 p-2.5 bg-background-deep border border-surface-raised rounded-xl min-h-[44px]">
+              {teaches.map((t) => (
+                <div key={t} className="inline-flex items-center gap-1 bg-surface-raised text-on-surface px-3 py-1 rounded-full text-xs border border-outline-variant">
                   {t}
-                  <X size={14} className="cursor-pointer" onClick={() => removeTeach(t)} />
+                  <X size={12} className="cursor-pointer" onClick={() => removeTeach(t)} />
                 </div>
               ))}
               <div className="flex flex-1 items-center gap-2 min-w-[120px]">
-                <input 
-                  value={teachInput} onChange={e => setTeachInput(e.target.value)} onKeyDown={handleAddTeach}
-                  className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[60px] py-1 focus:ring-0" 
-                  placeholder="Type topic..." 
+                <input
+                  value={teachInput}
+                  onChange={(e) => setTeachInput(e.target.value)}
+                  onKeyDown={handleAddTeach}
+                  className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[60px] py-0.5 text-xs focus:ring-0"
+                  placeholder="Type topic & Enter..."
                 />
                 {teachInput.trim() && (
-                  <button type="button" onClick={() => handleAddTeach({ key: 'Enter', preventDefault: () => {} })} className="text-xs bg-surface-raised text-on-surface px-3 py-1 rounded-full font-label-md border border-outline-variant whitespace-nowrap hover:bg-surface-variant transition-colors">Add</button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddTeach({ key: 'Enter', preventDefault: () => {} })}
+                    className="text-xs bg-surface-raised text-on-surface px-2.5 py-0.5 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors"
+                  >
+                    Add
+                  </button>
                 )}
               </div>
             </div>
@@ -597,87 +572,94 @@ const SignUp = () => {
 
           {/* Topics I Want to Learn */}
           <div>
-            <label className="block font-label-md text-label-md text-on-surface mb-2 pl-1">Topics I Want to Learn *</label>
-            <div className="flex flex-wrap gap-2 p-3 bg-background-deep border border-surface-raised rounded-xl min-h-[48px]">
-              {learns.map(l => (
-                <div key={l} className="inline-flex items-center gap-1 bg-secondary-container/30 text-secondary-fixed px-3 py-1.5 rounded-full font-label-md text-label-md border border-secondary-container">
+            <label className="block font-label-md text-label-md text-on-surface mb-1.5 pl-1">Topics I Want to Learn *</label>
+            <div className="flex flex-wrap gap-2 p-2.5 bg-background-deep border border-surface-raised rounded-xl min-h-[44px]">
+              {learns.map((l) => (
+                <div key={l} className="inline-flex items-center gap-1 bg-secondary-container/30 text-secondary-fixed px-3 py-1 rounded-full text-xs border border-secondary-container">
                   {l}
-                  <X size={14} className="cursor-pointer" onClick={() => removeLearn(l)} />
+                  <X size={12} className="cursor-pointer" onClick={() => removeLearn(l)} />
                 </div>
               ))}
               <div className="flex flex-1 items-center gap-2 min-w-[120px]">
-                <input 
-                  value={learnInput} onChange={e => setLearnInput(e.target.value)} onKeyDown={handleAddLearn}
-                  className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[60px] py-1 focus:ring-0" 
-                  placeholder="Type topic..." 
+                <input
+                  value={learnInput}
+                  onChange={(e) => setLearnInput(e.target.value)}
+                  onKeyDown={handleAddLearn}
+                  className="bg-transparent border-none outline-none text-on-surface flex-1 min-w-[60px] py-0.5 text-xs focus:ring-0"
+                  placeholder="Type topic & Enter..."
                 />
                 {learnInput.trim() && (
-                  <button type="button" onClick={() => handleAddLearn({ key: 'Enter', preventDefault: () => {} })} className="text-xs bg-secondary-container text-secondary-fixed px-3 py-1 rounded-full font-label-md border border-secondary-container whitespace-nowrap hover:bg-secondary-container/80 transition-colors">Add</button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddLearn({ key: 'Enter', preventDefault: () => {} })}
+                    className="text-xs bg-secondary-container text-secondary-fixed px-2.5 py-0.5 rounded-full border border-secondary-container hover:bg-secondary-container/80 transition-colors"
+                  >
+                    Add
+                  </button>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Social Profiles */}
-          <div className="pt-2 border-t border-surface-raised mt-4">
+          {/* Social Profiles Modal Trigger */}
+          <div className="pt-2">
             <button
               type="button"
               onClick={() => setShowSocials(true)}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border-2 border-success-lime text-success-lime font-bold hover:bg-success-lime/10 transition-colors shadow-[0_0_15px_rgba(220,253,139,0.1)]"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-success-lime/60 text-success-lime font-semibold text-sm hover:bg-success-lime/10 transition-colors"
             >
-              <Link2 size={20} /> Add Social Profiles (Optional)
+              <Link2 size={16} /> Add Social Profiles (Optional)
             </button>
           </div>
 
           {/* Theme Selection */}
-          <div className="pt-2 border-t border-surface-raised mt-4">
-            <label className="text-sm font-label-md text-on-surface-variant block mb-3">Choose your vibe</label>
-            <div className="flex gap-4">
+          <div className="pt-2 border-t border-surface-raised">
+            <label className="text-xs font-label-md text-on-surface-variant block mb-2">Choose your vibe</label>
+            <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setIsDark(false)}
-                className={`flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all ${!isDark ? 'border-success-lime bg-success-lime/10' : 'border-surface-raised bg-surface-container'}`}
+                className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-2xl border transition-all ${!isDark ? 'border-success-lime bg-success-lime/10' : 'border-surface-raised bg-surface-container'}`}
               >
-                <Sun size={24} className={!isDark ? 'text-success-lime' : 'text-on-surface-variant'} />
-                <span className={`font-label-md ${!isDark ? 'text-success-lime font-bold' : 'text-on-surface-variant'}`}>Light</span>
+                <Sun size={18} className={!isDark ? 'text-success-lime' : 'text-on-surface-variant'} />
+                <span className={`text-xs ${!isDark ? 'text-success-lime font-bold' : 'text-on-surface-variant'}`}>Light</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsDark(true)}
-                className={`flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all ${isDark ? 'border-success-lime bg-success-lime/10' : 'border-surface-raised bg-surface-container'}`}
+                className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-2xl border transition-all ${isDark ? 'border-success-lime bg-success-lime/10' : 'border-surface-raised bg-surface-container'}`}
               >
-                <Moon size={24} className={isDark ? 'text-success-lime' : 'text-on-surface-variant'} />
-                <span className={`font-label-md ${isDark ? 'text-success-lime font-bold' : 'text-on-surface-variant'}`}>Dark</span>
+                <Moon size={18} className={isDark ? 'text-success-lime' : 'text-on-surface-variant'} />
+                <span className={`text-xs ${isDark ? 'text-success-lime font-bold' : 'text-on-surface-variant'}`}>Dark</span>
               </button>
             </div>
           </div>
 
-          <button 
-            type="submit"
-            disabled={!!submitting}
-            className="w-full bg-success-lime text-on-primary-fixed font-headline-md text-[18px] rounded-full py-4 px-6 flex items-center justify-center gap-2 tactile-button border-[#b3d266] mt-8 hover:bg-primary-fixed"
-          >
-            {submitting === 'email' ? <Loader2 size={20} className="animate-spin" /> : <>Create Account <Rocket size={20} /></>}
-          </button>
           <button
-            type="button"
-            onClick={handleGoogleSignup}
-            disabled={!isLoaded || !!submitting}
-            className="w-full bg-white dark:bg-surface-raised text-gray-900 dark:text-on-surface border border-gray-200 dark:border-outline-variant font-label-lg rounded-full py-3 px-6 flex items-center justify-center gap-2 hover:bg-gray-50 dark:hover:bg-surface-container-high transition-colors"
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-success-lime text-[#151f00] font-bold text-base rounded-full py-3.5 px-6 flex items-center justify-center gap-2 shadow-md hover:bg-[#b3d266] transition-colors mt-6"
           >
-            {submitting === 'google' ? <Loader2 size={18} className="animate-spin" /> : 'Continue with Google'}
+            {submitting ? <Loader2 size={18} className="animate-spin" /> : <>Complete Profile <Rocket size={18} /></>}
           </button>
-        </form>
 
-        <div className="text-center mt-6 relative z-10">
-          <p className="font-body-sm text-body-sm text-on-surface-variant">
-            Already have an account? <Link to="/login" className="text-success-lime hover:underline font-label-md">Log in here</Link>
-          </p>
-        </div>
+          <div className="flex justify-center pt-2">
+            <button
+              type="button"
+              onClick={async () => {
+                await logout();
+                navigate('/login');
+              }}
+              className="text-xs text-on-surface-variant hover:text-white flex items-center gap-1.5 transition-colors"
+            >
+              <LogOut size={13} /> Sign in as a different user
+            </button>
+          </div>
+        </form>
       </main>
 
       {showSocials && (
-        <SocialLinksModal 
+        <SocialLinksModal
           socials={{
             linkedin: linkedinUsername ? `https://linkedin.com/in/${linkedinUsername}` : '',
             github: githubUsername ? `https://github.com/${githubUsername}` : '',
