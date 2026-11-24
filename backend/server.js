@@ -43,14 +43,39 @@ app.use(helmet({
   contentSecurityPolicy: false, // API-only, no HTML served
 }));
 
-const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+function getAllowedOrigins() {
+  const raw = [
+    process.env.CORS_ORIGIN,
+    process.env.FRONTEND_URL,
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ].filter(Boolean).join(',');
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || frontendUrl,
+  return raw
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const normalized = origin.trim().replace(/\/+$/, '');
+    const allowed = getAllowedOrigins();
+    if (allowed.includes('*') || allowed.includes(normalized)) {
+      return callback(null, true);
+    }
+    if (process.env.NODE_ENV !== 'production' && (normalized.startsWith('http://localhost:') || normalized.startsWith('http://127.0.0.1:'))) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
-}));
+};
+
+app.use(cors(corsOptions));
 
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(compression({
@@ -58,8 +83,9 @@ app.use(compression({
   level: 6,
 }));
 
-// Clerk signs webhook requests against the unparsed payload.
+// Clerk signs webhook requests against the unparsed payload (mounted before express.json)
 app.use('/api/webhooks/clerk', clerkWebhookRoutes);
+app.use('/api/clerk-webhook', clerkWebhookRoutes);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 

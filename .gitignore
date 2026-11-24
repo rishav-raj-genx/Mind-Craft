@@ -41,3 +41,14 @@ yarn-error.log*
 
 # IDE
 .vscode/
+
+# Environment files
+.env
+.env.*
+*.env
+backend/.env
+backend/.env.*
+frontend-react/.env
+frontend-react/.env.*
+!backend/.env.example
+!frontend-react/.env.example

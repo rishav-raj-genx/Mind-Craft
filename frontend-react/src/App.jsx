@@ -1,7 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { AuthenticateWithRedirectCallback } from '@clerk/clerk-react';
 import { useAuth } from './context/AuthContext';
 import { AppProvider, useAppContext } from './context/AppContext';
+import { userService } from './services/userService';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Home from './pages/Home';
@@ -19,6 +21,8 @@ import RatingDetail from './pages/RatingDetail';
 import MatesDetail from './pages/MatesDetail';
 import Layout from './components/Layout';
 import Onboarding from './components/Onboarding';
+import { StarsBackground } from './components/ThemeToggle';
+import { NotificationProvider } from './context/NotificationContext';
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -26,15 +30,37 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-import { StarsBackground } from './components/ThemeToggle';
-import { NotificationProvider } from './context/NotificationContext';
-
 const AppContent = () => {
   const { currentUser } = useAuth();
   const { isDark } = useAppContext();
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(
     localStorage.getItem('hasSeenOnboarding') === 'true'
   );
+
+  useEffect(() => {
+    if (currentUser) {
+      const pending = localStorage.getItem('mindcraft_pending_signup_profile');
+      if (pending) {
+        try {
+          const parsed = JSON.parse(pending);
+          userService.register({
+            ...parsed,
+            name: parsed.name || currentUser.name,
+            photoUrl: parsed.photoUrl || currentUser.photoURL || '',
+          })
+            .then(() => {
+              localStorage.removeItem('mindcraft_pending_signup_profile');
+            })
+            .catch((err) => {
+              console.error('Failed to complete SSO profile registration:', err);
+              localStorage.removeItem('mindcraft_pending_signup_profile');
+            });
+        } catch {
+          localStorage.removeItem('mindcraft_pending_signup_profile');
+        }
+      }
+    }
+  }, [currentUser]);
 
   const isAuthPage = window.location.pathname === '/login' || window.location.pathname === '/signup';
 
@@ -57,6 +83,8 @@ const AppContent = () => {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback signInForceRedirectUrl="/" signUpForceRedirectUrl="/" />} />
+          <Route path="/login/sso-callback" element={<AuthenticateWithRedirectCallback signInForceRedirectUrl="/" signUpForceRedirectUrl="/" />} />
           
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Home />} />
@@ -80,18 +108,12 @@ const AppContent = () => {
   );
 };
 
-import ErrorBoundary from './components/ErrorBoundary';
-
-function App() {
+export default function App() {
   return (
-    <ErrorBoundary>
-      <Router>
-        <AppProvider>
-          <AppContent />
-        </AppProvider>
-      </Router>
-    </ErrorBoundary>
+    <Router>
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </Router>
   );
 }
-
-export default App;
