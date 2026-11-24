@@ -67,6 +67,125 @@ function normalizeUser(u) {
   };
 }
 
+router.post('/register', requireAuth, async (req, res, next) => {
+  try {
+    const clerkUserId = req.user.clerkUserId;
+    const email = req.user.email || req.body.email || '';
+    const {
+      name,
+      college,
+      collegeLocation,
+      department,
+      year,
+      teaches,
+      learns,
+      photoUrl,
+      gender,
+      latitude,
+      longitude,
+    } = req.body;
+
+    const user = await prisma.$transaction(async (tx) => {
+      let collegeId = null;
+      if (college && college.trim()) {
+        const c = await tx.college.upsert({
+          where: { name: college.trim() },
+          create: { name: college.trim() },
+          update: {},
+        });
+        collegeId = c.id;
+      }
+
+      let departmentId = null;
+      if (department && department.trim()) {
+        const d = await tx.department.upsert({
+          where: { name: department.trim() },
+          create: { name: department.trim() },
+          update: {},
+        });
+        departmentId = d.id;
+      }
+
+      const existing = await tx.user.findUnique({
+        where: { clerkUserId },
+      });
+
+      const userData = {
+        name: (name && name.trim()) || existing?.name || (email ? email.split('@')[0] : 'Mindcraft Student'),
+        email: email || existing?.email || '',
+        photoUrl: photoUrl || existing?.photoUrl || '',
+        gender: gender || existing?.gender || '',
+        collegeId: collegeId || existing?.collegeId,
+        collegeLocation: collegeLocation || existing?.collegeLocation || '',
+        departmentId: departmentId || existing?.departmentId,
+        year: year || existing?.year || '',
+        latitude: latitude !== undefined ? Number(latitude) : (existing?.latitude || 0),
+        longitude: longitude !== undefined ? Number(longitude) : (existing?.longitude || 0),
+        profileComplete: true,
+      };
+
+      const u = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: userData,
+          })
+        : await tx.user.create({
+            data: {
+              clerkUserId,
+              ...userData,
+            },
+          });
+
+      if (Array.isArray(teaches)) {
+        await tx.userSkill.deleteMany({
+          where: { userId: u.id, kind: 'TEACHES' },
+        });
+
+        for (const skillName of teaches) {
+          if (!skillName?.trim()) continue;
+          const skill = await tx.skill.upsert({
+            where: { name: skillName.trim() },
+            create: { name: skillName.trim() },
+            update: {},
+          });
+          await tx.userSkill.create({
+            data: { userId: u.id, skillId: skill.id, kind: 'TEACHES' },
+          });
+        }
+      }
+
+      if (Array.isArray(learns)) {
+        await tx.userSkill.deleteMany({
+          where: { userId: u.id, kind: 'LEARNS' },
+        });
+
+        for (const skillName of learns) {
+          if (!skillName?.trim()) continue;
+          const skill = await tx.skill.upsert({
+            where: { name: skillName.trim() },
+            create: { name: skillName.trim() },
+            update: {},
+          });
+          await tx.userSkill.create({
+            data: { userId: u.id, skillId: skill.id, kind: 'LEARNS' },
+          });
+        }
+      }
+
+      return u;
+    });
+
+    const fullUser = await findUser(user.id);
+    res.json({
+      success: true,
+      message: 'Profile registered successfully',
+      data: normalizeUser(fullUser),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/metadata/options', requireAuth, async (_req, res, next) => {
   try {
     const [colleges, departments] = await Promise.all([
