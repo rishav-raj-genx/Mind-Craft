@@ -186,7 +186,7 @@ router.post('/register', requireAuth, async (req, res, next) => {
   }
 });
 
-router.get('/metadata/options', requireAuth, async (_req, res, next) => {
+router.get('/metadata/options', async (_req, res, next) => {
   try {
     const [colleges, departments] = await Promise.all([
       prisma.college.findMany({ select: { name: true }, orderBy: { name: 'asc' } }),

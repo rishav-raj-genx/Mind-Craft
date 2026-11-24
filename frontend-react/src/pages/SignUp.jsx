@@ -180,7 +180,7 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
 };
 
 const SignUp = () => {
-  const { currentUser, loginWithGoogle, loginWithEmail, registerWithEmail } = useAuth();
+  const { currentUser, loginWithGoogle, loginWithEmail, registerWithEmail, isLoaded } = useAuth();
   const { isDark, setIsDark } = useAppContext();
   const navigate = useNavigate();
   const [name, setName] = useState('');
@@ -189,20 +189,41 @@ const SignUp = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [photoUrl, setPhotoUrl] = useState('');
   
-  // Handle users who navigate to /signup while already fully registered
+  // Handle users who navigate to /signup while already fully registered or after SSO redirect
   useEffect(() => {
     if (currentUser) {
+      const pending = localStorage.getItem('mindcraft_pending_signup_profile');
+      if (pending) {
+        try {
+          const parsed = JSON.parse(pending);
+          userService.register({
+            ...parsed,
+            name: parsed.name || currentUser.name,
+            photoUrl: parsed.photoUrl || currentUser.photoURL || '',
+          })
+            .then(() => {
+              localStorage.removeItem('mindcraft_pending_signup_profile');
+              navigate('/');
+            })
+            .catch((err) => {
+              console.error('Failed to complete SSO profile registration:', err);
+            });
+          return;
+        } catch {
+          localStorage.removeItem('mindcraft_pending_signup_profile');
+        }
+      }
+
       userService.getFullProfile(currentUser.uid)
         .then(() => {
-          // Profile exists, they shouldn't be on signup page
           navigate('/');
         })
         .catch(() => {
-          // Profile doesn't exist yet - this is expected during the signup flow
-          // after they click "Continue with Google" but before they fill the form
+          if (currentUser.name && !name) setName(currentUser.name);
+          if (currentUser.photoURL && !photoUrl) setPhotoUrl(currentUser.photoURL);
         });
     }
-  }, [currentUser, navigate]);
+  }, [currentUser, navigate, name, photoUrl]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [gender, setGender] = useState('');
   const [college, setCollege] = useState('');
@@ -295,9 +316,8 @@ const SignUp = () => {
     try {
       setError('');
       setSubmitting('google');
-      const result = await loginWithGoogle();
-      await userService.register(buildUserData(result.user));
-      navigate('/');
+      localStorage.setItem('mindcraft_pending_signup_profile', JSON.stringify(buildUserData({})));
+      await loginWithGoogle({ mode: 'sign_up' });
     } catch (err) {
       console.error('Google signup error:', err);
       if (err.code === 'auth/popup-closed-by-user') {
@@ -642,7 +662,7 @@ const SignUp = () => {
           <button
             type="button"
             onClick={handleGoogleSignup}
-            disabled={!!submitting}
+            disabled={!isLoaded || !!submitting}
             className="w-full bg-white dark:bg-surface-raised text-gray-900 dark:text-on-surface border border-gray-200 dark:border-outline-variant font-label-lg rounded-full py-3 px-6 flex items-center justify-center gap-2 hover:bg-gray-50 dark:hover:bg-surface-container-high transition-colors"
           >
             {submitting === 'google' ? <Loader2 size={18} className="animate-spin" /> : 'Continue with Google'}

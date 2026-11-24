@@ -5,7 +5,7 @@ import { Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { userService } from '../services/userService';
 
 const Login = () => {
-  const { currentUser, loginWithGoogle, loginWithEmail, logout } = useAuth();
+  const { currentUser, loginWithGoogle, loginWithEmail, logout, isLoaded } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -85,7 +85,7 @@ const Login = () => {
         {/* Social Login */}
         <button 
           onClick={handleGoogleLogin}
-          disabled={!!loading}
+          disabled={!isLoaded || !!loading}
           className="squish-btn w-full bg-white text-[#131313] font-label-lg text-label-lg rounded-full py-4 px-6 flex items-center justify-center gap-3 border-b-4 border-gray-300 transition-all duration-150 mb-8 hover:bg-gray-50"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

@@ -16,13 +16,39 @@ function threadRoom(threadId) {
   return `thread:${threadId}`;
 }
 
+function getSocketAllowedOrigins() {
+  const raw = [
+    process.env.SOCKET_IO_CORS_ORIGIN,
+    process.env.CORS_ORIGIN,
+    process.env.FRONTEND_URL,
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ].filter(Boolean).join(',');
+
+  return raw
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
 function initSocketServer(httpServer) {
   const redis = getRedisClients();
   const options = {
     path: process.env.SOCKET_IO_PATH || '/socket.io',
     maxHttpBufferSize: 64 * 1024,
     cors: {
-      origin: process.env.SOCKET_IO_CORS_ORIGIN || process.env.CORS_ORIGIN || 'http://localhost:5173',
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        const normalized = origin.trim().replace(/\/+$/, '');
+        const allowed = getSocketAllowedOrigins();
+        if (allowed.includes('*') || allowed.includes(normalized)) {
+          return callback(null, true);
+        }
+        if (process.env.NODE_ENV !== 'production' && (normalized.startsWith('http://localhost:') || normalized.startsWith('http://127.0.0.1:'))) {
+          return callback(null, true);
+        }
+        return callback(null, false);
+      },
       credentials: true,
     },
   };

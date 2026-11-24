@@ -1,0 +1,28 @@
+name: Render Backend Keep-Alive
+
+on:
+  schedule:
+    # Runs every 12 minutes
+    - cron: '*/12 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-health:
+    name: Ping Health Endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Backend
+        run: |
+          echo "Pinging https://mind-craft-backend.onrender.com/health..."
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 60 "https://mind-craft-backend.onrender.com/health")
+          HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1)
+
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response Body: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Health check failed with status $HTTP_STATUS"
+            exit 1
+          fi
+          echo "Health check succeeded!"

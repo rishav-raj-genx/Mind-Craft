@@ -35,14 +35,21 @@ export const AuthProvider = ({ children }) => {
     : null;
 
   const setActive = setSignUpActive || setSignInActive || clerk.setActive;
-  const activeSignIn = signIn || clerk.client?.signIn;
-  const activeSignUp = signUp || clerk.client?.signUp;
 
-  const loginWithGoogle = async () => {
-    if (!activeSignIn) {
-      throw new Error('Authentication is still initializing. Please try again.');
+  const loginWithGoogle = async (options = {}) => {
+    const isSignUpMode = options.mode === 'sign_up';
+    let authTarget;
+    if (isSignUpMode) {
+      authTarget = (isSignUpLoaded && signUp) || (isSignInLoaded && signIn) || clerk.client?.signUp || clerk.client?.signIn;
+    } else {
+      authTarget = (isSignInLoaded && signIn) || (isSignUpLoaded && signUp) || clerk.client?.signIn || clerk.client?.signUp;
     }
-    await activeSignIn.authenticateWithRedirect({
+
+    if (!authTarget || typeof authTarget.authenticateWithRedirect !== 'function') {
+      throw new Error('Authentication service is still initializing. Please wait a moment and try again.');
+    }
+
+    await authTarget.authenticateWithRedirect({
       strategy: 'oauth_google',
       redirectUrl: '/sso-callback',
       redirectUrlComplete: '/',
@@ -51,13 +58,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   const loginWithEmail = async (email, password) => {
-    if (!activeSignIn) {
-      throw new Error('Sign-in service is still initializing. Please try again.');
+    const clientSignIn = (isSignInLoaded && signIn) || clerk.client?.signIn;
+    if (!clientSignIn || typeof clientSignIn.create !== 'function') {
+      throw new Error('Sign-in service is still initializing. Please wait a moment and try again.');
     }
     try {
-      const result = await activeSignIn.create({ identifier: email, password });
+      const result = await clientSignIn.create({ identifier: email, password });
       if (result.status !== 'complete') {
-        throw new Error('Additional sign-in verification is required.');
+        throw new Error(`Additional sign-in verification is required (${result.status}).`);
       }
       if (setActive) {
         await setActive({ session: result.createdSessionId });
@@ -73,15 +81,16 @@ export const AuthProvider = ({ children }) => {
   };
 
   const registerWithEmail = async (email, password) => {
-    if (!activeSignUp) {
-      throw new Error('Sign-up service is still initializing. Please try again.');
+    const clientSignUp = (isSignUpLoaded && signUp) || clerk.client?.signUp;
+    if (!clientSignUp || typeof clientSignUp.create !== 'function') {
+      throw new Error('Sign-up service is still initializing. Please wait a moment and try again.');
     }
     try {
-      const result = await activeSignUp.create({ emailAddress: email, password });
+      const result = await clientSignUp.create({ emailAddress: email, password });
       if (result.status !== 'complete') {
         if (result.status === 'missing_requirements' && result.unverifiedFields?.includes('email_address')) {
-          await activeSignUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-          throw new Error('Please check your email for a verification link or code.');
+          await clientSignUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+          throw new Error('Please check your email for a verification code.');
         }
         throw new Error(`Additional sign-up verification is required (${result.status}).`);
       }
