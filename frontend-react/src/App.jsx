@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState } from 'react';
+import { AuthenticateWithRedirectCallback } from '@clerk/clerk-react';
 import { useAuth } from './context/AuthContext';
 import { AppProvider, useAppContext } from './context/AppContext';
 import Login from './pages/Login';
@@ -57,6 +58,8 @@ const AppContent = () => {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback />} />
+          <Route path="/login/sso-callback" element={<AuthenticateWithRedirectCallback />} />
           
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Home />} />

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { User, MapPin, X, Rocket, GraduationCap, Building2, Moon, Sun, Camera, Edit2, Loader2, Link2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
@@ -100,10 +101,19 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-surface-container rounded-3xl p-6 w-full max-w-sm flex flex-col relative animate-[slideUp_0.2s_ease-out]">
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div 
+        className="bg-white dark:bg-surface-container rounded-3xl p-6 w-full max-w-sm flex flex-col relative animate-[slideUp_0.2s_ease-out] shadow-2xl border border-surface-raised my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button 
+          type="button"
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-500 dark:text-on-surface hover:text-gray-900 dark:hover:text-white"
         >
@@ -157,13 +167,15 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
         </div>
 
         <button 
+          type="button"
           onClick={handleSave}
           className="w-full mt-4 bg-success-lime text-[#151f00] font-bold py-3 rounded-xl hover:bg-[#b3d266] transition-colors"
         >
           Save Profiles
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -314,7 +326,7 @@ const SignUp = () => {
         const result = await registerWithEmail(email.trim(), password);
         user = result.user;
       } catch (err) {
-        if (err.code === 'auth/email-already-in-use') {
+        if (err.code === 'auth/email-already-in-use' || err.code === 'form_identifier_exists') {
           // They have an account but no DB profile. 
           // Log them in to complete the DB registration.
           const result = await loginWithEmail(email.trim(), password);
@@ -326,8 +338,12 @@ const SignUp = () => {
       await userService.register(buildUserData(user));
       navigate('/');
     } catch (err) {
-      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setError('This email is already registered. If you used Google earlier, please click "Sign up with Google" above. Otherwise, check your password.');
+      if (
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/invalid-credential' ||
+        err.code === 'form_password_incorrect'
+      ) {
+        setError('This email is already registered. If you used Google earlier, please click "Continue with Google" above. Otherwise, check your password.');
       } else {
         setError('Failed to sign up with email: ' + err.message);
       }
@@ -583,7 +599,7 @@ const SignUp = () => {
           </div>
 
           {/* Social Profiles */}
-          <div className="pt-2 border-t border-surface-raised mt-4 relative z-10">
+          <div className="pt-2 border-t border-surface-raised mt-4">
             <button
               type="button"
               onClick={() => setShowSocials(true)}
@@ -591,31 +607,10 @@ const SignUp = () => {
             >
               <Link2 size={20} /> Add Social Profiles (Optional)
             </button>
-            
-            {showSocials && (
-              <SocialLinksModal 
-                socials={{
-                  linkedin: linkedinUsername ? `https://linkedin.com/in/${linkedinUsername}` : '',
-                  github: githubUsername ? `https://github.com/${githubUsername}` : '',
-                  leetcode: leetcodeUsername ? `https://leetcode.com/u/${leetcodeUsername}` : '',
-                  codeforces: codeforcesUsername ? `https://codeforces.com/profile/${codeforcesUsername}` : '',
-                  codechef: codechefUsername ? `https://www.codechef.com/users/${codechefUsername}` : '',
-                }}
-                onSave={(extracted) => {
-                  setLinkedinUsername(extracted.linkedinUsername);
-                  setGithubUsername(extracted.githubUsername);
-                  setLeetcodeUsername(extracted.leetcodeUsername);
-                  setCodeforcesUsername(extracted.codeforcesUsername);
-                  setCodechefUsername(extracted.codechefUsername);
-                  setShowSocials(false);
-                }}
-                onClose={() => setShowSocials(false)}
-              />
-            )}
           </div>
 
           {/* Theme Selection */}
-          <div className="pt-2 border-t border-surface-raised mt-4 relative z-10">
+          <div className="pt-2 border-t border-surface-raised mt-4">
             <label className="text-sm font-label-md text-on-surface-variant block mb-3">Choose your vibe</label>
             <div className="flex gap-4">
               <button
@@ -660,6 +655,27 @@ const SignUp = () => {
           </p>
         </div>
       </main>
+
+      {showSocials && (
+        <SocialLinksModal 
+          socials={{
+            linkedin: linkedinUsername ? `https://linkedin.com/in/${linkedinUsername}` : '',
+            github: githubUsername ? `https://github.com/${githubUsername}` : '',
+            leetcode: leetcodeUsername ? `https://leetcode.com/u/${leetcodeUsername}` : '',
+            codeforces: codeforcesUsername ? `https://codeforces.com/profile/${codeforcesUsername}` : '',
+            codechef: codechefUsername ? `https://www.codechef.com/users/${codechefUsername}` : '',
+          }}
+          onSave={(extracted) => {
+            setLinkedinUsername(extracted.linkedinUsername);
+            setGithubUsername(extracted.githubUsername);
+            setLeetcodeUsername(extracted.leetcodeUsername);
+            setCodeforcesUsername(extracted.codeforcesUsername);
+            setCodechefUsername(extracted.codechefUsername);
+            setShowSocials(false);
+          }}
+          onClose={() => setShowSocials(false)}
+        />
+      )}
     </div>
   );
 };
