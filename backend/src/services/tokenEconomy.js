@@ -6,6 +6,7 @@
 
 const { prisma } = require('../config/prisma');
 const { v4: uuidv4 } = require('uuid');
+const { resolveUser } = require('../utils/userResolver');
 const {
   TOKENS_FORUM_ANSWER,
   TOKENS_SESSION_COMPLETE,
@@ -13,20 +14,6 @@ const {
   TOKENS_STREAK_10,
   TOKENS_STREAK_30,
 } = require('../utils/constants');
-
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-  });
-}
 
 /**
  * Awards tokens to a user using an atomic Prisma transaction.
@@ -40,7 +27,7 @@ async function awardTokens(uid, amount, reason, meta = {}) {
     );
   }
 
-  const user = await findUser(uid);
+  const user = await resolveUser(uid);
   if (!user) {
     throw Object.assign(new Error(`User ${uid} not found`), { statusCode: 404 });
   }
@@ -146,7 +133,7 @@ async function deductTokens(uid, amount, reason, meta = {}) {
     );
   }
 
-  const user = await findUser(uid);
+  const user = await resolveUser(uid);
   if (!user) {
     throw Object.assign(new Error(`User ${uid} not found`), { statusCode: 404 });
   }
@@ -284,17 +271,17 @@ async function awardStreakBonus(uid, streakDays, key = null) {
 }
 
 async function getBalance(uid) {
-  const user = await findUser(uid);
+  const user = await resolveUser(uid);
   if (!user) {
-    throw Object.assign(new Error(`User ${uid} not found`), { statusCode: 404 });
+    return 0;
   }
   return user.mindTokens;
 }
 
 async function getTransactionHistory(uid, limit = 20, startAfterTimestamp = null) {
-  const user = await findUser(uid);
+  const user = await resolveUser(uid);
   if (!user) {
-    throw Object.assign(new Error(`User ${uid} not found`), { statusCode: 404 });
+    return [];
   }
 
   const transactions = await prisma.tokenTransaction.findMany({

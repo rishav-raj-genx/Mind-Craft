@@ -1,5 +1,6 @@
 const { Prisma } = require('@prisma/client');
 const { prisma } = require('../config/prisma');
+const { resolveUser } = require('../utils/userResolver');
 const { getCachedFeed, setCachedFeed } = require('./matchingCache');
 
 const DEFAULT_LIMIT = 20;
@@ -69,10 +70,7 @@ async function findBroadMatches(uid, limit = DEFAULT_LIMIT, offset = 0, skillFil
 }
 
 async function findAnyMatches(uid, limit = DEFAULT_LIMIT, offset = 0) {
-  const user = await prisma.user.findUnique({
-    where: { clerkUserId: uid },
-    select: { id: true },
-  });
+  const user = await resolveUser(uid);
   if (!user) return [];
 
   const rows = await prisma.user.findMany({
@@ -114,9 +112,8 @@ async function findAnyMatches(uid, limit = DEFAULT_LIMIT, offset = 0) {
 }
 
 async function getUserSkillGraph(uid) {
-  const user = await prisma.user.findUnique({
-    where: { clerkUserId: uid },
-    select: {
+  const user = await resolveUser(uid, {
+    include: {
       skills: {
         select: { kind: true, skill: { select: { name: true } } },
       },
@@ -124,8 +121,8 @@ async function getUserSkillGraph(uid) {
   });
 
   return {
-    teaches: (user?.skills || []).filter((item) => item.kind === 'TEACHES').map((item) => item.skill.name),
-    learns: (user?.skills || []).filter((item) => item.kind === 'LEARNS').map((item) => item.skill.name),
+    teaches: (user?.skills || []).filter((item) => item.kind === 'TEACHES').map((item) => item.skill?.name || item.name || item),
+    learns: (user?.skills || []).filter((item) => item.kind === 'LEARNS').map((item) => item.skill?.name || item.name || item),
   };
 }
 
@@ -136,10 +133,7 @@ async function queryMatches(uid, options = {}) {
   const sameCollegeOnly = Boolean(options.sameCollegeOnly);
   const cursor = decodeCursor(options.cursor);
 
-  const requester = await prisma.user.findUnique({
-    where: { clerkUserId: uid },
-    select: { id: true, updatedAt: true },
-  });
+  const requester = await resolveUser(uid);
   if (!requester) return [];
 
   const cacheKey = [

@@ -1,18 +1,5 @@
 const { prisma } = require('../config/prisma');
-
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-  });
-}
+const { resolveUser } = require('../utils/userResolver');
 
 async function completeSession(sessionId) {
   const session = await prisma.tutoringSession.findUnique({
@@ -131,7 +118,7 @@ async function sendRatingNotification(learnerUid, sessionData) {
 
 async function sendNotification(uid, title, body, data = {}) {
   try {
-    const user = await findUser(uid);
+    const user = await resolveUser(uid);
     if (!user) return false;
 
     const { emitToUser } = require('../config/socket');

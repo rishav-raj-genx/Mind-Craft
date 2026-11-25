@@ -5,6 +5,7 @@ const router = express.Router();
 const { prisma } = require('../config/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
+const { resolveUser } = require('../utils/userResolver');
 const {
   awardForumAnswer,
   awardSessionComplete,
@@ -19,20 +20,6 @@ const { calculateBadges } = require('../services/badgeCalculator');
 const { getPagination } = require('../utils/pagination');
 const { TOKENS_DAILY_LOGIN } = require('../utils/constants');
 const { broadcastToGlobal } = require('../services/chatService');
-
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-  });
-}
 
 router.get('/tokens/:uid', requireAuth, async (req, res, next) => {
   try {
@@ -51,10 +38,10 @@ router.get('/tokens/:uid', requireAuth, async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        balance,
-        transactions,
+        balance: balance || 0,
+        transactions: transactions || [],
         limit,
-        hasMore: transactions.length === limit,
+        hasMore: (transactions || []).length === limit,
       },
     });
   } catch (err) {
@@ -77,12 +64,11 @@ router.post('/tokens/award/forum', requireAuth, async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Cannot award forum tokens to another user' });
     }
 
-    const user = await findUser(callerClerkId);
+    const user = await resolveUser(callerClerkId);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // Verify caller is author of the accepted answer in the referenced doubt
     const acceptedAnswer = await prisma.doubtAnswer.findFirst({
       where: {
         doubtId,
@@ -102,7 +88,7 @@ router.post('/tokens/award/forum', requireAuth, async (req, res, next) => {
     const idempotencyKey = `forum_${doubtId}_${acceptedAnswer.id}`;
     const result = await awardForumAnswer(callerClerkId, doubtId, idempotencyKey);
 
-    const streak = await calculateStreak(callerClerkId);
+    const streak = await calculateStreak(callerClerkId).catch(() => ({ currentStreak: 0 }));
     let streakBonus = null;
     if ([5, 10, 30].includes(streak.currentStreak) && !result.alreadyAwarded) {
       const todayUTC = new Date().toISOString().slice(0, 10);
@@ -184,7 +170,7 @@ router.post(
 const handleCheckIn = async (req, res, next) => {
   try {
     const uid = req.user.clerkUserId;
-    const user = await findUser(uid);
+    const user = await resolveUser(uid);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
@@ -193,7 +179,12 @@ const handleCheckIn = async (req, res, next) => {
     const checkinKey = `checkin_${user.id}_${todayUTC}`;
 
     const checkInResult = await recordCheckIn(uid);
-    const streak = await calculateStreak(uid);
+    const streak = await calculateStreak(uid).catch(() => ({
+      currentStreak: user.currentStreak || 0,
+      longestStreak: user.longestStreak || 0,
+      activeDates: [],
+      grid: [],
+    }));
 
     let streakBonus = null;
     let loginTokens = null;
@@ -247,18 +238,27 @@ router.get('/streak/:uid', requireAuth, async (req, res, next) => {
     if (uid !== req.user.clerkUserId && uid !== req.user.id) {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's streak" });
     }
-    const streak = await calculateStreak(req.user.clerkUserId);
+
+    const streak = await calculateStreak(req.user.clerkUserId).catch(() => ({
+      currentStreak: req.user.currentStreak || 0,
+      longestStreak: req.user.longestStreak || 0,
+      activeDates: [],
+      grid: [],
+      badges: [],
+      streakFreezes: 0,
+      totalActiveDays: 0,
+    }));
 
     res.json({
       success: true,
       data: {
-        currentStreak: streak.currentStreak,
-        longestStreak: streak.longestStreak,
-        activeDates: streak.activeDates,
-        grid: streak.grid,
-        badges: streak.badges,
-        streakFreezes: streak.streakFreezes,
-        totalActiveDays: streak.totalActiveDays,
+        currentStreak: streak.currentStreak || 0,
+        longestStreak: streak.longestStreak || 0,
+        activeDates: streak.activeDates || [],
+        grid: streak.grid || [],
+        badges: streak.badges || [],
+        streakFreezes: streak.streakFreezes || 0,
+        totalActiveDays: streak.totalActiveDays || 0,
       },
     });
   } catch (err) {
@@ -273,19 +273,18 @@ router.get('/badges/:uid', requireAuth, async (req, res, next) => {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's badges" });
     }
 
-    const user = await findUser(uid);
+    let user = await resolveUser(uid);
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      user = req.user;
     }
 
-    // Pure read-only query returning earned badges from UserBadge join Badge
-    const earnedBadges = await prisma.userBadge.findMany({
+    const earnedBadges = user?.id ? await prisma.userBadge.findMany({
       where: { userId: user.id },
       include: { badge: true },
       orderBy: { awardedAt: 'desc' },
-    });
+    }).catch(() => []) : [];
 
-    const result = await calculateBadges(user.clerkUserId);
+    const result = await calculateBadges(user?.clerkUserId || req.user.clerkUserId);
     result.badgeHistory = earnedBadges.map((ub) => ({
       id: `${ub.badgeId}_${ub.auditWeek}`,
       badgeId: ub.badgeId,

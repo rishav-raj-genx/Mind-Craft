@@ -6,22 +6,9 @@ const { requireAuth } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { findMatches, findBroadMatches, findAnyMatches } = require('../services/matchingEngine');
 const { prisma } = require('../config/prisma');
+const { resolveUser } = require('../utils/userResolver');
 const { getPagination } = require('../utils/pagination');
 const { broadcastToGlobal } = require('../services/chatService');
-
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-  });
-}
 
 router.get('/:uid', requireAuth, async (req, res, next) => {
   try {
@@ -67,8 +54,8 @@ router.post('/request', requireAuth, [
     const { toUid, sharedSkill } = req.body;
 
     const [requester, recipient] = await Promise.all([
-      findUser(fromUid),
-      findUser(toUid),
+      resolveUser(fromUid),
+      resolveUser(toUid),
     ]);
 
     if (!requester || !recipient) {
@@ -154,7 +141,7 @@ router.post('/accept', requireAuth, [body('requestId').trim().notEmpty()], async
       return res.status(404).json({ success: false, error: 'Request not found' });
     }
 
-    if (request.recipient.clerkUserId !== req.user.clerkUserId) {
+    if (request.recipient.clerkUserId !== req.user.clerkUserId && request.recipient.id !== req.user.id) {
       return res.status(403).json({ success: false, error: 'Unauthorized to accept this request' });
     }
 
@@ -212,7 +199,7 @@ router.post('/decline', requireAuth, [body('requestId').trim().notEmpty()], asyn
       return res.status(404).json({ success: false, error: 'Request not found' });
     }
 
-    if (request.recipient.clerkUserId !== req.user.clerkUserId) {
+    if (request.recipient.clerkUserId !== req.user.clerkUserId && request.recipient.id !== req.user.id) {
       return res.status(403).json({ success: false, error: 'Unauthorized to decline this request' });
     }
 
@@ -230,16 +217,31 @@ router.post('/decline', requireAuth, [body('requestId').trim().notEmpty()], asyn
 router.get('/requests/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
-    const user = await findUser(uid);
+    let user = await resolveUser(uid);
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      if (uid === req.user.clerkUserId || uid === req.user.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
     }
 
-    if (user.clerkUserId !== req.user.clerkUserId) {
+    if (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id) {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's requests" });
     }
 
     const { limit, offset } = getPagination(req.query);
+
+    if (!user.id) {
+      return res.json({
+        success: true,
+        count: 0,
+        limit,
+        offset,
+        hasMore: false,
+        data: [],
+      });
+    }
 
     const requests = await prisma.matchRequest.findMany({
       where: {

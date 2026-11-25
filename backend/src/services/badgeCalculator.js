@@ -13,19 +13,7 @@ const BADGE_DEFINITIONS = [
   { id: 'wealthy_mind', name: 'Wealthy Mind', emoji: '🪙', description: 'Accumulate Mind Tokens', metric: 'mindTokens', thresholds: [100, 500, 1000], color: 'from-yellow-500/20 to-yellow-400/10', borderColor: 'border-yellow-400/30', iconColor: 'text-yellow-500' },
 ];
 
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-  });
-}
+const { resolveUser } = require('../utils/userResolver');
 
 function computeBadge(definition, metrics) {
   const { id, name, emoji, description, metric, thresholds, color, borderColor, iconColor } = definition;
@@ -64,9 +52,30 @@ function computeBadge(definition, metrics) {
 }
 
 async function calculateBadges(uid) {
-  const user = await findUser(uid);
+  const user = await resolveUser(uid);
   if (!user) {
-    throw Object.assign(new Error(`User ${uid} not found`), { statusCode: 404 });
+    const defaultMetrics = {
+      currentStreak: 0,
+      longestStreak: 0,
+      totalSessions: 0,
+      dsaSessions: 0,
+      lateNightSessions: 0,
+      sessionsTaught: 0,
+      ratedSessions: 0,
+      averageRating: 0,
+      uniqueMates: 0,
+      doubtsAnswered: 0,
+      mindTokens: 0,
+    };
+    const defaultBadges = BADGE_DEFINITIONS.map(def => computeBadge(def, defaultMetrics));
+    return {
+      badges: defaultBadges,
+      totalEarned: 0,
+      totalSessions: 0,
+      sessionHistory: [],
+      badgeHistory: [],
+      metrics: defaultMetrics,
+    };
   }
 
   const [sessionMetrics, doubtsAnswered, streakData, badgeHistory] = await Promise.all([
@@ -167,7 +176,7 @@ async function getBadgeHistory(userId) {
 }
 
 async function recordBadgeEarned(uid, badgeId, badgeName, level = 1) {
-  const user = await findUser(uid);
+  const user = await resolveUser(uid);
   if (!user) return false;
 
   try {

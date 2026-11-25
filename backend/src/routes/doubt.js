@@ -12,6 +12,7 @@ const { generateStudyHint } = require('../services/sarvamAI');
 const { v4: uuidv4 } = require('uuid');
 const { getPagination } = require('../utils/pagination');
 const { broadcastToGlobal } = require('../services/chatService');
+const { resolveUser } = require('../utils/userResolver');
 
 const MAX_DOUBT_IMAGES = 4;
 const MAX_DOUBT_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -36,19 +37,7 @@ const uploadDoubtImages = multer({
   },
 });
 
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-  });
-}
+
 
 const compressDoubtImage = async (file, index) => {
   try {
@@ -204,7 +193,7 @@ router.post(
       const errors = formatValidationErrors(req);
       if (errors) return res.status(400).json(errors);
 
-      const user = await findUser(req.user.clerkUserId);
+      const user = await resolveUser(req.user.clerkUserId);
       if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
       const doubtRecord = await prisma.$transaction(async (tx) => {
@@ -285,7 +274,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
     const { tag } = req.query;
     const { limit, offset } = getPagination(req.query);
 
-    const currentUser = req.user?.clerkUserId ? await findUser(req.user.clerkUserId) : null;
+    const currentUser = req.user?.clerkUserId ? await resolveUser(req.user.clerkUserId) : null;
 
     const doubts = await prisma.doubt.findMany({
       where: {
@@ -353,7 +342,7 @@ router.get('/trending', optionalAuth, async (_req, res, next) => {
 router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const currentUser = req.user?.clerkUserId ? await findUser(req.user.clerkUserId) : null;
+    const currentUser = req.user?.clerkUserId ? await resolveUser(req.user.clerkUserId) : null;
 
     const doubt = await prisma.doubt.findUnique({
       where: { id },
@@ -387,7 +376,7 @@ router.post('/:id/answer', requireAuth, [
     if (errors) return res.status(400).json(errors);
 
     const { id } = req.params;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await resolveUser(req.user.clerkUserId);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const doubt = await prisma.doubt.findUnique({
@@ -462,7 +451,7 @@ router.post('/:id/answer', requireAuth, [
 const handleUpvote = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await resolveUser(req.user.clerkUserId);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const doubt = await prisma.doubt.findUnique({
@@ -515,7 +504,7 @@ router.patch('/:id/upvote', requireAuth, handleUpvote);
 const handleAcceptAnswer = async (req, res, next) => {
   try {
     const { id, answerId } = req.params;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await resolveUser(req.user.clerkUserId);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const doubt = await prisma.doubt.findUnique({
@@ -578,7 +567,7 @@ router.post('/:id/answer/:answerId/accept', requireAuth, handleAcceptAnswer);
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await resolveUser(req.user.clerkUserId);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const doubt = await prisma.doubt.findUnique({

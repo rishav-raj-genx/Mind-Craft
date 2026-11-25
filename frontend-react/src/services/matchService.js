@@ -1,8 +1,9 @@
 import api from '../config/api';
 
 export const matchService = {
-  getMatches: async (uid) => {
-    const response = await api.get(`/match/${uid}`);
+  getMatches: async (uid, filters = {}) => {
+    const params = filters && typeof filters === 'object' ? filters : {};
+    const response = await api.get(`/match/${uid}`, { params });
     return response.data;
   },
 

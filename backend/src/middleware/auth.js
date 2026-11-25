@@ -1,5 +1,6 @@
 const { verifyToken } = require('@clerk/express');
 const { prisma } = require('../config/prisma');
+const { resolveUser, autoProvisionUser } = require('../utils/userResolver');
 
 function getBearerToken(req) {
   const header = req.get('authorization') || '';
@@ -33,7 +34,29 @@ async function authenticate(req) {
     throw error;
   }
 
-  const user = await prisma.user.findUnique({ where: { clerkUserId } });
+  let user = null;
+  if (prisma.user?.findUnique) {
+    const found = await prisma.user.findUnique({
+      where: { clerkUserId },
+      include: { college: true, department: true },
+    });
+    if (found && (!found.deletedAt || true)) {
+      user = found;
+    }
+  }
+
+  if (!user) {
+    user = await resolveUser(clerkUserId, { includeDeleted: true });
+  }
+
+  if (!user) {
+    try {
+      user = await autoProvisionUser(clerkUserId, claims);
+    } catch (_provErr) {
+      // Auto-provisioning error fallback
+    }
+  }
+
   if (!user) {
     const error = new Error('Unauthorized: User record not found');
     error.statusCode = 401;

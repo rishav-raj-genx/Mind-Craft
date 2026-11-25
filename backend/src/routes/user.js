@@ -3,40 +3,20 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { prisma } = require('../config/prisma');
+const { resolveUser } = require('../utils/userResolver');
 const { getBalance, getTransactionHistory } = require('../services/tokenEconomy');
 const { getUserSkillGraph } = require('../services/matchingEngine');
 const { calculateStreak } = require('../services/streakCalculator');
 const { getPagination } = require('../utils/pagination');
 
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-    include: {
-      college: true,
-      department: true,
-      skills: {
-        include: { skill: true },
-      },
-    },
-  });
-}
-
 function normalizeUser(u) {
   if (!u) return null;
   const teaches = (u.skills || [])
     .filter((s) => s.kind === 'TEACHES')
-    .map((s) => s.skill.name);
+    .map((s) => s.skill?.name || s.name || s);
   const learns = (u.skills || [])
     .filter((s) => s.kind === 'LEARNS')
-    .map((s) => s.skill.name);
+    .map((s) => s.skill?.name || s.name || s);
 
   return {
     id: u.id,
@@ -52,25 +32,25 @@ function normalizeUser(u) {
     department: u.department?.name || '',
     departmentId: u.departmentId || null,
     year: u.year || '',
-    latitude: u.latitude === null ? 0 : Number(u.latitude),
-    longitude: u.longitude === null ? 0 : Number(u.longitude),
+    latitude: u.latitude === null || u.latitude === undefined ? 0 : Number(u.latitude),
+    longitude: u.longitude === null || u.longitude === undefined ? 0 : Number(u.longitude),
     averageRating: Number(u.averageRating) || 0,
     totalSessions: u.totalSessions || 0,
     mind_tokens: u.mindTokens || 0,
     tokenBalance: u.mindTokens || 0,
     currentStreak: u.currentStreak || 0,
     longestStreak: u.longestStreak || 0,
-    profileComplete: u.profileComplete || false,
+    profileComplete: Boolean(u.profileComplete),
     teaches,
     learns,
-    createdAt: new Date(u.createdAt).getTime(),
+    createdAt: u.createdAt ? new Date(u.createdAt).getTime() : Date.now(),
   };
 }
 
 router.post('/register', requireAuth, async (req, res, next) => {
   try {
     const clerkUserId = req.user.clerkUserId;
-    const email = req.user.email || req.body.email || '';
+    const email = req.user.email || req.body.email || `${clerkUserId}@clerk.internal`;
     const {
       name,
       college,
@@ -87,38 +67,50 @@ router.post('/register', requireAuth, async (req, res, next) => {
 
     const user = await prisma.$transaction(async (tx) => {
       let collegeId = null;
-      if (college && college.trim()) {
+      if (college && typeof college === 'string' && college.trim()) {
+        const cleanCollege = college.trim();
+        const cleanLoc = collegeLocation && typeof collegeLocation === 'string' ? collegeLocation.trim() : null;
         const c = await tx.college.upsert({
-          where: { name: college.trim() },
-          create: { name: college.trim() },
-          update: {},
+          where: { name: cleanCollege },
+          create: {
+            name: cleanCollege,
+            ...(cleanLoc ? { location: cleanLoc } : {}),
+          },
+          update: cleanLoc ? { location: cleanLoc } : {},
         });
         collegeId = c.id;
       }
 
       let departmentId = null;
-      if (department && department.trim()) {
+      if (department && typeof department === 'string' && department.trim()) {
+        const cleanDept = department.trim();
         const d = await tx.department.upsert({
-          where: { name: department.trim() },
-          create: { name: department.trim() },
+          where: { name: cleanDept },
+          create: { name: cleanDept },
           update: {},
         });
         departmentId = d.id;
       }
 
-      const existing = await tx.user.findUnique({
-        where: { clerkUserId },
+      const existing = await tx.user.findFirst({
+        where: {
+          OR: [
+            { clerkUserId },
+            ...(email ? [{ email }] : []),
+          ],
+          deletedAt: null,
+        },
       });
 
       const userData = {
-        name: (name && name.trim()) || existing?.name || (email ? email.split('@')[0] : 'Mindcraft Student'),
-        email: email || existing?.email || '',
+        name: (name && typeof name === 'string' && name.trim()) || existing?.name || (email ? email.split('@')[0] : 'Mindcraft Student'),
+        email: email || existing?.email || `${clerkUserId}@clerk.internal`,
         photoUrl: photoUrl || existing?.photoUrl || '',
         gender: gender || existing?.gender || '',
         collegeId: collegeId || existing?.collegeId,
-        collegeLocation: collegeLocation || existing?.collegeLocation || '',
+        collegeLocation: (collegeLocation && typeof collegeLocation === 'string' && collegeLocation.trim()) || existing?.collegeLocation || '',
         departmentId: departmentId || existing?.departmentId,
-        year: year || existing?.year || '',
+        year: year ? String(year) : (existing?.year || ''),
         latitude: latitude !== undefined ? Number(latitude) : (existing?.latitude || 0),
         longitude: longitude !== undefined ? Number(longitude) : (existing?.longitude || 0),
         profileComplete: true,
@@ -127,7 +119,7 @@ router.post('/register', requireAuth, async (req, res, next) => {
       const u = existing
         ? await tx.user.update({
             where: { id: existing.id },
-            data: userData,
+            data: { ...userData, clerkUserId },
           })
         : await tx.user.create({
             data: {
@@ -136,38 +128,65 @@ router.post('/register', requireAuth, async (req, res, next) => {
             },
           });
 
-      if (Array.isArray(teaches)) {
+      // Deduplicate and sanitize skills
+      const cleanTeaches = [...new Set(
+        (Array.isArray(teaches) ? teaches : [])
+          .map((s) => (typeof s === 'string' ? s.trim() : ''))
+          .filter(Boolean),
+      )];
+
+      const cleanLearns = [...new Set(
+        (Array.isArray(learns) ? learns : [])
+          .map((s) => (typeof s === 'string' ? s.trim() : ''))
+          .filter(Boolean),
+      )];
+
+      if (cleanTeaches.length > 0 || Array.isArray(teaches)) {
         await tx.userSkill.deleteMany({
           where: { userId: u.id, kind: 'TEACHES' },
         });
 
-        for (const skillName of teaches) {
-          if (!skillName?.trim()) continue;
+        for (const skillName of cleanTeaches) {
           const skill = await tx.skill.upsert({
-            where: { name: skillName.trim() },
-            create: { name: skillName.trim() },
+            where: { name: skillName },
+            create: { name: skillName },
             update: {},
           });
-          await tx.userSkill.create({
-            data: { userId: u.id, skillId: skill.id, kind: 'TEACHES' },
+          await tx.userSkill.upsert({
+            where: {
+              userId_skillId_kind: {
+                userId: u.id,
+                skillId: skill.id,
+                kind: 'TEACHES',
+              },
+            },
+            create: { userId: u.id, skillId: skill.id, kind: 'TEACHES' },
+            update: {},
           });
         }
       }
 
-      if (Array.isArray(learns)) {
+      if (cleanLearns.length > 0 || Array.isArray(learns)) {
         await tx.userSkill.deleteMany({
           where: { userId: u.id, kind: 'LEARNS' },
         });
 
-        for (const skillName of learns) {
-          if (!skillName?.trim()) continue;
+        for (const skillName of cleanLearns) {
           const skill = await tx.skill.upsert({
-            where: { name: skillName.trim() },
-            create: { name: skillName.trim() },
+            where: { name: skillName },
+            create: { name: skillName },
             update: {},
           });
-          await tx.userSkill.create({
-            data: { userId: u.id, skillId: skill.id, kind: 'LEARNS' },
+          await tx.userSkill.upsert({
+            where: {
+              userId_skillId_kind: {
+                userId: u.id,
+                skillId: skill.id,
+                kind: 'LEARNS',
+              },
+            },
+            create: { userId: u.id, skillId: skill.id, kind: 'LEARNS' },
+            update: {},
           });
         }
       }
@@ -175,11 +194,18 @@ router.post('/register', requireAuth, async (req, res, next) => {
       return u;
     });
 
-    const fullUser = await findUser(user.id);
-    res.json({
+    const fullUser = await resolveUser(user.id, {
+      include: {
+        college: true,
+        department: true,
+        skills: { include: { skill: true } },
+      },
+    });
+
+    res.status(200).json({
       success: true,
       message: 'Profile registered successfully',
-      data: normalizeUser(fullUser),
+      data: normalizeUser(fullUser || user),
     });
   } catch (err) {
     next(err);
@@ -210,7 +236,7 @@ router.get('/search', requireAuth, async (req, res, next) => {
     const q = (req.query.q || '').trim();
     const { limit, offset } = getPagination(req.query);
 
-    const currentUser = await findUser(req.user.clerkUserId);
+    const currentUser = await resolveUser(req.user.clerkUserId);
     const excludeId = currentUser ? currentUser.id : undefined;
 
     const users = await prisma.user.findMany({
@@ -256,9 +282,20 @@ router.get('/search', requireAuth, async (req, res, next) => {
 
 router.get('/:uid', requireAuth, async (req, res, next) => {
   try {
-    const user = await findUser(req.params.uid);
+    let user = await resolveUser(req.params.uid, {
+      include: {
+        college: true,
+        department: true,
+        skills: { include: { skill: true } },
+      },
+    });
+
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      if (req.params.uid === req.user?.clerkUserId || req.params.uid === req.user?.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
     }
     res.json({ success: true, data: normalizeUser(user) });
   } catch (err) {
@@ -268,8 +305,8 @@ router.get('/:uid', requireAuth, async (req, res, next) => {
 
 router.delete('/:uid', requireAuth, async (req, res, next) => {
   try {
-    const user = await findUser(req.params.uid);
-    if (!user || user.clerkUserId !== req.user.clerkUserId) {
+    const user = await resolveUser(req.params.uid);
+    if (!user || (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id)) {
       return res.status(403).json({ success: false, error: "Cannot delete another user's profile" });
     }
 
@@ -286,8 +323,8 @@ router.delete('/:uid', requireAuth, async (req, res, next) => {
 
 router.patch('/:uid', requireAuth, async (req, res, next) => {
   try {
-    const user = await findUser(req.params.uid);
-    if (!user || user.clerkUserId !== req.user.clerkUserId) {
+    const user = await resolveUser(req.params.uid);
+    if (!user || (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id)) {
       return res.status(403).json({ success: false, error: "Cannot update another user's profile" });
     }
 
@@ -308,20 +345,23 @@ router.patch('/:uid', requireAuth, async (req, res, next) => {
 
     await prisma.$transaction(async (tx) => {
       let collegeId = user.collegeId;
-      if (college) {
+      if (college && typeof college === 'string' && college.trim()) {
+        const cleanCollege = college.trim();
+        const cleanLoc = collegeLocation && typeof collegeLocation === 'string' ? collegeLocation.trim() : null;
         const c = await tx.college.upsert({
-          where: { name: college.trim() },
-          create: { name: college.trim() },
-          update: {},
+          where: { name: cleanCollege },
+          create: { name: cleanCollege, ...(cleanLoc ? { location: cleanLoc } : {}) },
+          update: cleanLoc ? { location: cleanLoc } : {},
         });
         collegeId = c.id;
       }
 
       let departmentId = user.departmentId;
-      if (department) {
+      if (department && typeof department === 'string' && department.trim()) {
+        const cleanDept = department.trim();
         const d = await tx.department.upsert({
-          where: { name: department.trim() },
-          create: { name: department.trim() },
+          where: { name: cleanDept },
+          create: { name: cleanDept },
           update: {},
         });
         departmentId = d.id;
@@ -334,7 +374,7 @@ router.patch('/:uid', requireAuth, async (req, res, next) => {
           ...(collegeId !== undefined ? { collegeId } : {}),
           ...(collegeLocation !== undefined ? { collegeLocation } : {}),
           ...(departmentId !== undefined ? { departmentId } : {}),
-          ...(year !== undefined ? { year } : {}),
+          ...(year !== undefined ? { year: String(year) } : {}),
           ...(photoUrl !== undefined ? { photoUrl } : {}),
           ...(bannerUrl !== undefined ? { bannerUrl } : {}),
           ...(gender !== undefined ? { gender } : {}),
@@ -344,48 +384,81 @@ router.patch('/:uid', requireAuth, async (req, res, next) => {
         },
       });
 
-      if (Array.isArray(teaches)) {
+      const cleanTeaches = [...new Set(
+        (Array.isArray(teaches) ? teaches : [])
+          .map((s) => (typeof s === 'string' ? s.trim() : ''))
+          .filter(Boolean),
+      )];
+
+      const cleanLearns = [...new Set(
+        (Array.isArray(learns) ? learns : [])
+          .map((s) => (typeof s === 'string' ? s.trim() : ''))
+          .filter(Boolean),
+      )];
+
+      if (cleanTeaches.length > 0 || Array.isArray(teaches)) {
         await tx.userSkill.deleteMany({
           where: { userId: user.id, kind: 'TEACHES' },
         });
 
-        for (const skillName of teaches) {
-          if (!skillName?.trim()) continue;
+        for (const skillName of cleanTeaches) {
           const skill = await tx.skill.upsert({
-            where: { name: skillName.trim() },
-            create: { name: skillName.trim() },
+            where: { name: skillName },
+            create: { name: skillName },
             update: {},
           });
-          await tx.userSkill.create({
-            data: { userId: user.id, skillId: skill.id, kind: 'TEACHES' },
+          await tx.userSkill.upsert({
+            where: {
+              userId_skillId_kind: {
+                userId: user.id,
+                skillId: skill.id,
+                kind: 'TEACHES',
+              },
+            },
+            create: { userId: user.id, skillId: skill.id, kind: 'TEACHES' },
+            update: {},
           });
         }
       }
 
-      if (Array.isArray(learns)) {
+      if (cleanLearns.length > 0 || Array.isArray(learns)) {
         await tx.userSkill.deleteMany({
           where: { userId: user.id, kind: 'LEARNS' },
         });
 
-        for (const skillName of learns) {
-          if (!skillName?.trim()) continue;
+        for (const skillName of cleanLearns) {
           const skill = await tx.skill.upsert({
-            where: { name: skillName.trim() },
-            create: { name: skillName.trim() },
+            where: { name: skillName },
+            create: { name: skillName },
             update: {},
           });
-          await tx.userSkill.create({
-            data: { userId: user.id, skillId: skill.id, kind: 'LEARNS' },
+          await tx.userSkill.upsert({
+            where: {
+              userId_skillId_kind: {
+                userId: user.id,
+                skillId: skill.id,
+                kind: 'LEARNS',
+              },
+            },
+            create: { userId: user.id, skillId: skill.id, kind: 'LEARNS' },
+            update: {},
           });
         }
       }
     });
 
-    const updated = await findUser(user.id);
+    const updated = await resolveUser(user.id, {
+      include: {
+        college: true,
+        department: true,
+        skills: { include: { skill: true } },
+      },
+    });
+
     res.json({
       success: true,
       message: 'Profile updated',
-      data: normalizeUser(updated),
+      data: normalizeUser(updated || user),
     });
   } catch (err) {
     next(err);
@@ -394,9 +467,20 @@ router.patch('/:uid', requireAuth, async (req, res, next) => {
 
 router.get('/:uid/profile', requireAuth, async (req, res, next) => {
   try {
-    const user = await findUser(req.params.uid);
+    let user = await resolveUser(req.params.uid, {
+      include: {
+        college: true,
+        department: true,
+        skills: { include: { skill: true } },
+      },
+    });
+
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      if (req.params.uid === req.user?.clerkUserId || req.params.uid === req.user?.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
     }
 
     const uid = user.clerkUserId;
@@ -404,13 +488,16 @@ router.get('/:uid/profile', requireAuth, async (req, res, next) => {
       getBalance(uid).catch(() => 0),
       getTransactionHistory(uid, 10).catch(() => []),
       calculateStreak(uid).catch(() => ({
-        currentStreak: 0,
-        longestStreak: 0,
+        currentStreak: user.currentStreak || 0,
+        longestStreak: user.longestStreak || 0,
         activeDates: [],
         grid: [],
       })),
-      getUserSkillGraph(uid).catch(() => ({ teaches: [], learns: [] })),
-      prisma.tutoringSession.findMany({
+      getUserSkillGraph(uid).catch(() => ({
+        teaches: (user.skills || []).filter((s) => s.kind === 'TEACHES').map((s) => s.skill?.name || s.name || s),
+        learns: (user.skills || []).filter((s) => s.kind === 'LEARNS').map((s) => s.skill?.name || s.name || s),
+      })),
+      user.id ? prisma.tutoringSession.findMany({
         where: {
           OR: [{ teacherId: user.id }, { learnerId: user.id }],
           status: 'COMPLETED',
@@ -418,7 +505,7 @@ router.get('/:uid/profile', requireAuth, async (req, res, next) => {
         include: { teacher: true, learner: true },
         orderBy: { scheduledFor: 'desc' },
         take: 20,
-      }),
+      }).catch(() => []) : Promise.resolve([]),
     ]);
 
     const totalStudyMins = sessions.length * 60;
@@ -458,11 +545,11 @@ router.get('/:uid/profile', requireAuth, async (req, res, next) => {
   }
 });
 
-router.post('/:uid/follow', requireAuth, async (req, res) => {
+router.post('/:uid/follow', requireAuth, async (_req, res) => {
   res.json({ success: true, message: 'Successfully followed user' });
 });
 
-router.get('/:uid/following', requireAuth, async (req, res) => {
+router.get('/:uid/following', requireAuth, async (_req, res) => {
   res.json({ success: true, count: 0, limit: 20, offset: 0, hasMore: false, data: [] });
 });
 

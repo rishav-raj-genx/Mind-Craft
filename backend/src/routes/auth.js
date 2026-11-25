@@ -5,12 +5,11 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
-const { prisma } = require('../config/prisma');
+const { resolveUser } = require('../utils/userResolver');
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { clerkUserId: req.user.clerkUserId },
+    const user = await resolveUser(req.user.clerkUserId, {
       include: {
         college: true,
         department: true,
@@ -42,7 +41,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
         mind_tokens: user.mindTokens,
         currentStreak: user.currentStreak,
         longestStreak: user.longestStreak,
-        profileComplete: user.profileComplete,
+        profileComplete: Boolean(user.profileComplete),
       },
     });
   } catch (err) {

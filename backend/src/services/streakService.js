@@ -6,6 +6,7 @@
  */
 
 const { prisma } = require('../config/prisma');
+const { resolveUser } = require('../utils/userResolver');
 
 const BADGE_MILESTONES = [
   { days: 3,   name: 'Spark Starter',    emoji: '🌱', icon: 'Sprout',    level: 1, freezeReward: 1 },
@@ -22,23 +23,8 @@ function toDateString(date) {
   return istDate.toISOString().split('T')[0];
 }
 
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-    select: { id: true, clerkUserId: true },
-  });
-}
-
 async function recordCheckIn(uid) {
-  const user = await findUser(uid);
+  const user = await resolveUser(uid);
   if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
 
   const dateStr = toDateString(new Date());
@@ -59,8 +45,18 @@ async function recordCheckIn(uid) {
 }
 
 async function calculateStreak(uid) {
-  const user = await findUser(uid);
-  if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+  const user = await resolveUser(uid);
+  if (!user) {
+    return {
+      currentStreak: 0,
+      longestStreak: 0,
+      activeDates: [],
+      grid: [],
+      badges: [],
+      streakFreezes: 0,
+      totalActiveDays: 0,
+    };
+  }
 
   const now = new Date();
   // Track true continuous daily activity without artificial 90-day reset floor

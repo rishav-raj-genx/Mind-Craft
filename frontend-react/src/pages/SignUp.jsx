@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { userService } from '../services/userService';
 import { useFullProfile } from '../hooks/useUserProfile';
+import { queryClient } from '../config/queryClient';
 import { useAppContext } from '../context/AppContext';
 import { clerkAppearance } from '../config/clerkAppearance';
 
@@ -213,12 +214,18 @@ const SignUp = () => {
   const navigate = useNavigate();
 
   const {
+    data: profileRes,
     isLoading: isCheckingProfile,
-    isSuccess: isProfileComplete,
   } = useFullProfile(currentUser?.uid, {
     retry: false,
     enabled: Boolean(currentUser?.uid),
   });
+
+  const isProfileComplete = Boolean(
+    profileRes?.data?.profileComplete ??
+    profileRes?.data?.user?.profileComplete ??
+    profileRes?.profileComplete
+  );
 
   const [enteredName, setEnteredName] = useState('');
   const [customPhotoUrl, setCustomPhotoUrl] = useState('');
@@ -325,6 +332,10 @@ const SignUp = () => {
       setSubmitting(true);
       setError('');
       await userService.register(buildUserData(currentUser));
+      if (currentUser?.uid) {
+        queryClient.invalidateQueries({ queryKey: ['profile', currentUser.uid] });
+        queryClient.invalidateQueries({ queryKey: ['fullProfile', currentUser.uid] });
+      }
       navigate('/');
     } catch (err) {
       console.error('Profile registration error:', err);

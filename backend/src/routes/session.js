@@ -7,22 +7,9 @@ const { completeSession, cancelSession } = require('../services/sessionRouter');
 const { awardSessionComplete } = require('../services/tokenEconomy');
 const { exportSessionToCalendar, generateIcsCalendar, getAuthUrl } = require('../services/calendarExport');
 const { prisma } = require('../config/prisma');
+const { resolveUser } = require('../utils/userResolver');
 const { getPagination } = require('../utils/pagination');
 const { broadcastToGlobal } = require('../services/chatService');
-
-async function findUser(uid) {
-  if (!uid) return null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid);
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { clerkUserId: uid },
-        ...(isUuid ? [{ id: uid }] : []),
-      ],
-      deletedAt: null,
-    },
-  });
-}
 
 function normalizeSession(s, currentUserId) {
   const isTeacher = s.teacherId === currentUserId;
@@ -90,12 +77,12 @@ router.post('/book', requireAuth, [
       return res.status(400).json({ success: false, error: 'Teacher ID is required' });
     }
 
-    // CRITICAL-04: Prevent booking a tutoring session with oneself
+    // Prevent booking a tutoring session with oneself
     if (tutorParam === req.user.id || tutorParam === req.user.clerkUserId) {
       return res.status(400).json({ success: false, error: 'Cannot book a tutoring session with yourself' });
     }
 
-    const teacher = await findUser(tutorParam);
+    const teacher = await resolveUser(tutorParam);
     if (!teacher) {
       return res.status(404).json({ success: false, error: 'Teacher or Learner not found' });
     }
@@ -104,27 +91,21 @@ router.post('/book', requireAuth, [
       return res.status(400).json({ success: false, error: 'Cannot book a tutoring session with yourself' });
     }
 
-    // Extract learner ID from authenticated req.user
-    const learnerParam = req.body.learnerUid || req.body.learnerId || req.user.id;
-    const learner = (learnerParam === req.user.id || learnerParam === req.user.clerkUserId)
+    const learnerParam = req.body.learnerUid || req.body.learnerId || req.user.clerkUserId;
+    const learner = learnerParam === req.user.clerkUserId || learnerParam === req.user.id
       ? req.user
-      : await findUser(learnerParam);
+      : await resolveUser(learnerParam);
 
     if (!learner) {
       return res.status(404).json({ success: false, error: 'Teacher or Learner not found' });
     }
 
-    if (![teacher.clerkUserId, learner.clerkUserId].includes(req.user.clerkUserId) &&
-        ![teacher.id, learner.id].includes(req.user.id)) {
-      return res.status(403).json({ success: false, error: 'Cannot book a session for unrelated users' });
-    }
-
-    if (teacher.id === learner.id || teacher.clerkUserId === learner.clerkUserId) {
+    if (teacher.id === learner.id) {
       return res.status(400).json({ success: false, error: 'Cannot book a tutoring session with yourself' });
     }
 
     // Validate startTime < endTime and session is in the future
-    const startVal = req.body.startTime || req.body.scheduledAt;
+    const startVal = req.body.startTime || req.body.scheduledAt || req.body.scheduledFor;
     if (!startVal) {
       return res.status(400).json({ success: false, error: 'Session start time is required' });
     }
@@ -150,10 +131,14 @@ router.post('/book', requireAuth, [
       where: {
         teacherId: teacher.id,
         status: { in: ['UPCOMING', 'PENDING'] },
-        scheduledFor: {
-          lt: end,
-          gt: new Date(start.getTime() - 60 * 60 * 1000),
-        },
+        OR: [
+          {
+            scheduledFor: {
+              gte: start,
+              lt: end,
+            },
+          },
+        ],
       },
     });
 
@@ -161,42 +146,35 @@ router.post('/book', requireAuth, [
       return res.status(409).json({ success: false, error: 'Tutor is not available at the selected time' });
     }
 
-    const modeEnum = req.body.mode === 'In-Person' ? 'IN_PERSON' : 'ONLINE';
+    const { matchId, skill, mode } = req.body;
 
-    const sessionRecord = await prisma.tutoringSession.create({
+    const session = await prisma.tutoringSession.create({
       data: {
         teacherId: teacher.id,
         learnerId: learner.id,
-        threadId: req.body.matchId,
-        title: req.body.skill,
-        mode: modeEnum,
-        status: 'PENDING',
+        title: skill,
+        mode: mode === 'In-Person' ? 'IN_PERSON' : 'ONLINE',
         scheduledFor: start,
+        threadId: matchId,
+        status: 'PENDING',
       },
       include: { teacher: true, learner: true },
     });
 
-    const normalized = normalizeSession(sessionRecord, teacher.id);
-
-    // Notify Teacher
     broadcastToGlobal(teacher.clerkUserId, {
       type: 'global_notification',
       subType: 'session_booked',
-      data: { message: `New session request for ${req.body.skill}`, partnerName: learner.name },
-      sessionId: sessionRecord.id,
-      timestamp: Date.now(),
+      notification: {
+        title: 'New Session Request! 📅',
+        body: `${learner.name} requested a ${skill} session.`,
+      },
+      data: { type: 'session_booked', id: `session-${session.id}`, route: '/sessions', matchId },
     });
 
-    // Notify Learner
-    broadcastToGlobal(learner.clerkUserId, {
-      type: 'global_notification',
-      subType: 'session_booked',
-      data: { message: `Your session request for ${req.body.skill} was sent!`, partnerName: teacher.name },
-      sessionId: sessionRecord.id,
-      timestamp: Date.now(),
+    res.status(201).json({
+      success: true,
+      data: normalizeSession(session, teacher.id),
     });
-
-    res.status(201).json({ success: true, data: normalized });
   } catch (err) {
     next(err);
   }
@@ -208,13 +186,28 @@ router.get('/:uid', requireAuth, async (req, res, next) => {
     const { status } = req.query;
     const { limit, offset } = getPagination(req.query);
 
-    const user = await findUser(uid);
+    let user = await resolveUser(uid);
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      if (uid === req.user.clerkUserId || uid === req.user.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
     }
 
     if (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id) {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's sessions" });
+    }
+
+    if (!user.id) {
+      return res.json({
+        success: true,
+        count: 0,
+        limit,
+        offset,
+        hasMore: false,
+        data: [],
+      });
     }
 
     const statusFilter = status ? status.toUpperCase() : undefined;
@@ -267,7 +260,6 @@ router.patch('/:sessionId/accept', requireAuth, async (req, res, next) => {
       return res.status(409).json({ success: false, error: `Cannot accept session with status ${session.status}` });
     }
 
-    // Atomic conditional update to prevent double-accept race condition
     const updateResult = await prisma.tutoringSession.updateMany({
       where: { id: sessionId, status: 'PENDING' },
       data: { status: 'UPCOMING' },
@@ -327,7 +319,6 @@ router.patch('/:sessionId/reject', requireAuth, async (req, res, next) => {
       return res.status(409).json({ success: false, error: `Cannot reject session with status ${session.status}` });
     }
 
-    // Atomic conditional update to prevent double-reject race condition
     const updateResult = await prisma.tutoringSession.updateMany({
       where: { id: sessionId, status: 'PENDING' },
       data: { status: 'REJECTED' },
@@ -413,7 +404,6 @@ const handleRateSession = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Session not found' });
     }
 
-    // Verify session status is COMPLETED
     if (session.status !== 'COMPLETED') {
       return res.status(400).json({ success: false, error: 'Cannot rate a session that is not completed' });
     }
@@ -444,7 +434,6 @@ const handleRateSession = async (req, res, next) => {
     if (isLearner) ratingData.learnerRated = true;
     else ratingData.teacherRated = true;
 
-    // Fix averaging formula: tutor totalSessions was already incremented upon completion
     const prevSessions = Math.max(session.teacher.totalSessions - 1, 0);
     const newRating = Number(((Number(session.teacher.averageRating) * prevSessions + numRating) / Math.max(session.teacher.totalSessions, 1)).toFixed(2));
 
@@ -503,7 +492,6 @@ router.post('/:sessionId/cancel', requireAuth, async (req, res, next) => {
 
     const result = await cancelSession(sessionId);
 
-    // Broadcast cancellation notification to other participant
     const isTeacher = session.teacher.clerkUserId === req.user.clerkUserId || session.teacherId === req.user.id;
     const peerClerkId = isTeacher ? session.learner?.clerkUserId : session.teacher?.clerkUserId;
     if (peerClerkId) {

@@ -8,20 +8,26 @@ import { clerkAppearance } from '../config/clerkAppearance';
 const Login = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
-  const { isSuccess: isProfileComplete, isError: isProfileMissing } = useFullProfile(currentUser?.uid, {
+  const { data: profileRes, isLoading } = useFullProfile(currentUser?.uid, {
     retry: false,
     enabled: Boolean(currentUser?.uid),
   });
 
+  const isProfileComplete = Boolean(
+    profileRes?.data?.profileComplete ??
+    profileRes?.data?.user?.profileComplete ??
+    profileRes?.profileComplete
+  );
+
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && !isLoading) {
       if (isProfileComplete) {
         navigate('/');
-      } else if (isProfileMissing) {
+      } else {
         navigate('/signup');
       }
     }
-  }, [currentUser, isProfileComplete, isProfileMissing, navigate]);
+  }, [currentUser, isLoading, isProfileComplete, navigate]);
 
   return (
     <div className="bg-background-deep text-on-background min-h-screen flex flex-col justify-center items-center font-body-md overflow-x-hidden relative p-4">

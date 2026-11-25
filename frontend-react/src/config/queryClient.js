@@ -1,7 +1,10 @@
 import { QueryClient } from '@tanstack/react-query';
 
-const isRetryableError = (error) => {
+export const isRetryableError = (error) => {
   const status = error?.response?.status;
+  if (status === 400 || status === 401 || status === 403 || status === 404) {
+    return false;
+  }
   return !status || status === 408 || status === 429 || status >= 500;
 };
 

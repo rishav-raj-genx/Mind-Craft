@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { API_BASE_URL } from '../config/api';
 import { chatService } from '../services/chatService';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useProfile } from '../hooks/useUserProfile';
 
 const NotificationContext = createContext({});
 
@@ -26,6 +27,25 @@ export const NotificationProvider = ({ children }) => {
   const { currentUser, getToken } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+
+  const isAuthPage =
+    location.pathname.startsWith('/login') ||
+    location.pathname.startsWith('/signup') ||
+    location.pathname.startsWith('/sso-callback');
+
+  const { data: profileRes } = useProfile(currentUser?.uid, {
+    enabled: Boolean(currentUser?.uid) && !isAuthPage,
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const isProfileComplete = Boolean(
+    profileRes?.data?.profileComplete ??
+    profileRes?.data?.user?.profileComplete ??
+    profileRes?.profileComplete
+  );
+
+  const shouldConnect = Boolean(currentUser && !isAuthPage && isProfileComplete);
 
   const [threads, setThreads] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
@@ -90,7 +110,7 @@ export const NotificationProvider = ({ children }) => {
   }, []);
 
   const fetchInitialData = useCallback(async () => {
-    if (!currentUser) return;
+    if (!shouldConnect || !currentUser) return;
     try {
       const res = await chatService.getThreads(currentUser.uid);
       const data = res.data || [];
@@ -117,10 +137,10 @@ export const NotificationProvider = ({ children }) => {
     } catch (err) {
       console.warn('Error fetching initial notification data', err);
     }
-  }, [currentUser, pushNotification]);
+  }, [currentUser, pushNotification, shouldConnect]);
 
   useEffect(() => {
-    if (!currentUser) {
+    if (!shouldConnect) {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -357,7 +377,7 @@ export const NotificationProvider = ({ children }) => {
       isMounted = false;
       socket.disconnect();
     };
-  }, [currentUser, getToken, pushNotification, updateUnreadForumIds]);
+  }, [currentUser, getToken, pushNotification, shouldConnect, updateUnreadForumIds]);
 
   const subscribeToChat = useCallback((matchId, callback) => {
     chatListeners.current.set(matchId, callback);
