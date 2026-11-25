@@ -33,6 +33,7 @@ const authRoutes = require('./src/routes/auth');
 const { disconnectPrisma } = require('./src/config/prisma');
 const { initSocketServer, closeSocketServer } = require('./src/config/socket');
 const { closeRedis } = require('./src/config/redis');
+const { startChatPersistenceWorker, closeChatPersistenceWorker } = require('./src/workers/chatPersistenceWorker');
 
 // ── Express app ──────────────────────────────────────────────────────
 const app = express();
@@ -44,17 +45,29 @@ app.use(helmet({
 }));
 
 function getAllowedOrigins() {
-  const raw = [
+  const sources = [
     process.env.CORS_ORIGIN,
     process.env.FRONTEND_URL,
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ].filter(Boolean).join(',');
+    process.env.SOCKET_IO_CORS_ORIGIN,
+  ];
 
-  return raw
-    .split(',')
-    .map((origin) => origin.trim().replace(/\/+$/, ''))
-    .filter(Boolean);
+  const origins = [];
+  for (const source of sources) {
+    if (!source) continue;
+    const parts = source.split(',');
+    for (const part of parts) {
+      const trimmed = part.trim().replace(/\/+$/, '');
+      if (trimmed && trimmed !== '*' && !origins.includes(trimmed)) {
+        origins.push(trimmed);
+      }
+    }
+  }
+
+  if (origins.length === 0) {
+    return ['http://localhost:5173', 'http://localhost:3000'];
+  }
+
+  return origins;
 }
 
 const corsOptions = {
@@ -62,13 +75,10 @@ const corsOptions = {
     if (!origin) return callback(null, true);
     const normalized = origin.trim().replace(/\/+$/, '');
     const allowed = getAllowedOrigins();
-    if (allowed.includes('*') || allowed.includes(normalized)) {
+    if (allowed.includes(normalized)) {
       return callback(null, true);
     }
-    if (process.env.NODE_ENV !== 'production' && (normalized.startsWith('http://localhost:') || normalized.startsWith('http://127.0.0.1:'))) {
-      return callback(null, true);
-    }
-    return callback(null, false);
+    return callback(new Error('CORS origin not allowed'));
   },
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -126,6 +136,21 @@ async function boot() {
   // 1. Socket.io server with Redis adapter
   initSocketServer(httpServer);
 
+  // 1b. In-process BullMQ worker fallback for single-dyno hosting
+  const shouldRunInProcessWorker =
+    process.env.RUN_IN_PROCESS_WORKERS === 'true' ||
+    (process.env.NODE_ENV === 'production' && process.env.STANDALONE_WORKER !== 'true' && process.env.RUN_IN_PROCESS_WORKERS !== 'false') ||
+    process.env.EMBEDDED_WORKERS === 'true';
+
+  if (shouldRunInProcessWorker) {
+    try {
+      startChatPersistenceWorker();
+      console.log('   ✔ In-process chat persistence worker started');
+    } catch (workerErr) {
+      console.warn('   ⚠️ Failed to start in-process chat persistence worker:', workerErr.message);
+    }
+  }
+
   // 2. Start listening
   httpServer.listen(PORT, () => {
     console.log(`\n🚀 Mindcraft backend listening on port ${PORT}`);
@@ -139,15 +164,27 @@ async function boot() {
   const shutdown = async (signal) => {
     console.log(`\n⏹️  ${signal} received — shutting down gracefully…`);
 
+    const forceExitTimeout = setTimeout(() => {
+      console.error('   ⚠️ Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+    forceExitTimeout.unref();
+
     httpServer.close(() => {
       console.log('   ✔ HTTP server closed');
     });
 
-    await closeSocketServer();
-    await closeRedis();
-    await disconnectPrisma();
-    console.log('   ✔ All connections closed. Goodbye! 👋\n');
-    process.exit(0);
+    try {
+      await closeChatPersistenceWorker();
+      await closeSocketServer();
+      await closeRedis();
+      await disconnectPrisma();
+      console.log('   ✔ All connections closed. Goodbye! 👋\n');
+      process.exit(0);
+    } catch (err) {
+      console.error('Error during shutdown:', err);
+      process.exit(1);
+    }
   };
 
   process.on('SIGINT', () => shutdown('SIGINT'));

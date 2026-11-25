@@ -23,8 +23,7 @@ captures/
 .cxx/
 
 # Firebase (contains API keys — keep private or use environment variables)
-# NOTE: If this is a PUBLIC repo, uncomment the next line:
-# app/google-services.json
+app/google-services.json
 
 # Keystore files
 *.jks
@@ -32,7 +31,6 @@ captures/
 
 # ── Node.js Backend ───────────────────────────────────────────────────
 node_modules/
-backend/.env
 backend/serviceAccountKey.json
 backend/*.log
 npm-debug.log*
@@ -43,12 +41,10 @@ yarn-error.log*
 .vscode/
 
 # Environment files
+*.env*
 .env
 .env.*
 *.env
-backend/.env
-backend/.env.*
-frontend-react/.env
-frontend-react/.env.*
-!backend/.env.example
-!frontend-react/.env.example
+**/.env*
+!*.env.example
+!**/.env.example

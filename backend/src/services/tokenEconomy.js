@@ -5,6 +5,7 @@
  */
 
 const { prisma } = require('../config/prisma');
+const { v4: uuidv4 } = require('uuid');
 const {
   TOKENS_FORUM_ANSWER,
   TOKENS_SESSION_COMPLETE,
@@ -28,7 +29,8 @@ async function findUser(uid) {
 }
 
 /**
- * Awards tokens to a user using a Prisma transaction.
+ * Awards tokens to a user using an atomic Prisma transaction.
+ * Ensures an immutable TokenTransaction is always recorded with a unique idempotencyKey.
  */
 async function awardTokens(uid, amount, reason, meta = {}) {
   if (!uid || typeof amount !== 'number' || amount <= 0) {
@@ -43,8 +45,10 @@ async function awardTokens(uid, amount, reason, meta = {}) {
     throw Object.assign(new Error(`User ${uid} not found`), { statusCode: 404 });
   }
 
-  const idempotencyKey = meta.sessionId || meta.questionId || null;
-  if (idempotencyKey) {
+  const isExplicitIdempotent = Boolean(meta.idempotencyKey || meta.sessionId || meta.questionId || meta.doubtId);
+  const idempotencyKey = meta.idempotencyKey || meta.sessionId || meta.questionId || meta.doubtId || `award_${user.id}_${Date.now()}_${uuidv4()}`;
+
+  if (isExplicitIdempotent) {
     const existing = await prisma.tokenTransaction.findFirst({
       where: {
         userId: user.id,
@@ -63,75 +67,220 @@ async function awardTokens(uid, amount, reason, meta = {}) {
     }
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const transaction = await tx.tokenTransaction.create({
-      data: {
-        userId: user.id,
-        amount,
-        type: 'CREDIT',
-        reason,
-        idempotencyKey,
-        metadata: meta,
-      },
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const transaction = await tx.tokenTransaction.create({
+        data: {
+          userId: user.id,
+          amount,
+          type: 'CREDIT',
+          reason,
+          idempotencyKey,
+          metadata: meta,
+        },
+      });
+
+      const updatedUser = await tx.user.update({
+        where: { id: user.id },
+        data: { mindTokens: { increment: amount } },
+        select: { mindTokens: true },
+      });
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const activityDate = new Date(`${dateStr}T00:00:00.000Z`);
+
+      const existingActivity = await tx.activityDay.findUnique({
+        where: { userId_activityDate: { userId: user.id, activityDate } },
+        select: { activityTypes: true },
+      });
+
+      const activityTypes = Array.from(new Set([...(existingActivity?.activityTypes || []), reason]));
+
+      await tx.activityDay.upsert({
+        where: { userId_activityDate: { userId: user.id, activityDate } },
+        update: { activityTypes: { set: activityTypes } },
+        create: { userId: user.id, activityDate, activityTypes },
+      });
+
+      return {
+        newBalance: updatedUser.mindTokens,
+        transactionId: transaction.id,
+        alreadyAwarded: false,
+      };
     });
 
-    const updatedUser = await tx.user.update({
-      where: { id: user.id },
-      data: { mindTokens: { increment: amount } },
-      select: { mindTokens: true },
-    });
-
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const activityDate = new Date(`${dateStr}T00:00:00.000Z`);
-
-    const existingActivity = await tx.activityDay.findUnique({
-      where: { userId_activityDate: { userId: user.id, activityDate } },
-      select: { activityTypes: true },
-    });
-
-    const activityTypes = Array.from(new Set([...(existingActivity?.activityTypes || []), reason]));
-
-    await tx.activityDay.upsert({
-      where: { userId_activityDate: { userId: user.id, activityDate } },
-      update: { activityTypes: { set: activityTypes } },
-      create: { userId: user.id, activityDate, activityTypes },
-    });
-
-    return {
-      newBalance: updatedUser.mindTokens,
-      transactionId: transaction.id,
-      alreadyAwarded: false,
-    };
-  });
-
-  return result;
+    return result;
+  } catch (err) {
+    if (err.code === 'P2002' && isExplicitIdempotent) {
+      const existing = await prisma.tokenTransaction.findFirst({
+        where: {
+          userId: user.id,
+          reason,
+          idempotencyKey,
+        },
+        select: { id: true },
+      });
+      const freshUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { mindTokens: true },
+      });
+      return {
+        newBalance: freshUser ? freshUser.mindTokens : user.mindTokens,
+        transactionId: existing ? existing.id : null,
+        alreadyAwarded: true,
+      };
+    }
+    throw err;
+  }
 }
 
-async function awardForumAnswer(uid, questionId = '') {
-  return awardTokens(uid, TOKENS_FORUM_ANSWER, 'forum_answer', { questionId });
+/**
+ * Deducts tokens from a user atomically, preventing concurrent overdrafts.
+ * Checks balance >= amount via conditional update inside a single Prisma transaction.
+ */
+async function deductTokens(uid, amount, reason, meta = {}) {
+  if (!uid || typeof amount !== 'number' || amount <= 0) {
+    throw Object.assign(
+      new Error('Invalid token deduction: uid and positive amount are required'),
+      { statusCode: 400 },
+    );
+  }
+
+  const user = await findUser(uid);
+  if (!user) {
+    throw Object.assign(new Error(`User ${uid} not found`), { statusCode: 404 });
+  }
+
+  const isExplicitIdempotent = Boolean(meta.idempotencyKey || meta.sessionId || meta.questionId || meta.doubtId);
+  const idempotencyKey = meta.idempotencyKey || meta.sessionId || meta.questionId || meta.doubtId || `deduct_${user.id}_${Date.now()}_${uuidv4()}`;
+
+  if (isExplicitIdempotent) {
+    const existing = await prisma.tokenTransaction.findFirst({
+      where: {
+        userId: user.id,
+        reason,
+        idempotencyKey,
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      return {
+        newBalance: user.mindTokens,
+        transactionId: existing.id,
+        alreadyProcessed: true,
+      };
+    }
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Atomic conditional update preventing overdrafts: user must have mindTokens >= amount
+      const updateResult = await tx.user.updateMany({
+        where: {
+          id: user.id,
+          mindTokens: { gte: amount },
+        },
+        data: {
+          mindTokens: { decrement: amount },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw Object.assign(
+          new Error('Insufficient token balance'),
+          { statusCode: 400 },
+        );
+      }
+
+      const updatedUser = await tx.user.findUnique({
+        where: { id: user.id },
+        select: { mindTokens: true },
+      });
+
+      const transaction = await tx.tokenTransaction.create({
+        data: {
+          userId: user.id,
+          amount,
+          type: 'DEBIT',
+          reason,
+          idempotencyKey,
+          metadata: meta,
+        },
+      });
+
+      return {
+        newBalance: updatedUser.mindTokens,
+        transactionId: transaction.id,
+        alreadyProcessed: false,
+      };
+    });
+
+    return result;
+  } catch (err) {
+    if (err.code === 'P2002' && isExplicitIdempotent) {
+      const existing = await prisma.tokenTransaction.findFirst({
+        where: {
+          userId: user.id,
+          reason,
+          idempotencyKey,
+        },
+        select: { id: true },
+      });
+      const freshUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { mindTokens: true },
+      });
+      return {
+        newBalance: freshUser ? freshUser.mindTokens : user.mindTokens,
+        transactionId: existing ? existing.id : null,
+        alreadyProcessed: true,
+      };
+    }
+    throw err;
+  }
+}
+
+async function awardForumAnswer(uid, questionId = '', idempotencyKey = null) {
+  const key = idempotencyKey || (questionId ? `forum_${questionId}` : null);
+  return awardTokens(uid, TOKENS_FORUM_ANSWER, 'forum_answer', {
+    questionId,
+    doubtId: questionId,
+    idempotencyKey: key,
+  });
 }
 
 async function awardSessionComplete(teacherUid, learnerUid, sessionId) {
   const [teacherResult, learnerResult] = await Promise.all([
-    awardTokens(teacherUid, TOKENS_SESSION_COMPLETE, 'session_complete_teacher', { sessionId }),
-    awardTokens(learnerUid, TOKENS_SESSION_COMPLETE, 'session_complete_learner', { sessionId }),
+    awardTokens(teacherUid, TOKENS_SESSION_COMPLETE, 'session_complete_teacher', {
+      sessionId,
+      idempotencyKey: `session_${sessionId}_teacher`,
+    }),
+    awardTokens(learnerUid, TOKENS_SESSION_COMPLETE, 'session_complete_learner', {
+      sessionId,
+      idempotencyKey: `session_${sessionId}_learner`,
+    }),
   ]);
   return { teacherResult, learnerResult };
 }
 
-async function awardStreakBonus(uid, streakDays) {
+async function awardStreakBonus(uid, streakDays, key = null) {
   const milestones = [
     { days: 30, tokens: TOKENS_STREAK_30, label: '30_day_streak' },
     { days: 10, tokens: TOKENS_STREAK_10, label: '10_day_streak' },
     { days: 5,  tokens: TOKENS_STREAK_5,  label: '5_day_streak' },
   ];
 
-  for (const m of milestones) {
-    if (streakDays === m.days) {
-      return awardTokens(uid, m.tokens, m.label, { streakDays });
-    }
-  }
-  return null;
+  const milestone = milestones.find((m) => streakDays === m.days);
+  if (!milestone) return null;
+
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  const idempotencyKey = key || `streak_${streakDays}_${todayUTC}`;
+
+  return awardTokens(uid, milestone.tokens, milestone.label, {
+    streakDays,
+    idempotencyKey,
+  });
 }
 
 async function getBalance(uid) {
@@ -213,6 +362,7 @@ async function getLeaderboard(uid) {
 
 module.exports = {
   awardTokens,
+  deductTokens,
   awardForumAnswer,
   awardSessionComplete,
   awardStreakBonus,

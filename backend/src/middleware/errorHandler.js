@@ -44,6 +44,14 @@ function globalErrorHandler(err, _req, res, _next) {
     console.error('❌ Error:', err.message);
   }
 
+  // CORS rejection error
+  if (err.message === 'CORS origin not allowed') {
+    return res.status(403).json({
+      success: false,
+      error: 'CORS origin not allowed',
+    });
+  }
+
   // Multer file-size error
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({

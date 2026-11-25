@@ -9,7 +9,7 @@ router.post('/', express.raw({ type: '*/*' }), async (req, res, next) => {
   const secret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
   if (!secret) {
     console.error('[Clerk Webhook] Missing CLERK_WEBHOOK_SIGNING_SECRET');
-    return res.status(503).json({ success: false, error: 'Clerk webhook is not configured' });
+    return res.status(500).json({ success: false, error: 'Clerk webhook signing secret not configured' });
   }
 
   const svixId = req.get('svix-id');
@@ -35,8 +35,7 @@ router.post('/', express.raw({ type: '*/*' }), async (req, res, next) => {
     });
   } catch (err) {
     console.error('[Clerk Webhook] Signature verification failed:', err.message);
-    err.statusCode = 400;
-    return next(err);
+    return res.status(400).json({ success: false, error: 'Invalid webhook signature' });
   }
 
   if (!event?.type) {

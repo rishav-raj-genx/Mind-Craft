@@ -200,7 +200,8 @@ async function queryMatches(uid, options = {}) {
         candidate."userId" AS candidate_id,
         candidate."skillId" AS skill_id,
         skill.name,
-        candidate.kind
+        candidate.kind AS candidate_kind,
+        requested.kind AS requested_kind
       FROM "UserSkill" requested
       JOIN "UserSkill" candidate
         ON candidate."skillId" = requested."skillId"
@@ -214,6 +215,8 @@ async function queryMatches(uid, options = {}) {
       SELECT
         candidate_id,
         COUNT(DISTINCT skill_id)::numeric AS shared_skill_count,
+        COUNT(DISTINCT skill_id) FILTER (WHERE requested_kind = 'LEARNS' AND candidate_kind = 'TEACHES')::numeric AS candidate_teaches_count,
+        COUNT(DISTINCT skill_id) FILTER (WHERE requested_kind = 'TEACHES' AND candidate_kind = 'LEARNS')::numeric AS candidate_learns_count,
         ARRAY_AGG(DISTINCT name ORDER BY name) AS shared_skills
       FROM overlap
       GROUP BY candidate_id
@@ -237,19 +240,20 @@ async function queryMatches(uid, options = {}) {
         (u."collegeId" = requester.college_id) AS same_college,
         LEAST(COUNT(teaching."skillId")::numeric / 10, 1) AS activity_score,
         (
-          0.45 * LEAST(
-            grouped.shared_skill_count /
-            GREATEST(requester.learning_count + requester.teaching_count, 1),
-            1
-          )
-          + 0.25 * LEAST(
-            grouped.shared_skill_count /
-            GREATEST((requester.learning_count + requester.teaching_count) * 2, 1),
-            1
-          )
+          -- Reciprocal skill match (highest boost: user teaches what requester learns AND learns what requester teaches)
+          CASE
+            WHEN grouped.candidate_teaches_count > 0 AND grouped.candidate_learns_count > 0 THEN 0.50
+            WHEN grouped.candidate_teaches_count > 0 THEN 0.35
+            ELSE 0.20
+          END
+          -- Shared skill counts positively weight the score (more shared skills = higher score, capped at 5)
+          + 0.20 * LEAST(grouped.shared_skill_count / 5.0, 1.0)
+          -- Same college bonus
           + 0.15 * CASE WHEN u."collegeId" = requester.college_id THEN 1 ELSE 0 END
-          + 0.10 * LEAST(COUNT(teaching."skillId")::numeric / 10, 1)
-          + 0.05 * LEAST(u."averageRating"::numeric / 5, 1)
+          -- Activity score bonus (active tutors)
+          + 0.10 * LEAST(COUNT(teaching."skillId")::numeric / 10.0, 1.0)
+          -- Rating bonus
+          + 0.05 * LEAST(u."averageRating"::numeric / 5.0, 1.0)
         ) AS compatibility_score
       FROM grouped
       JOIN "User" u ON u.id = grouped.candidate_id
@@ -262,7 +266,8 @@ async function queryMatches(uid, options = {}) {
       GROUP BY
         u.id, requester.college_id, requester.learning_count,
         requester.teaching_count, grouped.shared_skills,
-        grouped.shared_skill_count
+        grouped.shared_skill_count, grouped.candidate_teaches_count,
+        grouped.candidate_learns_count
     )
     SELECT
       id,
@@ -291,7 +296,7 @@ async function queryMatches(uid, options = {}) {
   `);
 
   const result = rows.map(normalizeMatch);
-  await setCachedFeed(cacheKey, result);
+  await setCachedFeed(cacheKey, result, 300);
   return result;
 }
 

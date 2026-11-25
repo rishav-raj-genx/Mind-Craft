@@ -256,8 +256,8 @@ model MatchRequest {
   updatedAt   DateTime           @updatedAt
   respondedAt DateTime?
 
-  requester User        @relation("MatchRequester", fields: [requesterId], references: [id], onDelete: Restrict)
-  recipient User        @relation("MatchRecipient", fields: [recipientId], references: [id], onDelete: Restrict)
+  requester User        @relation("MatchRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipient User        @relation("MatchRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
   thread    ChatThread?
 
   @@index([recipientId, status, createdAt])
@@ -308,7 +308,7 @@ model ChatMessage {
   editedAt        DateTime?
   deletedAt       DateTime?
   thread          ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  sender          User       @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  sender          User       @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
   @@unique([senderId, clientMessageId])
   @@index([threadId, createdAt, id])

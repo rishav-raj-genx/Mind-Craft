@@ -4,38 +4,50 @@ const { prisma } = require('../config/prisma');
 function getBearerToken(req) {
   const header = req.get('authorization') || '';
   const [scheme, token] = header.split(' ');
-  return scheme?.toLowerCase() === 'bearer' && token ? token : null;
+  return scheme?.toLowerCase() === 'bearer' && token ? token.trim() : null;
 }
 
 async function authenticate(req) {
   const token = getBearerToken(req);
   if (!token) {
-    const error = new Error('Authentication token is required');
+    const error = new Error('Unauthorized: Invalid or missing token');
     error.statusCode = 401;
     throw error;
   }
 
-  const claims = await verifyToken(token, {
-    secretKey: process.env.CLERK_SECRET_KEY,
-  });
-  const clerkUserId = claims.sub;
+  let claims;
+  try {
+    claims = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY,
+    });
+  } catch (_err) {
+    const error = new Error('Unauthorized: Invalid or missing token');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const clerkUserId = claims?.sub;
   if (!clerkUserId) {
-    const error = new Error('Authentication token has no user subject');
+    const error = new Error('Unauthorized: Invalid or missing token');
     error.statusCode = 401;
     throw error;
   }
 
   const user = await prisma.user.findUnique({ where: { clerkUserId } });
-  if (user?.deletedAt) {
+  if (!user) {
+    const error = new Error('Unauthorized: User record not found');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (user.deletedAt) {
     const error = new Error('This account has been deactivated');
     error.statusCode = 403;
     throw error;
   }
 
-  req.auth = { ...claims, clerkUserId };
-  req.user = user
-    ? { ...user, uid: clerkUserId, clerkUserId }
-    : { uid: clerkUserId, clerkUserId, email: claims.email || '' };
+  req.auth = { ...claims, userId: clerkUserId, clerkUserId };
+  req.user = { ...user, uid: clerkUserId, clerkUserId };
   return req.user;
 }
 
@@ -47,7 +59,7 @@ async function requireAuth(req, res, next) {
     const status = err.statusCode || 401;
     return res.status(status).json({
       success: false,
-      error: status === 401 ? 'Authentication required. Please sign in.' : err.message,
+      error: err.message || 'Unauthorized: Invalid or missing token',
     });
   }
 }
@@ -73,4 +85,5 @@ module.exports = {
   requireAuth,
   optionalAuth,
   getBearerToken,
+  authenticate,
 };

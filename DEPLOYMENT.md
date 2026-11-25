@@ -102,12 +102,14 @@ SARVAM_CHAT_TIMEOUT_MS=10000
 SARVAM_HINT_FALLBACK=true
 ```
 
-### B. Database Migration on Deploy
+### B. Database Migration & Seeding on Deploy
 Configure your build or release command:
 ```bash
-pnpm prisma generate && pnpm prisma migrate deploy
+pnpm prisma generate && pnpm prisma migrate deploy && pnpm prisma db seed
 ```
-*(Or `pnpm prisma db push` if managing schemas directly).*
+
+> **CRITICAL PRODUCTION DATABASE RULE:**
+> Never use `prisma db push` in staging or production. `prisma db push` bypasses migration history tracking, will silently apply destructive schema changes or drop data columns without rollback capability, and leads to irrecoverable schema drift. Always deploy tracked migrations using `pnpm prisma migrate deploy` and seed with `pnpm prisma db seed`.
 
 ### C. Services Configuration
 
@@ -126,6 +128,40 @@ pnpm prisma generate && pnpm prisma migrate deploy
    - Root Directory: `backend`
    - Start Command: `pnpm scheduler:weekly-audit`
    - Restart Policy: Always
+
+### D. Neon Point-in-Time Recovery (PITR) & Disaster Recovery
+
+Mindcraft uses Neon Serverless PostgreSQL with automated Continuous Write-Ahead Logging (WAL) and Point-in-Time Recovery (PITR).
+
+#### 1. How PITR Works
+- Neon continuously streams WAL records to secure object storage, enabling database restoration to any exact millisecond within your project's retention period (7–30 days).
+- Restores are instant, non-destructive, and branch-based: they create a new timeline branch without touching or destroying the existing branch.
+
+#### 2. Recovery Procedure During Schema Corruption or Accidental Data Loss
+1. **Identify Corruption Point:**
+   - Determine the exact timestamp (UTC) prior to the failure event.
+2. **Create a PITR Branch via Neon Console / CLI:**
+   - In [Neon Console](https://console.neon.tech), select your project (`mindcraft`) → **Branches** → **New Branch**.
+   - Select **Time Travel (Point in time)** and enter the timestamp (e.g. `2026-11-25T12:00:00Z`).
+   - Or use the Neon CLI:
+     ```bash
+     neon branches create --name recovery-branch --timestamp "2026-11-25T12:00:00Z"
+     ```
+3. **Validate Restored Integrity:**
+   - Connect via `psql` to the restored branch URL and run sanity checks:
+     ```bash
+     psql "$RECOVERY_DATABASE_URL" -c "SELECT count(*) FROM \"User\";"
+     ```
+4. **Switch Traffic or Promote Branch:**
+   - Update `DATABASE_URL` in Railway / Render environment variables to the recovered branch endpoint.
+   - Alternatively, promote the recovery branch to primary in Neon settings.
+   - Run verification tests and redeploy services.
+
+#### 3. Scheduled Offsite Backup Dumps
+For additional cold backup redundancy:
+```bash
+pg_dump "$DATABASE_URL" --format=custom --no-owner --no-acl --file="mindcraft_backup_$(date +%Y%m%d_%H%M%S).dump"
+```
 
 ---
 

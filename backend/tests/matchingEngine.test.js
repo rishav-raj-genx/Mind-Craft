@@ -13,10 +13,12 @@ jest.mock('../src/services/matchingCache', () => ({
 }));
 
 const { prisma } = require('../src/config/prisma');
+const { setCachedFeed } = require('../src/services/matchingCache');
 const { findBroadMatches } = require('../src/services/matchingEngine');
 
 describe('SQL matching engine', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     prisma.user.findUnique.mockResolvedValue({
       id: 'requester-id',
       updatedAt: new Date('2026-01-01'),
@@ -42,12 +44,17 @@ describe('SQL matching engine', () => {
     }]);
   });
 
-  it('returns normalized complementary-skill matches from SQL rows', async () => {
+  it('returns normalized complementary-skill matches from SQL rows and writes cache with 300s TTL', async () => {
     const result = await findBroadMatches('requester-clerk-id');
     expect(result).toHaveLength(1);
     expect(result[0].tutor.uid).toBe('candidate-clerk-id');
     expect(result[0].sharedSkills).toEqual(['Python']);
     expect(result[0].compatibilityScore).toBe(9.2);
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(setCachedFeed).toHaveBeenCalledWith(
+      expect.stringContaining('match-feed:v1:requester-clerk-id'),
+      result,
+      300
+    );
   });
 });

@@ -14,15 +14,17 @@ function getRedisClient() {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
     });
-    redisClient.on('error', (error) => {
-      console.warn('Matching Redis cache unavailable:', error.message);
+    redisClient.on('error', (err) => {
+      console.error('[MatchingCache Redis Error]:', err.message);
     });
   } catch (error) {
-    console.warn('Matching Redis cache disabled:', error.message);
+    console.error('[MatchingCache Redis Error]:', error.message);
     redisClient = null;
   }
   return redisClient;
 }
+
+const DEFAULT_CACHE_TTL_SECONDS = 300; // 5 minutes explicit TTL to prevent unbounded cache growth
 
 async function getCachedFeed(key) {
   const client = getRedisClient();
@@ -37,12 +39,13 @@ async function getCachedFeed(key) {
   }
 }
 
-async function setCachedFeed(key, value, ttlSeconds = 60) {
+async function setCachedFeed(key, value, ttlSeconds = DEFAULT_CACHE_TTL_SECONDS) {
   const client = getRedisClient();
   if (!client) return;
   try {
     if (client.status === 'wait') await client.connect();
-    await client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+    const ttl = Number.isInteger(ttlSeconds) && ttlSeconds > 0 ? ttlSeconds : DEFAULT_CACHE_TTL_SECONDS;
+    await client.set(key, JSON.stringify(value), 'EX', ttl);
   } catch (error) {
     console.warn('Matching cache write skipped:', error.message);
   }

@@ -30,6 +30,29 @@ describe('Clerk webhook route', () => {
     prisma.clerkWebhookEvent.update.mockResolvedValue({});
   });
 
+  it('rejects with 500 when signing secret is missing', async () => {
+    delete process.env.CLERK_WEBHOOK_SIGNING_SECRET;
+    const response = await request(app)
+      .post('/webhooks/clerk')
+      .send(JSON.stringify({ type: 'user.created', data: {} }));
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Clerk webhook signing secret not configured',
+    });
+  });
+
+  it('rejects with 400 when svix headers are missing', async () => {
+    const response = await request(app)
+      .post('/webhooks/clerk')
+      .send(JSON.stringify({ type: 'user.created', data: {} }));
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Missing svix verification headers',
+    });
+  });
+
   it('rejects an invalid signature', async () => {
     const response = await request(app)
       .post('/webhooks/clerk')
@@ -38,6 +61,10 @@ describe('Clerk webhook route', () => {
       .set('svix-signature', 'v1,invalid')
       .send(JSON.stringify({ type: 'user.created', data: {} }));
     expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Invalid webhook signature',
+    });
   });
 
   it('returns duplicate success for an already processed event', async () => {

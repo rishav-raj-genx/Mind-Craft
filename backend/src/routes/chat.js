@@ -24,22 +24,32 @@ async function findUser(uid) {
   });
 }
 
-router.get('/:matchId/history', requireAuth, async (req, res, next) => {
+async function handleHistory(req, res, next) {
   try {
-    const { matchId } = req.params;
-    const { limit, offset } = getPagination(req.query);
-    const before = req.query.before ? parseInt(req.query.before, 10) : null;
+    const threadId = req.params.threadId || req.params.matchId;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
 
-    const user = await findUser(req.user.clerkUserId);
+    let beforeDate = null;
+    if (req.query.before) {
+      const num = Number(req.query.before);
+      const parsed = !isNaN(num) ? new Date(num) : new Date(req.query.before);
+      if (!isNaN(parsed.getTime())) {
+        beforeDate = parsed;
+      }
+    }
+
+    const user = await findUser(req.user?.clerkUserId || req.user?.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-    await assertParticipant(matchId, user.id);
+    // Verify requesting user is a ChatParticipant
+    await assertParticipant(threadId, user.id);
 
     const messages = await prisma.chatMessage.findMany({
       where: {
-        threadId: matchId,
+        threadId,
         deletedAt: null,
-        ...(before ? { createdAt: { lt: new Date(before) } } : {}),
+        ...(beforeDate ? { createdAt: { lt: beforeDate } } : {}),
       },
       include: { sender: true },
       orderBy: { createdAt: 'desc' },
@@ -49,11 +59,13 @@ router.get('/:matchId/history', requireAuth, async (req, res, next) => {
 
     const formatted = messages.map((m) => ({
       messageId: m.id,
+      senderId: m.senderId,
       senderUid: m.sender.clerkUserId,
       text: m.text,
       timestamp: new Date(m.createdAt).getTime(),
       read: true,
       isEdited: Boolean(m.editedAt),
+      createdAt: m.createdAt.toISOString(),
     })).reverse();
 
     res.json({
@@ -65,9 +77,16 @@ router.get('/:matchId/history', requireAuth, async (req, res, next) => {
       data: formatted,
     });
   } catch (err) {
+    if (err.statusCode === 403) {
+      return res.status(403).json({ success: false, error: err.message });
+    }
     next(err);
   }
-});
+}
+
+// Chat history routes (supporting both /history/:threadId and /:matchId/history)
+router.get('/history/:threadId', requireAuth, handleHistory);
+router.get('/:matchId/history', requireAuth, handleHistory);
 
 router.post('/:matchId/send', requireAuth, [body('text').trim().notEmpty()], async (req, res, next) => {
   try {
@@ -76,7 +95,7 @@ router.post('/:matchId/send', requireAuth, [body('text').trim().notEmpty()], asy
 
     const { matchId } = req.params;
     const { text } = req.body;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await findUser(req.user?.clerkUserId || req.user?.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     await assertParticipant(matchId, user.id);
@@ -97,6 +116,7 @@ router.post('/:matchId/send', requireAuth, [body('text').trim().notEmpty()], asy
         messageId: message.id,
         threadId: matchId,
         senderId: user.id,
+        senderUid: user.clerkUserId,
         senderName: user.name,
         text,
         createdAt: message.createdAt.toISOString(),
@@ -126,6 +146,7 @@ router.post('/:matchId/send', requireAuth, [body('text').trim().notEmpty()], asy
       success: true,
       data: {
         messageId: message.id,
+        senderId: user.id,
         senderUid: user.clerkUserId,
         text,
         timestamp,
@@ -140,7 +161,7 @@ router.post('/:matchId/send', requireAuth, [body('text').trim().notEmpty()], asy
 router.patch('/:matchId/read', requireAuth, async (req, res, next) => {
   try {
     const { matchId } = req.params;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await findUser(req.user?.clerkUserId || req.user?.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     await markThreadRead(matchId, user.id);
@@ -149,6 +170,7 @@ router.patch('/:matchId/read', requireAuth, async (req, res, next) => {
       emitToThread(matchId, 'chat:read', {
         threadId: matchId,
         userId: user.id,
+        senderUid: user.clerkUserId,
         readAt: new Date().toISOString(),
       });
     } catch (_err) {}
@@ -166,7 +188,7 @@ router.patch('/:matchId/message/:messageId', requireAuth, [body('text').trim().n
 
     const { matchId, messageId } = req.params;
     const { text } = req.body;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await findUser(req.user?.clerkUserId || req.user?.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const message = await prisma.chatMessage.findUnique({
@@ -195,7 +217,7 @@ router.patch('/:matchId/message/:messageId', requireAuth, [body('text').trim().n
 router.delete('/:matchId/message/:messageId', requireAuth, async (req, res, next) => {
   try {
     const { matchId, messageId } = req.params;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await findUser(req.user?.clerkUserId || req.user?.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const message = await prisma.chatMessage.findUnique({
@@ -227,7 +249,7 @@ router.get('/threads/:uid', requireAuth, async (req, res, next) => {
     const user = await findUser(uid);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-    if (user.clerkUserId !== req.user.clerkUserId) {
+    if (user.clerkUserId !== req.user?.clerkUserId && user.id !== req.user?.id) {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's chat threads" });
     }
 
@@ -255,19 +277,21 @@ router.get('/threads/:uid', requireAuth, async (req, res, next) => {
       const t = p.thread;
       const partnerUser = t.participants[0]?.user;
       const lastMessageTime = t.lastMessageAt ? new Date(t.lastMessageAt).getTime() : new Date(t.createdAt).getTime();
-      const unread = p.lastReadAt && t.lastMessageAt ? new Date(p.lastReadAt) < new Date(t.lastMessageAt) : Boolean(t.lastMessage);
+      const isSelfLastSender = t.lastSenderId === user.id || t.lastSender?.clerkUserId === user.clerkUserId;
+      const unread = !isSelfLastSender && (p.lastReadAt && t.lastMessageAt ? new Date(p.lastReadAt) < new Date(t.lastMessageAt) : Boolean(t.lastMessage));
 
       return {
         matchId: t.id,
         partner: partnerUser ? {
           uid: partnerUser.clerkUserId,
+          id: partnerUser.id,
           name: partnerUser.name,
           email: partnerUser.email,
           photoUrl: partnerUser.photoUrl,
-        } : { uid: '', name: 'Study Partner' },
+        } : { uid: '', id: '', name: 'Study Partner' },
         lastMessage: t.lastMessage || '',
         lastMessageTime,
-        lastMessageSender: t.lastSender?.clerkUserId || '',
+        lastMessageSender: t.lastSender?.clerkUserId || t.lastSenderId || '',
         unread,
       };
     });
@@ -288,7 +312,7 @@ router.get('/threads/:uid', requireAuth, async (req, res, next) => {
 router.get('/:matchId/detail', requireAuth, async (req, res, next) => {
   try {
     const { matchId } = req.params;
-    const user = await findUser(req.user.clerkUserId);
+    const user = await findUser(req.user?.clerkUserId || req.user?.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const thread = await prisma.chatThread.findUnique({
@@ -313,10 +337,11 @@ router.get('/:matchId/detail', requireAuth, async (req, res, next) => {
         matchId: thread.id,
         partner: partner ? {
           uid: partner.clerkUserId,
+          id: partner.id,
           name: partner.name,
           email: partner.email,
           photoUrl: partner.photoUrl,
-        } : { uid: '', name: 'Study Partner' },
+        } : { uid: '', id: '', name: 'Study Partner' },
         lastMessage: thread.lastMessage || '',
         lastMessageTime,
       },
@@ -328,7 +353,7 @@ router.get('/:matchId/detail', requireAuth, async (req, res, next) => {
 
 router.post('/thread', requireAuth, async (req, res, next) => {
   try {
-    const fromUid = req.user.clerkUserId;
+    const fromUid = req.user?.clerkUserId || req.user?.id;
     const { partnerUid } = req.body;
     if (!partnerUid) return res.status(400).json({ success: false, error: 'partnerUid is required' });
 
@@ -367,6 +392,7 @@ router.post('/thread', requireAuth, async (req, res, next) => {
         match: { matchId: thread.id, id: thread.id },
         partner: {
           uid: partner.clerkUserId,
+          id: partner.id,
           name: partner.name,
           email: partner.email,
           photoUrl: partner.photoUrl,
