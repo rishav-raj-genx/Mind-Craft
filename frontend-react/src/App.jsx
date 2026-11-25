@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, lazy, Suspense } from 'react';
-import { AuthenticateWithRedirectCallback } from '@clerk/clerk-react';
+import { AuthenticateWithRedirectCallback } from '@clerk/react';
 import { useAuth } from './context/AuthContext';
 import { AppProvider, useAppContext } from './context/AppContext';
 import Layout from './components/Layout';

@@ -1,4 +1,0 @@
-allowBuilds:
-  '@clerk/shared': false
-  '@firebase/util': true
-  protobufjs: true

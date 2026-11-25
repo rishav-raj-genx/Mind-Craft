@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { SignIn } from '@clerk/clerk-react';
+import { SignIn } from '@clerk/react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useFullProfile } from '../hooks/useUserProfile';

@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { SignedIn } from '@clerk/clerk-react';
+import { SignedIn } from '@clerk/react';
 
-vi.mock('@clerk/clerk-react', () => ({
+vi.mock('@clerk/react', () => ({
   SignedIn: ({ children }) => <>{children}</>,
 }));
 

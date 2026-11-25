@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect } from 'react';
-import { useAuth as useClerkAuth, useClerk, useUser } from '@clerk/clerk-react';
+import { useAuth as useClerkAuth, useClerk, useUser } from '@clerk/react';
 import { setClerkTokenProvider } from '../config/api';
 import { queryClient } from '../config/queryClient';
 
