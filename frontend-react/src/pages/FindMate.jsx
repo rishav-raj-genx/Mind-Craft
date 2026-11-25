@@ -8,6 +8,7 @@ import {
   useFollowUser,
 } from '../hooks/usePeerMatches';
 import { voiceService } from '../services/voiceService';
+import { chatService } from '../services/chatService';
 import { Search, Mic, MapPin, Star, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { useNavigate } from 'react-router-dom';
@@ -170,7 +171,19 @@ const MatchCard = ({ mate, index, onFollow, onChat, isFollowed }) => {
       className="bg-white dark:bg-surface-container rounded-xl p-5 flex flex-col gap-3 border border-gray-200 dark:border-surface-raised shadow-sm hover:shadow-md transition-shadow"
     >
       {/* Top row: avatar + info + rating */}
-      <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate(`/profile/${mate.uid}`)}>
+      <div
+        className="flex items-center gap-4 cursor-pointer"
+        role="button"
+        tabIndex={0}
+        aria-label={`View profile of ${mate.name || 'Mate'}`}
+        onClick={() => navigate(`/profile/${mate.uid}`)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            navigate(`/profile/${mate.uid}`);
+          }
+        }}
+      >
         <img
           src={mate.photoUrl || getAvatarUrl(mate.name || 'Mate')}
           alt={mate.name || 'Mate'}
@@ -523,7 +536,7 @@ const FindMate = () => {
       if (transcript || resultData.detectedSkill) {
         const normalized = (resultData.matches || []).map(normalizeMate);
         setAllMatches(normalized);
-        setActiveSearch(resultData.detectedSkill || transcript);
+        setActiveSearch('');
       } else {
         setAllMatches([]);
         setActiveSearch('');
@@ -566,7 +579,6 @@ const FindMate = () => {
 
   const handleChat = async (mate) => {
     try {
-      const { chatService } = await import('../services/chatService');
       const res = await chatService.getOrCreateThread(mate.uid);
       if (res.success && res.matchId) {
         navigate(`/chat/${res.matchId}`, { state: { partner: mate } });
@@ -658,6 +670,7 @@ const FindMate = () => {
         <button
           type="button"
           onClick={() => setShowFilters(prev => !prev)}
+          aria-label={showFilters ? 'Hide filters' : 'Show filters'}
           className={`relative bg-white dark:bg-surface-container border rounded-full p-3 transition-colors ${
             hasActiveFilters
               ? 'border-[#7C3AED] bg-purple-50 dark:bg-purple-900/20'

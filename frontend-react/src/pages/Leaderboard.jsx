@@ -1,30 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, Medal, Coins, Trophy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAvatarUrl } from '../utils/avatar';
-import { gamificationService } from '../services/gamificationService';
+import { useLeaderboard } from '../hooks/useGamification';
 import { AnimatePresence } from 'framer-motion';
 import MindTokenInfoModal from '../components/MindTokenInfoModal';
 
 const Leaderboard = () => {
   const navigate = useNavigate();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { data: leaderboardResponse, isLoading: loading } = useLeaderboard();
   const [showModal, setShowModal] = useState(false);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await gamificationService.getLeaderboard();
-        setData(res.data || res);
-      } catch (err) {
-        console.error("Failed to fetch leaderboard", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const data = leaderboardResponse?.data || leaderboardResponse || null;
 
   if (loading) {
     return (
@@ -36,15 +22,19 @@ const Leaderboard = () => {
   }
 
   const topUsers = data?.leaderboard || [];
-  const myRank = data?.myRank || -1;
-  const myTokens = data?.myTokens || 0;
-  const tokensToNextRank = data?.tokensToNextRank || 0;
+  const myRank = data?.myRank ?? -1;
+  const myTokens = data?.myTokens ?? 0;
+  const tokensToNextRank = data?.tokensToNextRank ?? 0;
 
   return (
     <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out] pb-[100px]">
       {/* Header */}
       <header className="flex items-center gap-3 px-4 pt-4">
-        <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors">
+        <button
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+          className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors"
+        >
           <ArrowLeft size={20} className="text-gray-700 dark:text-on-surface" />
         </button>
         <h1 className="font-headline-lg text-headline-lg text-gray-900 dark:text-on-surface">Weekly Leaderboard</h1>
@@ -139,17 +129,18 @@ const Leaderboard = () => {
         <div className="bg-gradient-to-r from-purple-900 to-secondary-container rounded-2xl p-4 shadow-[0_10px_25px_rgba(99,45,147,0.3)] flex items-center justify-between border border-focus-purple/30 animate-[slideUp_0.5s_ease-out_1s_both]">
           <div className="flex items-center gap-4">
             <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-bold text-white text-sm">
-              {myRank > 0 ? myRank : '-'}
+              {myRank > 0 ? myRank : '—'}
             </div>
             <div>
               <h4 className="font-body-md text-body-md font-bold text-white">You</h4>
               <p className="font-label-md text-[11px] text-purple-200">
-                {myTokens} Tokens {myRank > 1 ? `• +${tokensToNextRank} to rank up` : (myRank === 1 ? '• #1 Leader!' : '• Start earning!')}
+                {myTokens} Tokens {myRank > 1 ? `• +${tokensToNextRank} to rank up` : (myRank === 1 ? '• #1 Leader!' : '• Unranked')}
               </p>
             </div>
           </div>
           <button 
             onClick={() => setShowModal(true)} 
+            aria-label="Earn more tokens"
             className="bg-success-lime text-green-900 font-label-md text-sm px-4 py-2 rounded-full font-bold shadow-[0_2px_0_#b3d266] active:translate-y-[2px] active:shadow-none transition-all flex items-center gap-1 shrink-0"
           >
             <Coins size={14} className="fill-current" /> Earn More

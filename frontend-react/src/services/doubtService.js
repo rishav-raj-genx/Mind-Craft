@@ -33,8 +33,24 @@ export const doubtService = {
 
   // Upvote or un-upvote a doubt
   toggleUpvote: async (doubtId) => {
-    const response = await api.patch(`/doubt/${doubtId}/upvote`);
-    return response.data;
+    try {
+      const response = await api.post(`/doubt/${doubtId}/upvote`);
+      return response.data;
+    } catch (err) {
+      console.error(`Failed to toggle upvote for doubt ${doubtId}:`, err);
+      throw err;
+    }
+  },
+
+  // Accept an answer — author only
+  acceptAnswer: async (doubtId, answerId) => {
+    try {
+      const response = await api.post(`/doubt/${doubtId}/answer/${answerId}/accept`);
+      return response.data;
+    } catch (err) {
+      console.error(`Failed to accept answer ${answerId} for doubt ${doubtId}:`, err);
+      throw err;
+    }
   },
 
   // Get trending tags from recent doubts

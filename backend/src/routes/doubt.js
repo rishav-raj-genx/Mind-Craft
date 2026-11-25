@@ -16,7 +16,7 @@ const { broadcastToGlobal } = require('../services/chatService');
 const MAX_DOUBT_IMAGES = 4;
 const MAX_DOUBT_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_COMPRESSED_IMAGE_BYTES = 320 * 1024;
-const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
 const uploadDoubtImages = multer({
   storage: multer.memoryStorage(),
@@ -25,11 +25,12 @@ const uploadDoubtImages = multer({
     files: MAX_DOUBT_IMAGES,
   },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+    const mime = (file.mimetype || '').toLowerCase().trim();
+    if (ALLOWED_IMAGE_MIMES.includes(mime)) {
       cb(null, true);
       return;
     }
-    const err = new Error(`Invalid image format: "${file.mimetype}". Upload JPG, PNG, WEBP, HEIC, or HEIF.`);
+    const err = new Error(`Invalid image format: "${file.mimetype}". Accepted formats: image/jpeg, image/png, image/webp.`);
     err.statusCode = 415;
     cb(err, false);
   },
@@ -50,33 +51,39 @@ async function findUser(uid) {
 }
 
 const compressDoubtImage = async (file, index) => {
-  let buffer = await sharp(file.buffer, { failOn: 'none' })
-    .rotate()
-    .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 72, effort: 4 })
-    .toBuffer();
-
-  if (buffer.length > MAX_COMPRESSED_IMAGE_BYTES) {
-    buffer = await sharp(file.buffer, { failOn: 'none' })
+  try {
+    let buffer = await sharp(file.buffer, { failOn: 'none' })
       .rotate()
-      .resize({ width: 960, height: 960, fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 58, effort: 5 })
+      .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 72, effort: 4 })
       .toBuffer();
+
+    if (buffer.length > MAX_COMPRESSED_IMAGE_BYTES) {
+      buffer = await sharp(file.buffer, { failOn: 'none' })
+        .rotate()
+        .resize({ width: 960, height: 960, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 58, effort: 5 })
+        .toBuffer();
+    }
+
+    const metadata = await sharp(buffer).metadata();
+
+    return {
+      id: uuidv4(),
+      order: index,
+      mimeType: 'image/webp',
+      fileName: `${file.fieldname || 'doubt'}-${index + 1}.webp`,
+      width: metadata.width || null,
+      height: metadata.height || null,
+      size: buffer.length,
+      dataUri: `data:image/webp;base64,${buffer.toString('base64')}`,
+      createdAt: Date.now(),
+    };
+  } catch (err) {
+    const error = new Error(`Corrupted or unreadable image file: ${err.message}`);
+    error.statusCode = 400;
+    throw error;
   }
-
-  const metadata = await sharp(buffer).metadata();
-
-  return {
-    id: uuidv4(),
-    order: index,
-    mimeType: 'image/webp',
-    fileName: `${file.fieldname || 'doubt'}-${index + 1}.webp`,
-    width: metadata.width || null,
-    height: metadata.height || null,
-    size: buffer.length,
-    dataUri: `data:image/webp;base64,${buffer.toString('base64')}`,
-    createdAt: Date.now(),
-  };
 };
 
 const attachCompressedDoubtImages = async (req, _res, next) => {
@@ -145,13 +152,15 @@ function formatDoubt(d, currentUserId = null) {
     authorUid: a.author?.clerkUserId || a.authorId,
     authorName: a.author?.name || 'Anonymous',
     authorPhoto: a.author?.photoUrl || '',
+    authorAvatar: a.author?.photoUrl || '',
     content: a.content,
     createdAt: new Date(a.createdAt).getTime(),
     isAccepted: a.isAccepted,
   }));
 
+  const upvotedBy = (d.votes || []).map((v) => v.user?.clerkUserId || v.userId);
   const hasUpvoted = currentUserId
-    ? (d.votes || []).some((v) => v.userId === currentUserId)
+    ? (d.votes || []).some((v) => v.userId === currentUserId || (v.user && v.user.clerkUserId === currentUserId))
     : false;
 
   return {
@@ -160,6 +169,7 @@ function formatDoubt(d, currentUserId = null) {
     authorUid: d.author?.clerkUserId || d.authorId,
     authorName: d.author?.name || 'Anonymous',
     authorPhoto: d.author?.photoUrl || '',
+    authorAvatar: d.author?.photoUrl || '',
     authorCollege: d.author?.college?.name || '',
     authorDepartment: d.author?.department?.name || '',
     title: d.title,
@@ -168,7 +178,9 @@ function formatDoubt(d, currentUserId = null) {
     images,
     upvotes: d.upvoteCount,
     hasUpvoted,
+    upvotedBy,
     answersCount: answers.length,
+    answerCount: answers.length,
     answers,
     aiHint: d.aiHint || '',
     aiAssistStatus: (d.aiAssistStatus || '').toLowerCase(),
@@ -277,7 +289,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
     const doubts = await prisma.doubt.findMany({
       where: {
-        status: 'ACTIVE',
+        status: { not: 'DELETED' },
         deletedAt: null,
         ...(tag ? { primaryTag: tag } : {}),
       },
@@ -302,6 +314,37 @@ router.get('/', optionalAuth, async (req, res, next) => {
       hasMore: formatted.length === limit,
       data: formatted,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Mounted BEFORE /:id to prevent route collision (HIGH-29)
+router.get('/trending', optionalAuth, async (_req, res, next) => {
+  try {
+    const trending = await prisma.doubt.groupBy({
+      by: ['primaryTag'],
+      where: {
+        status: { not: 'DELETED' },
+        deletedAt: null,
+      },
+      _count: {
+        id: true,
+      },
+      orderBy: {
+        _count: {
+          id: 'desc',
+        },
+      },
+      take: 10,
+    });
+
+    const data = trending.map((item) => ({
+      tag: item.primaryTag,
+      count: item._count.id,
+    }));
+
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -356,6 +399,11 @@ router.post('/:id/answer', requireAuth, [
       return res.status(404).json({ success: false, error: 'Doubt not found' });
     }
 
+    // Authors cannot answer their own doubts (HIGH-31)
+    if (doubt.authorId === user.id || doubt.author?.clerkUserId === req.user.clerkUserId) {
+      return res.status(403).json({ success: false, error: 'Authors cannot answer their own doubts' });
+    }
+
     const answer = await prisma.$transaction(async (tx) => {
       const created = await tx.doubtAnswer.create({
         data: {
@@ -399,6 +447,7 @@ router.post('/:id/answer', requireAuth, [
         authorUid: user.clerkUserId,
         authorName: user.name,
         authorPhoto: user.photoUrl || '',
+        authorAvatar: user.photoUrl || '',
         content: answer.content,
         createdAt: new Date(answer.createdAt).getTime(),
         isAccepted: false,
@@ -409,7 +458,8 @@ router.post('/:id/answer', requireAuth, [
   }
 });
 
-router.post('/:id/upvote', requireAuth, async (req, res, next) => {
+// Atomic upvote toggle supporting both POST and PATCH (HIGH-30)
+const handleUpvote = async (req, res, next) => {
   try {
     const { id } = req.params;
     const user = await findUser(req.user.clerkUserId);
@@ -424,44 +474,106 @@ router.post('/:id/upvote', requireAuth, async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Doubt not found' });
     }
 
-    const existingVote = await prisma.doubtVote.findUnique({
-      where: { doubtId_userId: { doubtId: id, userId: user.id } },
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      const existingVote = await tx.doubtVote.findUnique({
+        where: { doubtId_userId: { doubtId: id, userId: user.id } },
+      });
 
-    let hasUpvoted = false;
-    let upvotes = doubt.upvoteCount;
-
-    if (existingVote) {
-      await prisma.$transaction([
-        prisma.doubtVote.delete({
+      if (existingVote) {
+        await tx.doubtVote.delete({
           where: { doubtId_userId: { doubtId: id, userId: user.id } },
-        }),
-        prisma.doubt.update({
+        });
+        const updated = await tx.doubt.update({
           where: { id },
           data: { upvoteCount: { decrement: 1 } },
-        }),
-      ]);
-      hasUpvoted = false;
-      upvotes = Math.max(0, upvotes - 1);
-    } else {
-      await prisma.$transaction([
-        prisma.doubtVote.create({
+          select: { upvoteCount: true },
+        });
+        return { hasUpvoted: false, upvotes: Math.max(0, updated.upvoteCount) };
+      } else {
+        await tx.doubtVote.create({
           data: { doubtId: id, userId: user.id },
-        }),
-        prisma.doubt.update({
+        });
+        const updated = await tx.doubt.update({
           where: { id },
           data: { upvoteCount: { increment: 1 } },
-        }),
-      ]);
-      hasUpvoted = true;
-      upvotes += 1;
-    }
+          select: { upvoteCount: true },
+        });
+        return { hasUpvoted: true, upvotes: updated.upvoteCount };
+      }
+    });
 
-    res.json({ success: true, data: { upvotes, hasUpvoted } });
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
-});
+};
+
+router.post('/:id/upvote', requireAuth, handleUpvote);
+router.patch('/:id/upvote', requireAuth, handleUpvote);
+
+// Answer acceptance endpoint (HIGH-31)
+const handleAcceptAnswer = async (req, res, next) => {
+  try {
+    const { id, answerId } = req.params;
+    const user = await findUser(req.user.clerkUserId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const doubt = await prisma.doubt.findUnique({
+      where: { id },
+      include: { author: true },
+    });
+
+    if (!doubt || doubt.deletedAt) {
+      return res.status(404).json({ success: false, error: 'Doubt not found' });
+    }
+
+    if (doubt.author.clerkUserId !== req.user.clerkUserId && doubt.authorId !== user.id) {
+      return res.status(403).json({ success: false, error: 'Only the author can accept an answer' });
+    }
+
+    const answer = await prisma.doubtAnswer.findFirst({
+      where: { id: answerId, doubtId: id, deletedAt: null },
+      include: { author: true },
+    });
+
+    if (!answer) {
+      return res.status(404).json({ success: false, error: 'Answer not found' });
+    }
+
+    await prisma.$transaction([
+      prisma.doubtAnswer.updateMany({
+        where: { doubtId: id },
+        data: { isAccepted: false },
+      }),
+      prisma.doubtAnswer.update({
+        where: { id: answerId },
+        data: { isAccepted: true },
+      }),
+      prisma.doubt.update({
+        where: { id },
+        data: { status: 'CLOSED' },
+      }),
+    ]);
+
+    // Award forum tokens to the answer author
+    try {
+      if (answer.author?.clerkUserId) {
+        await awardForumAnswer(answer.author.clerkUserId, id, `forum_${id}_${answerId}`);
+      }
+    } catch (_err) {}
+
+    res.json({
+      success: true,
+      message: 'Answer accepted successfully',
+      data: { answerId, isAccepted: true },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.patch('/:id/answer/:answerId/accept', requireAuth, handleAcceptAnswer);
+router.post('/:id/answer/:answerId/accept', requireAuth, handleAcceptAnswer);
 
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {

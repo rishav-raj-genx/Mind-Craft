@@ -1,9 +1,16 @@
 const sleep = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
-const getProviderStatus = (error) => error?.response?.status || error?.statusCode || null;
+const getProviderStatus = (error) => error?.providerStatus || error?.response?.status || error?.statusCode || null;
 
 const isRetryableError = (error) => {
   const status = getProviderStatus(error);
+  // Do NOT retry permanent 4xx client errors (bad request, auth failure, forbidden, payload too large)
+  if (status && [400, 401, 403, 413].includes(Number(status))) {
+    return false;
+  }
+  if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    return false;
+  }
   if (error?.code === 'SARVAM_TIMEOUT' || error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT') {
     return true;
   }

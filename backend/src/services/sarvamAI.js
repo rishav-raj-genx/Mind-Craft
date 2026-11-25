@@ -10,9 +10,28 @@ const axios    = require('axios');
 const FormData = require('form-data');
 const {
   isTimeoutError,
+  isRetryableError,
   requestWithRetry,
   withAxiosTimeout,
 } = require('../utils/resilientRequest');
+
+const shouldRetrySarvam = (error) => {
+  const status = error?.providerStatus || error?.response?.status || error?.statusCode || null;
+  // Do NOT retry HTTP 400, 401, 403, or 413 permanent errors. Only retry 5xx transient server errors and network timeouts.
+  if (status && [400, 401, 403, 413].includes(Number(status))) {
+    return false;
+  }
+  if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    return false;
+  }
+  if (isTimeoutError(error)) {
+    return true;
+  }
+  if (!status) {
+    return Boolean(error?.request || error?.code === 'ERR_NETWORK');
+  }
+  return status === 408 || status === 429 || status >= 500;
+};
 
 const STT_URL  = process.env.SARVAM_STT_URL  || 'https://api.sarvam.ai/speech-to-text';
 const CHAT_URL = process.env.SARVAM_CHAT_URL || 'https://api.sarvam.ai/v1/chat/completions';
@@ -420,6 +439,7 @@ async function transcribeAudio(audioBuffer, originalName, mimeType, options = {}
         maxDelayMs: Number(process.env.SARVAM_RETRY_MAX_DELAY_MS || 3000),
         provider: 'Sarvam AI',
         operationName: 'speech-to-text',
+        shouldRetry: shouldRetrySarvam,
       },
     );
 
@@ -537,6 +557,7 @@ async function generateStudyHint(doubt, options = {}) {
       maxDelayMs: Number(process.env.SARVAM_RETRY_MAX_DELAY_MS || 3000),
       provider: 'Sarvam AI',
       operationName: 'study-hint',
+      shouldRetry: shouldRetrySarvam,
     });
 
     const data = response.data;

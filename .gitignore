@@ -40,6 +40,10 @@ yarn-error.log*
 # IDE
 .vscode/
 
+# Test coverage
+coverage/
+*/coverage/
+
 # Environment files
 *.env*
 .env

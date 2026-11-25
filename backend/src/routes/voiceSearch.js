@@ -11,6 +11,7 @@
 
 const express = require('express');
 const multer  = require('multer');
+const rateLimit = require('express-rate-limit');
 const router  = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
@@ -22,6 +23,29 @@ const {
   MAX_AUDIO_SIZE_BYTES,
 } = require('../utils/constants');
 
+// Rate limiting on voice search uploads (HIGH-10)
+const voiceSearchLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // Limit each user / IP to 10 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req) => req.user?.uid || req.user?.clerkUserId || req.ip,
+  handler: (_req, res) => {
+    res.status(429).json({
+      success: false,
+      error: 'Too many voice search requests. Please wait a minute before trying again.',
+    });
+  },
+});
+
+const isAllowedAudioMime = (mime) => {
+  if (!mime) return false;
+  const normalized = mime.toLowerCase().trim();
+  const baseType = normalized.split(';')[0].trim();
+  return ALLOWED_AUDIO_MIMES.includes(normalized) || ALLOWED_AUDIO_MIMES.includes(baseType);
+};
+
 // ── Multer configuration with strict validation ───────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -30,12 +54,12 @@ const upload = multer({
     files: 1,
   },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED_AUDIO_MIMES.includes(file.mimetype)) {
+    if (isAllowedAudioMime(file.mimetype)) {
       cb(null, true);
     } else {
       const err = new Error(
         `Invalid audio format: "${file.mimetype}". ` +
-        `Accepted formats: ${ALLOWED_AUDIO_MIMES.join(', ')}`,
+        `Accepted formats: audio/webm, audio/webm;codecs=opus, audio/wav, audio/mpeg, audio/ogg`,
       );
       err.statusCode = 415; // Unsupported Media Type
       cb(err, false);
@@ -75,6 +99,7 @@ function validateAudioHeaders(req, res, next) {
 router.post(
   '/',
   requireAuth,
+  voiceSearchLimiter,
   validateAudioHeaders,
   upload.single('audio'),
   async (req, res, next) => {
@@ -97,11 +122,27 @@ router.post(
         });
       }
 
+      const cleanMime = (req.file.mimetype || 'audio/webm').split(';')[0].trim().toLowerCase();
+      let ext = '.webm';
+      if (cleanMime === 'audio/wav' || cleanMime === 'audio/x-wav' || cleanMime === 'audio/wave') {
+        ext = '.wav';
+      } else if (cleanMime === 'audio/mpeg' || cleanMime === 'audio/mp3') {
+        ext = '.mp3';
+      } else if (cleanMime === 'audio/ogg') {
+        ext = '.ogg';
+      } else if (cleanMime === 'audio/mp4') {
+        ext = '.m4a';
+      }
+
+      const originalName = req.file.originalname && req.file.originalname.includes('.')
+        ? req.file.originalname
+        : `voice-query${ext}`;
+
       // ── Step 1: Transcribe audio via Sarvam AI ──────────────────
       const transcription = await transcribeAudio(
         req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype,
+        originalName,
+        cleanMime,
         { languageCode },
       );
 

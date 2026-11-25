@@ -9,10 +9,26 @@ import {
   useDoubts,
   useResolveDoubt,
   useToggleDoubtUpvote,
+  useAcceptAnswer,
 } from '../hooks/useDoubtForum';
 import { voiceService } from '../services/voiceService';
 import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight, Mic, Square } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
+import DOMPurify from 'dompurify';
+
+const sanitizeAndFormatMarkdown = (content) => {
+  if (!content) return '';
+  const formatted = String(content)
+    .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 dark:bg-gray-800 p-2.5 rounded-lg overflow-x-auto my-2 text-xs font-mono"><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-xs font-mono">$1</code>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+  return DOMPurify.sanitize(formatted, {
+    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'span', 'h1', 'h2', 'h3', 'h4'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+  });
+};
 
 const RECORDER_MIME_OPTIONS = [
   { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
@@ -111,7 +127,7 @@ const ImageSlideshowModal = ({ images = [], startIndex = 0, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-      <button onClick={onClose} className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/95 text-gray-900 flex items-center justify-center shadow-lg">
+      <button onClick={onClose} aria-label="Close image preview" className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/95 text-gray-900 flex items-center justify-center shadow-lg">
         <X size={22} />
       </button>
       <img
@@ -121,13 +137,13 @@ const ImageSlideshowModal = ({ images = [], startIndex = 0, onClose }) => {
       />
       {images.length > 1 && (
         <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center gap-4">
-          <button onClick={goPrev} className="w-12 h-12 rounded-full bg-[#DCFD8B] text-[#151f00] flex items-center justify-center shadow-lg">
+          <button onClick={goPrev} aria-label="Previous image" className="w-12 h-12 rounded-full bg-[#DCFD8B] text-[#151f00] flex items-center justify-center shadow-lg">
             <ChevronLeft size={24} />
           </button>
           <span className="px-4 py-2 rounded-full bg-white/10 border border-white/20 text-white text-sm font-bold">
             {index + 1}/{images.length}
           </span>
-          <button onClick={goNext} className="w-12 h-12 rounded-full bg-[#DCFD8B] text-[#151f00] flex items-center justify-center shadow-lg">
+          <button onClick={goNext} aria-label="Next image" className="w-12 h-12 rounded-full bg-[#DCFD8B] text-[#151f00] flex items-center justify-center shadow-lg">
             <ChevronRight size={24} />
           </button>
         </div>
@@ -308,6 +324,7 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
           <button
             id="close-doubt-modal"
             onClick={onClose}
+            aria-label="Close ask doubt modal"
             className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
           >
             <X size={18} />
@@ -438,6 +455,7 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
                     <button
                       type="button"
                       onClick={() => removeImage(img.id)}
+                      aria-label="Remove image"
                       className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center"
                     >
                       <X size={13} />
@@ -476,7 +494,7 @@ const AddDoubtModal = ({ onClose, onSubmit, loading }) => {
 };
 
 // ── Answer Doubt Modal (supports read-only mode for own doubts) ───────
-const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner, onImageOpen }) => {
+const AnswerDoubtModal = ({ post, onClose, onSubmit, onAcceptAnswer, loading, isOwner, onImageOpen }) => {
   const [content, setContent] = useState('');
   const [error, setError] = useState('');
 
@@ -506,10 +524,10 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner, onImageOp
               {isOwner ? 'Answers to Your Doubt' : 'Answers'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              {isOwner ? 'See what peers have to say' : `Help ${post.authorName.split(' ')[0]} out`}
+              {isOwner ? 'See what peers have to say' : `Help ${post?.authorName ? post.authorName.split(' ')[0] : 'Peer'} out`}
             </p>
           </div>
-          <button onClick={onClose} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-400">
+          <button onClick={onClose} aria-label="Close answers modal" className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-400">
             <X size={18} />
           </button>
         </div>
@@ -519,7 +537,7 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner, onImageOp
           <div className="bg-white dark:bg-[#1A1A2E] rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-800 mb-6">
             <div className="flex items-center gap-3 mb-2">
               <Link to={`/profile/${post.authorUid}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity" onClick={e => e.stopPropagation()}>
-                <img src={post.authorAvatar} alt={post.authorName} className="w-8 h-8 rounded-full" />
+                <img src={post.authorAvatar || getAvatarUrl(post.authorName)} alt={post.authorName} className="w-8 h-8 rounded-full object-cover" />
                 <span className="font-semibold text-sm text-gray-900 dark:text-white hover:underline">{post.authorName}</span>
               </Link>
               {isOwner && (
@@ -553,15 +571,42 @@ const AnswerDoubtModal = ({ post, onClose, onSubmit, loading, isOwner, onImageOp
               </div>
             )}
             {(post.answers || []).map((ans, i) => (
-              <div key={i} className="bg-white dark:bg-[#1C1C2E] rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
+              <div
+                key={ans.id || ans.answerId || i}
+                className={`bg-white dark:bg-[#1C1C2E] rounded-2xl p-4 border transition-colors ${
+                  ans.isAccepted
+                    ? 'border-green-400 dark:border-green-600 bg-green-50/20 dark:bg-green-950/20'
+                    : 'border-gray-100 dark:border-gray-800'
+                }`}
+              >
                 <div className="flex items-center gap-3 mb-2">
                   <Link to={`/profile/${ans.authorUid}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                    <img src={ans.authorAvatar} alt={ans.authorName} className="w-7 h-7 rounded-full" />
+                    <img src={ans.authorAvatar || getAvatarUrl(ans.authorName)} alt={ans.authorName} className="w-7 h-7 rounded-full object-cover" />
                     <span className="font-semibold text-sm text-gray-900 dark:text-white hover:underline">{ans.authorName}</span>
                   </Link>
+                  {ans.isAccepted && (
+                    <span className="flex items-center gap-1 text-[11px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-full">
+                      <CheckCircle2 size={12} /> Accepted Solution
+                    </span>
+                  )}
                   <span className="text-xs text-gray-400 ml-auto">{timeAgo(ans.createdAt)}</span>
                 </div>
-                <p className="text-sm text-gray-700 dark:text-gray-300 ml-10">{ans.content}</p>
+                {/* Sanitized markdown / HTML answer rendering (HIGH-32) */}
+                <div
+                  className="text-sm text-gray-700 dark:text-gray-300 ml-10 leading-relaxed whitespace-pre-wrap break-words"
+                  dangerouslySetInnerHTML={{ __html: sanitizeAndFormatMarkdown(ans.content) }}
+                />
+                {isOwner && !ans.isAccepted && onAcceptAnswer && (
+                  <div className="mt-3 ml-10 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => onAcceptAnswer(post.id, ans.id || ans.answerId)}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
+                    >
+                      <CheckCircle2 size={13} /> Accept Answer
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -642,7 +687,7 @@ const ResolveConfirmModal = ({ post, onClose, onConfirm, loading }) => {
 const DoubtForum = () => {
   const { currentUser } = useAuth();
   const { markForumVisited } = useNotifications();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeFilter, setActiveFilter] = useState('All Doubts');
   const [showModal, setShowModal] = useState(false);
   const [answeringDoubt, setAnsweringDoubt] = useState(null);
@@ -656,18 +701,22 @@ const DoubtForum = () => {
   const addAnswer = useAddAnswer();
   const resolveDoubt = useResolveDoubt();
   const toggleUpvote = useToggleDoubtUpvote();
+  const acceptAnswer = useAcceptAnswer();
   const submitting = createDoubt.isPending;
   const answering = addAnswer.isPending;
   const resolving = resolveDoubt.isPending;
+  const accepting = acceptAnswer.isPending;
   const fetchError = queryError ? 'Could not load doubts. Please check your connection.' : '';
 
   useEffect(() => {
     markForumVisited?.();
   }, [markForumVisited]);
 
+  const requestedDoubtId = searchParams.get('doubtId');
+
   const requestedDoubt = useMemo(
-    () => posts.find(doubt => doubt.id === searchParams.get('doubtId')),
-    [posts, searchParams],
+    () => (requestedDoubtId ? posts.find(doubt => doubt.id === requestedDoubtId) : null),
+    [posts, requestedDoubtId],
   );
 
   const handleAddDoubt = async ({ title, content, tag, images = [] }) => {
@@ -687,6 +736,17 @@ const DoubtForum = () => {
       await addAnswer.mutateAsync({ doubtId: postId, content });
     } catch (err) {
       console.error('Failed to post answer:', err);
+    }
+  };
+
+  const handleAcceptAnswer = async (doubtId, answerId) => {
+    try {
+      await acceptAnswer.mutateAsync({ doubtId, answerId });
+      setSuccessMsg('Answer accepted as verified solution! 🏆');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      console.error('Failed to accept answer:', err);
+      alert(err.response?.data?.error || 'Failed to accept answer.');
     }
   };
 
@@ -733,6 +793,30 @@ const DoubtForum = () => {
       {successMsg && (
         <div className="flex items-center gap-3 bg-[#DCFD8B]/20 dark:bg-[#DCFD8B]/10 border border-[#DCFD8B]/50 text-[#3a4d00] dark:text-[#DCFD8B] rounded-2xl px-4 py-3 text-sm font-medium" style={{ animation: 'fadeIn 0.3s ease' }}>
           ✅ {successMsg}
+        </div>
+      )}
+
+      {/* Deep link state banner */}
+      {requestedDoubtId && loading && (
+        <div className="flex items-center gap-3 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200 rounded-2xl px-4 py-3 text-sm font-medium animate-pulse">
+          <Loader2 size={16} className="animate-spin text-focus-purple" />
+          Loading linked doubt...
+        </div>
+      )}
+      {requestedDoubtId && !loading && !requestedDoubt && (
+        <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 rounded-2xl px-4 py-3 text-sm font-medium">
+          <span>Requested doubt could not be found or may have been deleted.</span>
+          <button
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('doubtId');
+              setSearchParams(next);
+            }}
+            className="underline font-semibold ml-4 hover:opacity-80 text-xs"
+            aria-label="Dismiss not-found banner"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -849,6 +933,7 @@ const DoubtForum = () => {
                   <button
                     id={`upvote-${post.id}`}
                     onClick={() => handleUpvote(post.id)}
+                    aria-label={`Upvote doubt (${post.upvotes || 0})`}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-all ${
                       (post.upvotedBy || []).includes(currentUser?.uid)
                         ? 'bg-[#DCFD8B]/20 dark:bg-[#DCFD8B]/10 text-[#3a4d00] dark:text-[#DCFD8B] border-[#DCFD8B]/50'
@@ -920,11 +1005,19 @@ const DoubtForum = () => {
       )}
       {(answeringDoubt || requestedDoubt) && (
         <AnswerDoubtModal
-        post={answeringDoubt || requestedDoubt}
-          onClose={() => setAnsweringDoubt(null)}
+          post={answeringDoubt || requestedDoubt}
+          onClose={() => {
+            setAnsweringDoubt(null);
+            if (requestedDoubtId) {
+              const next = new URLSearchParams(searchParams);
+              next.delete('doubtId');
+              setSearchParams(next);
+            }
+          }}
           onSubmit={handleAnswerDoubt}
-          loading={answering}
-          isOwner={answeringDoubt.authorUid === currentUser?.uid}
+          onAcceptAnswer={handleAcceptAnswer}
+          loading={answering || accepting}
+          isOwner={(answeringDoubt || requestedDoubt)?.authorUid === currentUser?.uid}
           onImageOpen={(images, startIndex = 0) => setImageViewer({ images, startIndex })}
         />
       )}

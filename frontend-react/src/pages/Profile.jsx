@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/userService';
 import { gamificationService } from '../services/gamificationService';
+import { chatService } from '../services/chatService';
 import {
   Edit2, UserPlus, MessageSquare, BookOpen, GraduationCap,
   Flame, Users, Star, Clock, BarChart2, Medal,
@@ -515,7 +516,6 @@ const Profile = () => {
 
   const handleChat = async () => {
     try {
-      const { chatService } = await import('../services/chatService');
       const res = await chatService.getOrCreateThread(uid);
       if (res.success && res.matchId) {
         navigate(`/chat/${res.matchId}`);

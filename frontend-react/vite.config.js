@@ -55,4 +55,43 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (
+              id.includes('/react/') ||
+              id.includes('/react-dom/') ||
+              id.includes('/react-router/') ||
+              id.includes('/react-router-dom/')
+            ) {
+              return 'vendor-react';
+            }
+            if (id.includes('@clerk')) {
+              return 'vendor-clerk';
+            }
+            if (id.includes('@tanstack')) {
+              return 'vendor-tanstack';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-lucide';
+            }
+            if (id.includes('framer-motion')) {
+              return 'vendor-motion';
+            }
+            if (id.includes('react-force-graph-2d') || id.includes('d3-force')) {
+              return 'vendor-graph';
+            }
+            if (id.includes('date-fns') || id.includes('react-datepicker')) {
+              return 'vendor-date';
+            }
+            if (id.includes('socket.io-client')) {
+              return 'vendor-socket';
+            }
+          }
+        },
+      },
+    },
+  },
 })

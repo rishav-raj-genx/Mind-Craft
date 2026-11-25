@@ -1,0 +1,73 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend Quality Gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - name: Install backend dependencies
+        run: pnpm install
+
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
+      - name: Run backend tests
+        run: pnpm test
+
+  frontend:
+    name: Frontend Quality Gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-react
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: frontend-react/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Run frontend linter
+        run: pnpm lint
+
+      - name: Run frontend tests
+        run: pnpm test
+
+      - name: Build frontend production bundle
+        run: pnpm build

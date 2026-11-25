@@ -28,4 +28,15 @@ describe('Sarvam AI service resilience', () => {
     expect(result.transcript).toBe('hello');
     expect(axios.post).toHaveBeenCalledTimes(2);
   });
+
+  it('does NOT retry permanent 4xx errors (400, 401, 403, 413)', async () => {
+    const errorCodes = [400, 401, 403, 413];
+    for (const status of errorCodes) {
+      axios.post.mockReset();
+      axios.post.mockRejectedValue({ response: { status, data: { message: `Error ${status}` } } });
+      await expect(transcribeAudio(Buffer.from('audio'), 'voice.wav', 'audio/wav'))
+        .rejects.toThrow();
+      expect(axios.post).toHaveBeenCalledTimes(1);
+    }
+  });
 });

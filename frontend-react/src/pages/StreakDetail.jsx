@@ -243,12 +243,12 @@ const StreakDetail = () => {
     const today = new Date(utcMs + (5.5 * 60 * 60 * 1000));
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
     
-    // End at today's column (Saturday = end of week), go back 15 weeks
+    // End at today's column (Saturday = end of week), go back 5 weeks (35 days)
     const endDate = new Date(today);
     while (endDate.getDay() !== 6) endDate.setDate(endDate.getDate() + 1);
     
     const startDate = new Date(endDate);
-    startDate.setDate(endDate.getDate() - (15 * 7) + 1);
+    startDate.setDate(endDate.getDate() - (5 * 7) + 1);
     while (startDate.getDay() !== 0) startDate.setDate(startDate.getDate() - 1);
     
     const columns = [];
@@ -344,7 +344,11 @@ const StreakDetail = () => {
       <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out]">
         {/* Header */}
         <header className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors">
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+            className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors"
+          >
             <ArrowLeft size={20} className="text-gray-700 dark:text-on-surface" />
           </button>
           <h2 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">Daily Streak</h2>

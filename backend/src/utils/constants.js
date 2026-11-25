@@ -80,6 +80,10 @@ const ALLOWED_AUDIO_MIMES = [
   'audio/ogg',
   'audio/webm',
   'audio/flac',
+  'audio/webm;codecs=opus',
+  'audio/webm; codecs=opus',
+  'audio/ogg;codecs=opus',
+  'audio/ogg; codecs=opus',
 ];
 
 // ── Max Audio Upload Size (10 MB) ─────────────────────────────────────

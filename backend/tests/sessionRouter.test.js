@@ -236,6 +236,45 @@ describe('Session API Routes Endpoints', () => {
     expect(res.body.error).toBe('Cannot book a tutoring session with yourself');
   });
 
+  it('rejects self-booking when teacherUid is the caller internal user ID with HTTP 400', async () => {
+    const res = await request(app)
+      .post('/api/session/book')
+      .set('Authorization', 'Bearer valid-token')
+      .send({
+        matchId: '11111111-1111-4111-8111-111111111111',
+        teacherUid: 'user-caller-id',
+        skill: 'Chemistry',
+        scheduledAt: Date.now() + 1000000,
+        mode: 'Online',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe('Cannot book a tutoring session with yourself');
+  });
+
+  it('rejects self-booking when teacher record resolves to caller ID with HTTP 400', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce({
+      id: 'user-caller-id',
+      clerkUserId: 'clerk-caller',
+    });
+
+    const res = await request(app)
+      .post('/api/session/book')
+      .set('Authorization', 'Bearer valid-token')
+      .send({
+        matchId: '11111111-1111-4111-8111-111111111111',
+        teacherUid: 'different-param',
+        skill: 'Biology',
+        scheduledAt: Date.now() + 1000000,
+        mode: 'Online',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe('Cannot book a tutoring session with yourself');
+  });
+
   it('HIGH-17: rejects past scheduled sessions with HTTP 400', async () => {
     prisma.user.findFirst.mockResolvedValueOnce({
       id: 'other-teacher-id',
@@ -305,6 +344,51 @@ describe('Session API Routes Endpoints', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.success).toBe(false);
+  });
+
+  it('atomically transitions session status from PENDING to UPCOMING on teacher accept', async () => {
+    prisma.tutoringSession.findUnique.mockResolvedValueOnce({
+      id: 'session-pending-1',
+      teacherId: 'user-caller-id',
+      teacher: { clerkUserId: 'clerk-caller', id: 'user-caller-id' },
+      learner: { clerkUserId: 'clerk-learner', name: 'Learner' },
+      status: 'PENDING',
+      mode: 'ONLINE',
+      title: 'Calculus',
+    });
+    prisma.tutoringSession.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const res = await request(app)
+      .patch('/api/session/session-pending-1/accept')
+      .set('Authorization', 'Bearer valid-token')
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(prisma.tutoringSession.updateMany).toHaveBeenCalledWith({
+      where: { id: 'session-pending-1', status: 'PENDING' },
+      data: { status: 'UPCOMING' },
+    });
+  });
+
+  it('rejects accept with HTTP 409 when concurrent update race condition occurs (count: 0)', async () => {
+    prisma.tutoringSession.findUnique.mockResolvedValueOnce({
+      id: 'session-pending-race',
+      teacherId: 'user-caller-id',
+      teacher: { clerkUserId: 'clerk-caller', id: 'user-caller-id' },
+      learner: { clerkUserId: 'clerk-learner', name: 'Learner' },
+      status: 'PENDING',
+    });
+    prisma.tutoringSession.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    const res = await request(app)
+      .patch('/api/session/session-pending-race/accept')
+      .set('Authorization', 'Bearer valid-token')
+      .send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe('Session was already accepted or modified');
   });
 
   it('HIGH-19: rejects rating an incomplete session with HTTP 400', async () => {

@@ -14,6 +14,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const http = require('http');
 const compression = require('compression');
+const rateLimit = require('express-rate-limit');
 
 // ── Middleware ────────────────────────────────────────────────────────
 const { globalErrorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
@@ -30,9 +31,9 @@ const doubtRoutes = require('./src/routes/doubt');
 const authRoutes = require('./src/routes/auth');
 
 // ── Services & DB ────────────────────────────────────────────────────
-const { disconnectPrisma } = require('./src/config/prisma');
+const { prisma, disconnectPrisma } = require('./src/config/prisma');
 const { initSocketServer, closeSocketServer } = require('./src/config/socket');
-const { closeRedis } = require('./src/config/redis');
+const { getRedisClients, closeRedis } = require('./src/config/redis');
 const { startChatPersistenceWorker, closeChatPersistenceWorker } = require('./src/workers/chatPersistenceWorker');
 
 // ── Express app ──────────────────────────────────────────────────────
@@ -93,31 +94,91 @@ app.use(compression({
   level: 6,
 }));
 
+// ── Rate limiters ───────────────────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: 'Too many requests, please try again later.',
+  },
+});
+
+const strictLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: 'Rate limit exceeded, please slow down.',
+  },
+});
+
+app.use(globalLimiter);
+
 // Clerk signs webhook requests against the unparsed payload (mounted before express.json)
 app.use('/api/webhooks/clerk', clerkWebhookRoutes);
 app.use('/api/clerk-webhook', clerkWebhookRoutes);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ── Health check ─────────────────────────────────────────────────────
-app.get('/health', (_req, res) => {
-  res.json({
-    success: true,
-    service: 'mindcraft-backend',
-    version: '1.0.0',
+app.get('/health', async (_req, res) => {
+  let dbStatus = 'disconnected';
+  let redisStatus = 'disconnected';
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbStatus = 'connected';
+  } catch (_err) {
+    dbStatus = 'disconnected';
+  }
+
+  try {
+    const clients = getRedisClients();
+    const redis = clients?.base;
+    if (!redis) {
+      throw new Error('Redis not configured');
+    }
+    const pong = await redis.ping();
+    if (pong === 'PONG' || pong === true || pong) {
+      redisStatus = 'connected';
+    } else {
+      redisStatus = 'disconnected';
+    }
+  } catch (_err) {
+    redisStatus = 'disconnected';
+  }
+
+  if (dbStatus !== 'connected' || redisStatus !== 'connected') {
+    return res.status(503).json({
+      status: 'degraded',
+      database: dbStatus,
+      redis: redisStatus,
+    });
+  }
+
+  return res.status(200).json({
+    status: 'ok',
     uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
+    services: {
+      postgres: 'connected',
+      redis: 'connected',
+    },
   });
 });
 
 // ── API routes ───────────────────────────────────────────────────────
 app.use('/api/user', userRoutes);
 app.use('/api/match', matchRoutes);
-app.use('/api/voice-search', voiceSearchRoutes);
+app.use('/api/voice-search', strictLimiter, voiceSearchRoutes);
 app.use('/api', gamificationRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/session', sessionRoutes);
-app.use('/api/doubt', doubtRoutes);
+app.use('/api/doubt', strictLimiter, doubtRoutes);
 app.use('/api/auth', authRoutes);
 
 // ── 404 + error handling ─────────────────────────────────────────────

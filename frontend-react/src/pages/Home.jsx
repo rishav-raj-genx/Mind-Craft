@@ -66,6 +66,7 @@ const Home = () => {
             {/* Streak Pill — tappable, links to streak detail */}
             <button
               onClick={() => navigate('/streak')}
+              aria-label="View daily streak details"
               className="flex items-center gap-2 bg-gray-50 dark:bg-surface-raised rounded-full py-2 px-4 shadow-sm border border-gray-200 dark:border-[#262626] hover:bg-gray-100 dark:hover:bg-surface-container-high transition-colors active:scale-95"
             >
               <motion.div
@@ -82,6 +83,7 @@ const Home = () => {
             {/* Badges Pill — tappable, links to badges page */}
             <button
               onClick={() => navigate('/badges')}
+              aria-label="View badges and achievements"
               className="flex items-center gap-2 bg-purple-50 dark:bg-secondary-container/20 rounded-full py-2 px-4 shadow-sm border border-purple-200 dark:border-secondary-container hover:bg-purple-100 dark:hover:bg-secondary-container/30 transition-colors active:scale-95"
             >
               <Trophy className="text-purple-600" size={20} />
@@ -103,8 +105,17 @@ const Home = () => {
           {topMates.map((mate, i) => (
             <div 
               key={i} 
+              role="button"
+              tabIndex={0}
+              aria-label={`View profile of ${mate.name}`}
               className="min-w-[200px] bg-white dark:bg-surface-container rounded-xl p-4 flex flex-col items-center gap-3 snap-center border border-gray-200 dark:border-surface-raised shadow-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-container-high transition-colors active:scale-[0.98]"
               onClick={() => navigate(`/profile/${mate.uid}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  navigate(`/profile/${mate.uid}`);
+                }
+              }}
             >
               <img alt="Mate Avatar" className="w-16 h-16 rounded-full object-cover border-2 border-focus-purple" src={mate.photoUrl || getAvatarUrl(mate.name)} />
               <div className="text-center">
@@ -125,7 +136,7 @@ const Home = () => {
               <Star size={40} className="text-gray-300 dark:text-surface-raised mb-3" />
               <h4 className="font-headline-md text-gray-900 dark:text-on-surface">No matches yet!</h4>
               <p className="text-sm text-gray-500 dark:text-on-surface-variant mt-1">Go add some skills to your profile to find study mates.</p>
-              <button onClick={() => navigate('/profile')} className="mt-4 bg-focus-purple text-white font-label-md py-2 px-6 rounded-full hover:bg-purple-700 transition-colors">Edit Profile</button>
+              <button onClick={() => navigate(currentUser?.uid ? `/profile/${currentUser.uid}` : '/profile')} aria-label="Edit Profile" className="mt-4 bg-focus-purple text-white font-label-md py-2 px-6 rounded-full hover:bg-purple-700 transition-colors">Edit Profile</button>
             </div>
           )}
         </div>

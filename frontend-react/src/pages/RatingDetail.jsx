@@ -28,7 +28,7 @@ const RatingDetail = () => {
   return (
     <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out]">
       <header className="flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+        <button onClick={() => navigate(-1)} aria-label="Go back" className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
           <ArrowLeft size={20} className="text-gray-700 dark:text-white" />
         </button>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">My Ratings & Reviews</h1>

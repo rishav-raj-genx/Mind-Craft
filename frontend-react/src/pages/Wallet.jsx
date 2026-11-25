@@ -1,22 +1,13 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { gamificationService } from '../services/gamificationService';
+import { useTokens } from '../hooks/useGamification';
 import { ArrowLeft, Coins, MessageCircle, Users, Flame, BookOpen, Clock, ChevronRight, Sparkles } from 'lucide-react';
 
 const Wallet = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const [balance, setBalance] = useState(450);
-
-  useEffect(() => {
-    if (currentUser) {
-      gamificationService.getTokens(currentUser.uid).then(res => {
-        const b = res.data?.balance || res.balance || 0;
-        if (b > 0) setBalance(b);
-      }).catch(() => {});
-    }
-  }, [currentUser]);
+  const { data: tokenResponse, isLoading } = useTokens(currentUser?.uid);
+  const balance = tokenResponse?.data?.balance ?? tokenResponse?.balance ?? 0;
 
   // Mock earning missions data from Stitch design
   const missions = [
@@ -64,7 +55,11 @@ const Wallet = () => {
     <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out]">
       {/* Header */}
       <header className="flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors">
+        <button
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+          className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors"
+        >
           <ArrowLeft size={20} className="text-gray-700 dark:text-on-surface" />
         </button>
         <h2 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">Wallet</h2>
@@ -82,7 +77,11 @@ const Wallet = () => {
           </div>
           <h2 className="font-body-lg text-body-lg text-purple-100 mb-4">Current Balance</h2>
           <div className="flex items-end gap-3 mb-3">
-            <span className="font-headline-xl text-[56px] leading-none font-bold text-white tabular-nums">{balance}</span>
+            {isLoading ? (
+              <div className="h-14 w-32 bg-white/20 rounded-xl animate-pulse" />
+            ) : (
+              <span className="font-headline-xl text-[56px] leading-none font-bold text-white tabular-nums">{balance}</span>
+            )}
             <span className="font-label-lg text-label-lg text-purple-200 pb-2">Mind Tokens</span>
           </div>
           <div className="flex items-center gap-2 mt-4 bg-white/10 rounded-full py-2 px-4 w-fit backdrop-blur-sm">
@@ -103,7 +102,7 @@ const Wallet = () => {
           {missions.map((mission, idx) => (
             <div
               key={mission.id}
-              className={`bg-white dark:bg-surface-container rounded-2xl p-5 border border-gray-200 dark:border-surface-raised flex items-center gap-4 transition-all hover:shadow-md group cursor-pointer`}
+              className="bg-white dark:bg-surface-container rounded-2xl p-5 border border-gray-200 dark:border-surface-raised flex items-center gap-4 transition-all hover:shadow-md group cursor-pointer"
               style={{ animationDelay: `${idx * 80}ms`, animation: 'slideUp 0.4s ease-out both' }}
             >
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${mission.color} flex-shrink-0`}>

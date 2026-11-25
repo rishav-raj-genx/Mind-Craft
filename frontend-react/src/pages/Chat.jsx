@@ -81,7 +81,7 @@ const BookingModal = ({ isOpen, onClose, onBook, matchId, currentUser, partnerId
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-surface-container rounded-3xl p-8 max-w-md w-full shadow-2xl border border-gray-200 dark:border-surface-raised relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-on-surface transition-colors">
+        <button onClick={onClose} aria-label="Close session request modal" className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-on-surface transition-colors">
           <X size={20} />
         </button>
 
@@ -477,6 +477,7 @@ const Chat = () => {
           <h2 className="text-2xl font-bold text-gray-900 dark:text-on-surface">Your Messages</h2>
           <button 
             onClick={() => setShowNewChatModal(true)}
+            aria-label="Start new chat"
             className="w-10 h-10 rounded-full bg-purple-100 dark:bg-secondary-container text-purple-700 dark:text-focus-purple flex items-center justify-center hover:bg-purple-200 dark:hover:bg-purple-900/40 transition-colors shadow-sm"
           >
             <Plus size={20} />
@@ -543,6 +544,7 @@ const Chat = () => {
             <div className="bg-white dark:bg-surface-container rounded-3xl p-6 w-full max-w-sm max-h-[70vh] flex flex-col relative animate-[slideUp_0.2s_ease-out]">
               <button 
                 onClick={() => setShowNewChatModal(false)}
+                aria-label="Close new chat modal"
                 className="absolute top-4 right-4 w-8 h-8 rounded-full bg-gray-100 dark:bg-surface-raised flex items-center justify-center text-gray-500 dark:text-on-surface hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
               >
                 <X size={18} />
@@ -592,7 +594,7 @@ const Chat = () => {
       {/* Chat Header */}
       <header className="flex items-center justify-between py-4 border-b border-gray-200 dark:border-surface-raised bg-white/80 dark:bg-background-deep/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors">
+          <button onClick={() => navigate(-1)} aria-label="Go back" className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-surface-container transition-colors">
             <ArrowLeft size={20} />
           </button>
           <button onClick={() => partner?.uid && navigate(`/profile/${partner.uid}`)} className="flex items-center gap-3 text-left">
@@ -612,6 +614,7 @@ const Chat = () => {
         <div className="flex gap-2">
           <button 
             onClick={() => setShowBookingModal(true)}
+            aria-label="Request session"
             className="p-2 text-green-600 dark:text-success-lime hover:bg-green-50 dark:hover:bg-surface-container rounded-full transition-colors"
             title="Request Session"
           >
@@ -783,6 +786,7 @@ const Chat = () => {
           <button 
             type="submit" 
             disabled={!inputText.trim()}
+            aria-label="Send message"
             className={`p-3 rounded-full mb-0.5 mr-0.5 transition-colors ${
               inputText.trim() 
                 ? 'bg-focus-purple text-white shadow-md active:scale-95' 

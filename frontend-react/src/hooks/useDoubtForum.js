@@ -35,7 +35,7 @@ export const useAddAnswer = () => {
 export const useToggleDoubtUpvote = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: doubtService.toggleUpvote,
+    mutationFn: (doubtId) => doubtService.toggleUpvote(doubtId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['doubts'] }),
   });
 };
@@ -43,7 +43,15 @@ export const useToggleDoubtUpvote = () => {
 export const useResolveDoubt = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: doubtService.resolveDoubt,
+    mutationFn: (doubtId) => doubtService.resolveDoubt(doubtId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['doubts'] }),
+  });
+};
+
+export const useAcceptAnswer = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ doubtId, answerId }) => doubtService.acceptAnswer(doubtId, answerId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['doubts'] }),
   });
 };
