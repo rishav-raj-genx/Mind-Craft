@@ -37,6 +37,14 @@ function formatValidationErrors(req) {
  */
 // eslint-disable-next-line no-unused-vars
 function globalErrorHandler(err, _req, res, _next) {
+  if (typeof err.code === 'string' && err.code.startsWith('P')) {
+    console.error('[Prisma error diagnostics]', {
+      code: err.code,
+      meta: err.meta || null,
+      message: err.message,
+    });
+  }
+
   // Log the full error in non-production environments
   if (process.env.NODE_ENV !== 'production') {
     console.error('❌ Unhandled error:', err);
@@ -111,6 +119,12 @@ function globalErrorHandler(err, _req, res, _next) {
       return res.status(404).json({
         success: false,
         error: 'Record not found.',
+      });
+    }
+    if (err.code === 'P2034') {
+      return res.status(409).json({
+        success: false,
+        error: 'A concurrent database update conflicted. Please retry.',
       });
     }
     return res.status(400).json({

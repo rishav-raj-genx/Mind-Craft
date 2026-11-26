@@ -1,6 +1,13 @@
 const { verifyToken } = require('@clerk/express');
 const { prisma } = require('../config/prisma');
 const { resolveUser } = require('../utils/userResolver');
+const { getOrLoadAuthUser } = require('../services/authUserCache');
+
+const AUTH_USER_INCLUDE = {
+  college: true,
+  department: true,
+  skills: { include: { skill: true } },
+};
 
 function getBearerToken(req) {
   const header = req.get('authorization') || '';
@@ -34,31 +41,31 @@ async function authenticate(req, options = {}) {
     throw error;
   }
 
-  let user = null;
-  if (prisma.user?.findUnique) {
-    const found = await prisma.user.findUnique({
-      where: { clerkUserId },
-      include: { college: true, department: true },
-    });
-    if (found) {
-      user = found;
-    }
-  }
-
-  if (!user) {
-    user = await resolveUser(clerkUserId, { includeDeleted: true, include: { college: true, department: true } });
-  }
-
-  const isRegister = Boolean(
-    options.allowUnregistered ||
+  const isRegisterRoute = Boolean(
     req.path === '/register' ||
     req.path?.endsWith('/register') ||
     req.originalUrl?.includes('/register') ||
     req.url?.includes('/register')
   );
+  const isUserSyncRoute = Boolean(
+    req.path === '/sync' ||
+    req.path?.endsWith('/sync') ||
+    req.originalUrl?.includes('/sync') ||
+    req.url?.includes('/sync')
+  );
+  const allowUnregistered = Boolean(options.allowUnregistered || isRegisterRoute);
+  const allowReactivation = isRegisterRoute || isUserSyncRoute;
+
+  const user = await getOrLoadAuthUser(
+    clerkUserId,
+    () => prisma.user?.findUnique
+      ? prisma.user.findUnique({ where: { clerkUserId }, include: AUTH_USER_INCLUDE })
+      : resolveUser(clerkUserId, { includeDeleted: true, include: AUTH_USER_INCLUDE }),
+    { bypassCache: isRegisterRoute || isUserSyncRoute },
+  );
 
   if (user && user.deletedAt) {
-    if (isRegister) {
+    if (allowReactivation) {
       req.auth = { ...claims, userId: clerkUserId, clerkUserId };
       req.user = {
         ...user,
@@ -77,7 +84,7 @@ async function authenticate(req, options = {}) {
   }
 
   if (!user) {
-    if (isRegister) {
+    if (allowUnregistered) {
       req.auth = { ...claims, userId: clerkUserId, clerkUserId };
       req.user = {
         clerkUserId,

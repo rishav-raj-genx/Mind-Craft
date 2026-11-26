@@ -7,14 +7,42 @@ const { resolveUser, isUuid } = require('../utils/userResolver');
 const { getBalance, getTransactionHistory } = require('../services/tokenEconomy');
 const { getUserSkillGraph } = require('../services/matchingEngine');
 const { invalidateMatchingFeeds } = require('../services/matchingCache');
+const { invalidateAuthUserCache } = require('../services/authUserCache');
 const { calculateStreak, recordCheckIn } = require('../services/streakCalculator');
 const { getPagination } = require('../utils/pagination');
+
+const PROFILE_INCLUDE = {
+  college: true,
+  department: true,
+  skills: { include: { skill: true } },
+};
 
 async function safeInvalidateMatchingFeeds(userId) {
   if (typeof invalidateMatchingFeeds === 'function') {
     await invalidateMatchingFeeds(userId);
   }
 }
+
+async function safeInvalidateAuthUser(clerkUserId) {
+  await invalidateAuthUserCache(clerkUserId);
+}
+
+function isRetryablePrismaRace(error) {
+  return ['P2002', 'P2025', 'P2034'].includes(error?.code);
+}
+
+async function withPrismaRaceRetry(operation, attempts = 3) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isRetryablePrismaRace(error) || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+    }
+  }
+  throw new Error('Database operation could not be completed after retries');
+}
+
 function normalizeSkillNames(skills) {
   return [...new Set(
     (Array.isArray(skills) ? skills : [])
@@ -31,23 +59,51 @@ async function replaceUserSkills(tx, userId, kind, skills) {
   });
 
   for (const skillName of normalizedSkills) {
-    const skill = await tx.skill.upsert({
-      where: { name: skillName },
-      create: { name: skillName, normalizedName: skillName },
-      update: { normalizedName: skillName },
-    });
+    const skill = tx.skill.findFirst
+      ? await tx.skill.findFirst({
+          where: {
+            OR: [
+              { name: { equals: skillName, mode: 'insensitive' } },
+              { normalizedName: { equals: skillName, mode: 'insensitive' } },
+            ],
+          },
+        })
+      : null;
+    const resolvedSkill = skill || (tx.skill.create
+      ? await tx.skill.create({ data: { name: skillName, normalizedName: skillName } })
+      : await tx.skill.upsert({
+          where: { name: skillName },
+          create: { name: skillName, normalizedName: skillName },
+          update: { normalizedName: skillName },
+        }));
     await tx.userSkill.upsert({
       where: {
         userId_skillId_kind: {
           userId,
-          skillId: skill.id,
+          skillId: resolvedSkill.id,
           kind,
         },
       },
-      create: { userId, skillId: skill.id, kind },
+      create: { userId, skillId: resolvedSkill.id, kind },
       update: {},
     });
   }
+}
+
+async function findOrCreateByInsensitiveName(model, cleanName, createData, updateData) {
+  const existing = model.findFirst
+    ? await model.findFirst({
+        where: { name: { equals: cleanName, mode: 'insensitive' } },
+      })
+    : null;
+  if (existing) return existing;
+
+  if (model.create) return model.create({ data: createData });
+  return model.upsert({
+    where: { name: cleanName },
+    create: createData,
+    update: updateData,
+  });
 }
 
 async function upsertCollegeAndDepartment(tx, college, collegeLocation, department, defaults = {}) {
@@ -55,29 +111,39 @@ async function upsertCollegeAndDepartment(tx, college, collegeLocation, departme
   if (college && typeof college === 'string' && college.trim()) {
     const cleanCollege = college.trim();
     const cleanLoc = collegeLocation && typeof collegeLocation === 'string' ? collegeLocation.trim() : null;
-    const c = await tx.college.upsert({
-      where: { name: cleanCollege },
-      create: {
-        name: cleanCollege,
-        ...(cleanLoc ? { location: cleanLoc } : {}),
-      },
-      update: cleanLoc ? { location: cleanLoc } : {},
-    });
+    const c = await findOrCreateByInsensitiveName(
+      tx.college,
+      cleanCollege,
+      { name: cleanCollege, ...(cleanLoc ? { location: cleanLoc } : {}) },
+      cleanLoc ? { location: cleanLoc } : {},
+    );
     collegeId = c.id;
   }
 
   let departmentId = defaults.departmentId ?? null;
   if (department && typeof department === 'string' && department.trim()) {
     const cleanDept = department.trim();
-    const d = await tx.department.upsert({
-      where: { name: cleanDept },
-      create: { name: cleanDept },
-      update: {},
-    });
+    const d = await findOrCreateByInsensitiveName(
+      tx.department,
+      cleanDept,
+      { name: cleanDept },
+      {},
+    );
     departmentId = d.id;
   }
 
   return { collegeId, departmentId };
+}
+
+async function findUserByIdentity(tx, clerkUserId, email) {
+  return tx.user.findFirst({
+    where: {
+      OR: [
+        { clerkUserId },
+        ...(email ? [{ email: { equals: email, mode: 'insensitive' } }] : []),
+      ],
+    },
+  });
 }
 
 function normalizeUser(u) {
@@ -123,7 +189,9 @@ function normalizeUser(u) {
 router.post('/register', requireClerkAuth, async (req, res, next) => {
   try {
     const clerkUserId = req.user.clerkUserId;
-    const email = req.user.email || req.body.email || `${clerkUserId}@clerk.internal`;
+    const email = String(req.user.email || req.body.email || `${clerkUserId}@clerk.internal`)
+      .trim()
+      .toLowerCase();
     const {
       name,
       college,
@@ -138,20 +206,12 @@ router.post('/register', requireClerkAuth, async (req, res, next) => {
       longitude,
     } = req.body;
 
-    const user = await prisma.$transaction(async (tx) => {
+    const user = await withPrismaRaceRetry(() => prisma.$transaction(async (tx) => {
       const { collegeId, departmentId } = await upsertCollegeAndDepartment(tx, college, collegeLocation, department);
-
-      const existing = await tx.user.findFirst({
-        where: {
-          OR: [
-            { clerkUserId },
-            ...(email ? [{ email }] : []),
-          ],
-        },
-      });
+      const existing = await findUserByIdentity(tx, clerkUserId, email);
 
       const userData = {
-        name: (name && typeof name === 'string' && name.trim()) || existing?.name || (email ? email.split('@')[0] : 'Mindcraft Student'),
+        name: (name && typeof name === 'string' && name.trim()) || existing?.name || email.split('@')[0] || 'Mindcraft Student',
         email: email || existing?.email || `${clerkUserId}@clerk.internal`,
         photoUrl: photoUrl || existing?.photoUrl || '',
         gender: gender || existing?.gender || '',
@@ -162,32 +222,28 @@ router.post('/register', requireClerkAuth, async (req, res, next) => {
         latitude: latitude !== undefined ? Number(latitude) : (existing?.latitude || 0),
         longitude: longitude !== undefined ? Number(longitude) : (existing?.longitude || 0),
         profileComplete: true,
+        deletedAt: null,
       };
 
-      const u = existing
+      const savedUser = existing
         ? await tx.user.update({
             where: { id: existing.id },
-            data: {
-              ...userData,
-              clerkUserId,
-              deletedAt: null,
-            },
+            data: { ...userData, clerkUserId },
           })
         : await tx.user.create({
-            data: {
-              clerkUserId,
-              ...userData,
-              deletedAt: null,
-            },
+            data: { clerkUserId, ...userData },
           });
 
-      await replaceUserSkills(tx, u.id, 'TEACHES', teaches);
-      await replaceUserSkills(tx, u.id, 'LEARNS', learns);
+      await replaceUserSkills(tx, savedUser.id, 'TEACHES', teaches);
+      await replaceUserSkills(tx, savedUser.id, 'LEARNS', learns);
 
-      return u;
-    });
+      return tx.user.findUnique
+        ? (await tx.user.findUnique({ where: { id: savedUser.id }, include: PROFILE_INCLUDE })) || savedUser
+        : savedUser;
+    }, { isolationLevel: 'Serializable' }));
 
     await safeInvalidateMatchingFeeds(user.id);
+    await safeInvalidateAuthUser(clerkUserId);
 
     try {
       const regUid = user.clerkUserId || clerkUserId;
@@ -197,13 +253,7 @@ router.post('/register', requireClerkAuth, async (req, res, next) => {
       // non-blocking initial streak checkin
     }
 
-    const fullUser = await resolveUser(user.id, {
-      include: {
-        college: true,
-        department: true,
-        skills: { include: { skill: true } },
-      },
-    });
+    const fullUser = await resolveUser(user.id, { include: PROFILE_INCLUDE });
 
     const normalized = normalizeUser(fullUser || user);
     res.status(200).json({
@@ -237,15 +287,8 @@ router.post('/sync', requireClerkAuth, async (req, res, next) => {
       longitude,
     } = req.body;
 
-    const syncedUser = await prisma.$transaction(async (tx) => {
-      const existing = await tx.user.findFirst({
-        where: {
-          OR: [
-            { clerkUserId },
-            ...(email ? [{ email }] : []),
-          ],
-        },
-      });
+    const syncedUser = await withPrismaRaceRetry(() => prisma.$transaction(async (tx) => {
+      const existing = await findUserByIdentity(tx, clerkUserId, email);
 
       const { collegeId, departmentId } = await upsertCollegeAndDepartment(
         tx,
@@ -283,10 +326,13 @@ router.post('/sync', requireClerkAuth, async (req, res, next) => {
       await replaceUserSkills(tx, u.id, 'TEACHES', teaches);
       await replaceUserSkills(tx, u.id, 'LEARNS', learns);
 
-      return u;
-    });
+      return tx.user.findUnique
+        ? (await tx.user.findUnique({ where: { id: u.id }, include: PROFILE_INCLUDE })) || u
+        : u;
+    }, { isolationLevel: 'Serializable' }));
 
     await safeInvalidateMatchingFeeds(syncedUser.id);
+    await safeInvalidateAuthUser(clerkUserId);
 
     const fullUser = await resolveUser(syncedUser.id, {
       include: {
@@ -324,7 +370,7 @@ async function handleProfileUpdate(targetUser, payload) {
     longitude,
   } = payload;
 
-  await prisma.$transaction(async (tx) => {
+  await withPrismaRaceRetry(() => prisma.$transaction(async (tx) => {
     const { collegeId, departmentId } = await upsertCollegeAndDepartment(
       tx,
       college,
@@ -352,9 +398,10 @@ async function handleProfileUpdate(targetUser, payload) {
 
     await replaceUserSkills(tx, targetUser.id, 'TEACHES', teaches);
     await replaceUserSkills(tx, targetUser.id, 'LEARNS', learns);
-  });
+  }, { isolationLevel: 'Serializable' }));
 
   await safeInvalidateMatchingFeeds(targetUser.id);
+  await safeInvalidateAuthUser(targetUser.clerkUserId);
 
   const updated = await resolveUser(targetUser.id, {
     include: {
@@ -798,6 +845,7 @@ router.delete('/:uid', requireAuth, async (req, res, next) => {
     });
 
     await safeInvalidateMatchingFeeds(user.id);
+    await safeInvalidateAuthUser(user.clerkUserId);
 
     res.json({ success: true, message: 'User deleted' });
   } catch (err) {

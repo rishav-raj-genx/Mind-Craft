@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useCallback, useState } from 'react';
 import { useAuth as useClerkAuth, useClerk, useUser } from '@clerk/react';
 import api, { setClerkTokenProvider } from '../config/api';
-import { queryClient } from '../config/queryClient';
+import { queryClient, seedUserProfileCache } from '../config/queryClient';
 
 const AuthContext = createContext({});
 
@@ -20,6 +20,15 @@ export const AuthProvider = ({ children }) => {
   const [isCheckingProfile, setIsCheckingProfile] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+
+  const acceptRegisteredProfile = useCallback((profile) => {
+    if (!profile) return false;
+    setUserProfile(profile);
+    setIsRegistered(true);
+    setNeedsOnboarding(false);
+    seedUserProfileCache(profile);
+    return true;
+  }, []);
 
   useEffect(() => {
     if (isAuthLoaded) {
@@ -41,9 +50,7 @@ export const AuthProvider = ({ children }) => {
       const res = await api.get('/auth/me');
       const data = res.data;
       if (data?.registered && data?.user) {
-        setUserProfile(data.user);
-        setIsRegistered(true);
-        setNeedsOnboarding(false);
+        acceptRegisteredProfile(data.user);
         return { success: true, registered: true, needsOnboarding: false, user: data.user };
       } else {
         setUserProfile(null);
@@ -72,7 +79,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setIsCheckingProfile(false);
     }
-  }, [isSignedIn]);
+  }, [acceptRegisteredProfile, isSignedIn]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -216,6 +223,7 @@ export const AuthProvider = ({ children }) => {
     isRegistered,
     needsOnboarding,
     refreshProfile,
+    acceptRegisteredProfile,
     clerk,
     getToken,
     loginWithGoogle,
@@ -231,6 +239,7 @@ export const AuthProvider = ({ children }) => {
     isRegistered,
     needsOnboarding,
     refreshProfile,
+    acceptRegisteredProfile,
     clerk,
     getToken,
     loginWithGoogle,

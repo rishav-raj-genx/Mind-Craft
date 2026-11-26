@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { userService } from '../services/userService';
 import { queryClient } from '../config/queryClient';
+import { queryKeys } from '../hooks/queryKeys';
 import { useAppContext } from '../context/AppContext';
 import { clerkAppearance } from '../config/clerkAppearance';
 
@@ -217,6 +218,7 @@ const SignUp = () => {
     isRegistered,
     needsOnboarding,
     refreshProfile,
+    acceptRegisteredProfile,
     logout,
   } = useAuth();
   const { isDark, setIsDark } = useAppContext();
@@ -328,11 +330,12 @@ const SignUp = () => {
     try {
       setSubmitting(true);
       setError('');
-      await userService.register(buildUserData(currentUser));
-      await refreshProfile();
+      const registration = await userService.register(buildUserData(currentUser));
+      if (!acceptRegisteredProfile(registration?.user)) {
+        await refreshProfile();
+      }
       if (currentUser?.uid) {
-        queryClient.invalidateQueries({ queryKey: ['profile', currentUser.uid] });
-        queryClient.invalidateQueries({ queryKey: ['fullProfile', currentUser.uid] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.fullProfile(currentUser.uid) });
       }
       navigate('/', { replace: true });
     } catch (err) {

@@ -137,6 +137,7 @@ function seedInitialUsers() {
     longitude: null,
     deletedAt: null,
     profileComplete: true,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
   });
 
@@ -268,6 +269,7 @@ const mockQueryRaw = jest.fn(async (sqlObj) => {
       totalSessions: Number(candidate.totalSessions || 0),
       latitude: candidate.latitude,
       longitude: candidate.longitude,
+      createdAt: candidate.createdAt,
       sharedSkills: Array.from(matchedNames).sort(),
       sharedSkillCount: matchedNames.size,
       activityScore: 0.2,
@@ -491,6 +493,7 @@ describe('Peer Matching Engine, Cache Invalidation, Filter Sync & Match Request 
 
     expect(result).toHaveLength(1);
     expect(result[0].tutor.uid).toBe(USER_B_CLERK);
+    expect(result[0].tutor.createdAt).toEqual(dbUsers.get(USER_B_ID).createdAt);
     expect(result[0].sharedSkills).toEqual(['DSA']);
     expect(mockQueryRaw).toHaveBeenCalledTimes(1);
     expect(mockRedisClient.set).toHaveBeenCalledWith(

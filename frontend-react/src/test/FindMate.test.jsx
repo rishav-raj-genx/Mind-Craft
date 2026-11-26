@@ -155,7 +155,7 @@ describe('FindMate Component', () => {
   it('handles search input text and filters peer matches', async () => {
     renderComponent();
 
-    const searchInput = screen.getByPlaceholderText(/search by topic, name, or college\.\.\./i);
+    const searchInput = screen.getByPlaceholderText(/search by voice, topic, name, college, or department\.\.\./i);
     expect(searchInput).toBeInTheDocument();
 
     // Type "Calculus" and submit form

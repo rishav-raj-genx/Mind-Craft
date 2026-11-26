@@ -61,6 +61,12 @@ const normalizeMate = (record) => {
   };
 };
 
+const isNewMember = (createdAt) => {
+  const timestamp = typeof createdAt === 'number' ? createdAt : Date.parse(createdAt);
+  const ageMs = Date.now() - timestamp;
+  return Number.isFinite(timestamp) && ageMs >= 0 && ageMs <= 10 * 24 * 60 * 60 * 1000;
+};
+
 // ─── Why Matched Graph (Force Directed Modal) ──────────────────────────
 const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
   const containerRef = useRef(null);
@@ -175,17 +181,39 @@ const MatchCard = ({
 }) => {
   const navigate = useNavigate();
   const [showGraph, setShowGraph] = useState(false);
+  const newMember = isNewMember(mate.createdAt);
+  const rating = Number(mate.averageRating) || 0;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.07, duration: 0.35, ease: 'easeOut' }}
-      className="bg-white dark:bg-surface-container rounded-xl p-5 flex flex-col gap-3 border border-gray-200 dark:border-surface-raised shadow-sm hover:shadow-md transition-shadow"
+      className="relative bg-white dark:bg-surface-container rounded-xl p-5 flex flex-col gap-3 border border-gray-200 dark:border-surface-raised shadow-sm hover:shadow-md transition-shadow"
     >
+      {newMember ? (
+        <span
+          role="img"
+          aria-label="New member"
+          title="New member"
+          className="absolute top-3 right-3 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-50 text-amber-500 dark:bg-amber-900/30 dark:text-amber-300"
+        >
+          <Star size={13} className="fill-current" />
+        </span>
+      ) : rating > 0 ? (
+        <span
+          title={`${rating.toFixed(1)} average rating`}
+          aria-label={`${rating.toFixed(1)} average rating`}
+          className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-600 dark:bg-surface-raised dark:text-warm-peach"
+        >
+          <Star size={12} className="fill-current" />
+          {rating.toFixed(1)}
+        </span>
+      ) : null}
+
       {/* Top row: avatar + info + rating */}
       <div
-        className="flex items-center gap-4 cursor-pointer"
+        className="flex items-start gap-4 cursor-pointer"
         role="button"
         tabIndex={0}
         aria-label={`View profile of ${mate.name || 'Mate'}`}
@@ -202,8 +230,8 @@ const MatchCard = ({
           alt={mate.name || 'Mate'}
           className="w-16 h-16 rounded-full border-2 border-gray-200 dark:border-surface-raised object-cover flex-shrink-0"
         />
-        <div className="min-w-0 flex-1">
-          <h4 className="font-headline-md text-[20px] text-gray-900 dark:text-primary truncate">{mate.name || 'Unnamed Mate'}</h4>
+        <div className="min-w-0 flex-1 pr-5">
+          <h4 className="font-headline-md text-[20px] leading-tight text-gray-900 dark:text-primary break-words [overflow-wrap:anywhere]">{mate.name || 'Unnamed Mate'}</h4>
           <div className="flex items-center gap-1 text-gray-500 dark:text-on-surface-variant font-label-md mt-1">
             <MapPin size={14} /> {mate.college || mate.department || 'Details unavailable'}
           </div>
@@ -212,10 +240,6 @@ const MatchCard = ({
               {[mate.department, mate.year].filter(Boolean).join(' • ')}
             </p>
           )}
-        </div>
-        <div className="ml-auto flex items-center gap-1 bg-orange-50 text-orange-600 dark:bg-surface-raised dark:text-warm-peach px-2 py-1 rounded-full font-label-md flex-shrink-0">
-          <Star size={14} className="fill-current" />
-          {mate.averageRating > 0 ? Number(mate.averageRating).toFixed(1) : 'New'}
         </div>
       </div>
 
@@ -249,11 +273,11 @@ const MatchCard = ({
       </AnimatePresence>
 
       {/* Action buttons */}
-      <div className="flex gap-2 w-full items-center">
+      <div className="flex w-full min-w-0 items-center gap-2">
         <button
           onClick={() => onFollow(mate.uid)}
           disabled={isFollowed || isFollowPending}
-          className={`flex-1 font-label-lg rounded-full py-2 px-4 active:scale-95 transition-transform ${
+          className={`min-w-0 flex-1 whitespace-nowrap rounded-full px-3 py-2 text-sm font-semibold active:scale-95 transition-transform ${
             isFollowed || isFollowPending
               ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none'
               : 'bg-success-lime text-green-900 shadow-[0_3px_0_#b3d266]'
@@ -264,21 +288,28 @@ const MatchCard = ({
         <button
           onClick={() => onRequestMatch(mate)}
           disabled={isRequested || isRequestPending}
-          className={`flex-1 font-label-lg rounded-full py-2 px-4 active:scale-95 transition-transform flex items-center justify-center gap-1.5 border ${
+          type="button"
+          title="Connect"
+          aria-label="Connect"
+          aria-busy={isRequestPending}
+          className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-transform active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7C3AED] ${
             isRequested || isRequestPending
               ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed'
               : 'bg-white dark:bg-surface-raised text-gray-800 dark:text-on-surface border-gray-200 dark:border-outline-variant hover:border-[#7C3AED]'
           }`}
         >
-          {isRequested ? <Check size={15} /> : <UserPlus size={15} />}
-          {isRequestPending ? 'Sending...' : isRequested ? 'Requested' : 'Connect'}
+          {isRequestPending ? <Loader2 size={16} className="animate-spin" /> : isRequested ? <Check size={17} /> : <UserPlus size={17} />}
         </button>
         <button
           onClick={() => onChat(mate)}
           disabled={isChatPending}
-          className="flex-1 bg-purple-100 dark:bg-secondary-container/20 text-purple-700 dark:text-secondary border border-purple-200 dark:border-secondary-container/50 font-label-lg rounded-full py-2 px-4 active:scale-95 transition-transform hover:bg-purple-200 flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+          type="button"
+          title="Chat"
+          aria-label="Chat"
+          aria-busy={isChatPending}
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-100 dark:bg-secondary-container/20 text-purple-700 dark:text-secondary border border-purple-200 dark:border-secondary-container/50 transition-transform active:scale-95 hover:bg-purple-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7C3AED] disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          <MessageSquare size={16} /> {isChatPending ? 'Opening...' : 'Chat'}
+          {isChatPending ? <Loader2 size={16} className="animate-spin" /> : <MessageSquare size={17} />}
         </button>
       </div>
     </motion.div>
@@ -694,7 +725,6 @@ const FindMate = () => {
         <h1 className="font-headline-lg text-headline-lg text-gray-900 dark:text-on-surface">Find a Mate</h1>
         <p className="font-body-md text-body-md text-gray-600 dark:text-on-surface-variant mt-1">Discover peers who can help you grow.</p>
         </div>
-        <p className="hidden md:block text-sm text-gray-500 dark:text-on-surface-variant">Search by voice, topic, college, or department.</p>
       </header>
 
       <div className="flex flex-col gap-6">
@@ -758,7 +788,7 @@ const FindMate = () => {
               }
               setSearchText(nextValue);
             }}
-            placeholder="Search by topic, name, or college..."
+            placeholder="Search by voice, topic, name, college, or department..."
             className="w-full bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-full py-3 pl-12 pr-4 focus:outline-none focus:border-success-lime text-gray-900 dark:text-on-surface placeholder:text-gray-500"
           />
         </div>

@@ -24,6 +24,43 @@ export const queryClient = new QueryClient({
   },
 });
 
+export function seedUserProfileCache(user) {
+  if (!user || typeof user !== 'object') return;
+
+  const cachedResponse = { success: true, data: user };
+  const cachedFullProfile = {
+    success: true,
+    data: {
+      user,
+      profileComplete: Boolean(user.profileComplete),
+      tokenBalance: user.tokenBalance ?? user.mindTokens ?? user.mind_tokens ?? 0,
+      recentTransactions: [],
+      streak: {
+        currentStreak: user.currentStreak || 0,
+        longestStreak: user.longestStreak || 0,
+        activeDates: [],
+        activityDays: [],
+        grid: [],
+      },
+      skillGraph: {
+        teaches: user.teaches || [],
+        learns: user.learns || [],
+      },
+      reviews: [],
+      stats: {
+        completedSessionsCount: user.totalSessions || 0,
+        totalStudyHours: user.totalStudyHours || 0,
+        averageRating: user.averageRating || 0,
+      },
+    },
+  };
+  const identifiers = new Set([user.uid, user.clerkUserId, user.id].filter(Boolean));
+  identifiers.forEach((uid) => {
+    queryClient.setQueryData(queryKeys.profile(uid), cachedResponse);
+    queryClient.setQueryData(queryKeys.fullProfile(uid), cachedFullProfile);
+  });
+}
+
 export function prefetchFindMateData(uid) {
   if (uid) {
     void queryClient.prefetchQuery({

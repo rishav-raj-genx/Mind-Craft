@@ -5,18 +5,10 @@
 const express = require('express');
 const router = express.Router();
 const { requireClerkAuth } = require('../middleware/auth');
-const { resolveUser } = require('../utils/userResolver');
 
 router.get('/me', requireClerkAuth, async (req, res, next) => {
   try {
-    const clerkId = req.user?.clerkUserId || req.auth?.userId;
-    const user = await resolveUser(clerkId, {
-      include: {
-        college: true,
-        department: true,
-        skills: { include: { skill: true } },
-      },
-    });
+    const user = req.user;
 
     if (!user || !user.profileComplete) {
       return res.status(200).json({

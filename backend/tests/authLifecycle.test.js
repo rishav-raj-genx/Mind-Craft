@@ -46,6 +46,15 @@ jest.mock('../src/services/matchingEngine', () => ({
   })),
 }));
 
+jest.mock('../src/services/authUserCache', () => ({
+  getOrLoadAuthUser: (_clerkUserId, loader) => loader(),
+  invalidateAuthUserCache: jest.fn().mockResolvedValue(),
+}));
+
+jest.mock('../src/services/matchingCache', () => ({
+  invalidateMatchingFeeds: jest.fn().mockResolvedValue(),
+}));
+
 jest.mock('../src/services/streakCalculator', () => ({
   calculateStreak: jest.fn().mockResolvedValue({
     currentStreak: 1,
@@ -68,6 +77,13 @@ const dbDepartments = new Map([
 ]);
 const dbSkills = new Map();
 let dbUserSkills = [];
+let userCreateBarrier = null;
+let userCreateBarrierCalls = 0;
+
+function matchesEmail(filter, email) {
+  const expected = typeof filter === 'string' ? filter : filter?.equals;
+  return typeof expected === 'string' && expected.toLowerCase() === email?.toLowerCase();
+}
 
 const mockPrisma = {
   user: {
@@ -76,13 +92,13 @@ const mockPrisma = {
       if (where.deletedAt === null && dbUser.deletedAt !== null) return null;
       if (where.clerkUserId && where.clerkUserId === dbUser.clerkUserId) return dbUser;
       if (where.id && where.id === dbUser.id) return dbUser;
-      if (where.email && where.email.toLowerCase() === dbUser.email?.toLowerCase()) return dbUser;
+      if (where.email && matchesEmail(where.email, dbUser.email)) return dbUser;
       if (Array.isArray(where.OR)) {
         const match = where.OR.some(
           (c) =>
             (c.clerkUserId && c.clerkUserId === dbUser.clerkUserId) ||
             (c.id && c.id === dbUser.id) ||
-            (c.email && c.email.toLowerCase() === dbUser.email?.toLowerCase())
+            (c.email && matchesEmail(c.email, dbUser.email))
         );
         if (match) return dbUser;
       }
@@ -93,10 +109,27 @@ const mockPrisma = {
       if (where.deletedAt === null && dbUser.deletedAt !== null) return null;
       if (where.clerkUserId && where.clerkUserId === dbUser.clerkUserId) return dbUser;
       if (where.id && where.id === dbUser.id) return dbUser;
-      if (where.email && where.email.toLowerCase() === dbUser.email?.toLowerCase()) return dbUser;
+      if (where.email && matchesEmail(where.email, dbUser.email)) return dbUser;
       return null;
     }),
     create: jest.fn().mockImplementation(async ({ data }) => {
+      if (userCreateBarrier) {
+        const barrier = userCreateBarrier;
+        userCreateBarrierCalls += 1;
+        if (userCreateBarrierCalls === 2) barrier.release();
+        await barrier.promise;
+      }
+
+      if (dbUser && (
+        dbUser.clerkUserId === data.clerkUserId ||
+        dbUser.email?.toLowerCase() === data.email?.toLowerCase()
+      )) {
+        throw Object.assign(new Error('Unique user constraint'), {
+          code: 'P2002',
+          meta: { target: ['clerkUserId'] },
+        });
+      }
+
       const col = data.collegeId ? dbColleges.get(data.collegeId) : null;
       const dept = data.departmentId ? dbDepartments.get(data.departmentId) : null;
       dbUser = {
@@ -135,6 +168,23 @@ const mockPrisma = {
   },
   college: {
     findMany: jest.fn().mockImplementation(async () => Array.from(dbColleges.values())),
+    findFirst: jest.fn().mockImplementation(async ({ where = {} } = {}) => {
+      const expected = where.name?.equals || where.name;
+      return Array.from(dbColleges.values()).find(
+        (college) => college.name.toLowerCase() === String(expected || '').toLowerCase(),
+      ) || null;
+    }),
+    create: jest.fn().mockImplementation(async ({ data }) => {
+      const collision = Array.from(dbColleges.values()).find(
+        (college) => college.name.toLowerCase() === data.name.toLowerCase(),
+      );
+      if (collision) {
+        throw Object.assign(new Error('Unique college constraint'), { code: 'P2002', meta: { target: ['name'] } });
+      }
+      const college = { id: `col-${data.name}`, ...data };
+      dbColleges.set(college.id, college);
+      return college;
+    }),
     findUnique: jest.fn().mockImplementation(async ({ where = {} }) =>
       dbColleges.get(where.id) || Array.from(dbColleges.values()).find((c) => c.name === where.name) || null
     ),
@@ -149,6 +199,23 @@ const mockPrisma = {
   },
   department: {
     findMany: jest.fn().mockImplementation(async () => Array.from(dbDepartments.values())),
+    findFirst: jest.fn().mockImplementation(async ({ where = {} } = {}) => {
+      const expected = where.name?.equals || where.name;
+      return Array.from(dbDepartments.values()).find(
+        (department) => department.name.toLowerCase() === String(expected || '').toLowerCase(),
+      ) || null;
+    }),
+    create: jest.fn().mockImplementation(async ({ data }) => {
+      const collision = Array.from(dbDepartments.values()).find(
+        (department) => department.name.toLowerCase() === data.name.toLowerCase(),
+      );
+      if (collision) {
+        throw Object.assign(new Error('Unique department constraint'), { code: 'P2002', meta: { target: ['name'] } });
+      }
+      const department = { id: `dept-${data.name}`, ...data };
+      dbDepartments.set(department.id, department);
+      return department;
+    }),
     findUnique: jest.fn().mockImplementation(async ({ where = {} }) =>
       dbDepartments.get(where.id) || Array.from(dbDepartments.values()).find((d) => d.name === where.name) || null
     ),
@@ -163,6 +230,27 @@ const mockPrisma = {
   },
   skill: {
     findMany: jest.fn().mockImplementation(async () => Array.from(dbSkills.values())),
+    findFirst: jest.fn().mockImplementation(async ({ where = {} } = {}) => {
+      const conditions = where.OR || [where];
+      return Array.from(dbSkills.values()).find((skill) => conditions.some((condition) => {
+        const expectedName = condition.name?.equals || condition.name;
+        const expectedNormalized = condition.normalizedName?.equals || condition.normalizedName;
+        return (expectedName && skill.name.toLowerCase() === String(expectedName).toLowerCase()) ||
+          (expectedNormalized && skill.normalizedName?.toLowerCase() === String(expectedNormalized).toLowerCase());
+      })) || null;
+    }),
+    create: jest.fn().mockImplementation(async ({ data }) => {
+      const collision = Array.from(dbSkills.values()).find((skill) =>
+        skill.name.toLowerCase() === data.name.toLowerCase() ||
+        skill.normalizedName?.toLowerCase() === data.normalizedName?.toLowerCase()
+      );
+      if (collision) {
+        throw Object.assign(new Error('Unique skill constraint'), { code: 'P2002', meta: { target: ['normalizedName'] } });
+      }
+      const skill = { id: `skill-${data.name}`, ...data };
+      dbSkills.set(skill.id, skill);
+      return skill;
+    }),
     upsert: jest.fn().mockImplementation(async ({ where, create }) => {
       let sk = Array.from(dbSkills.values()).find((s) => s.name === where.name);
       if (!sk) {
@@ -460,5 +548,78 @@ describe('Full Authentication & Onboarding Lifecycle Integration', () => {
     expect(res.body.user.clerkUserId).toBe(thirdClerkId);
     expect(res.body.user.isActive).toBe(true);
     expect(dbUser.deletedAt).toBeNull();
+  });
+
+  it('Test 7: Concurrent Clerk webhook and registration reuse seeded names without a database 400', async () => {
+    const { processClerkEvent } = require('../src/services/clerkUserSync');
+    const clerkUserId = 'user_test_lifecycle_race_3000';
+    const email = 'race.student@hitech.edu';
+    const seededCollege = { id: 'col-harvard', name: 'Harvard University', location: 'Cambridge' };
+    const seededDepartment = { id: 'dept-cse', name: 'CSE' };
+    const seededDsa = { id: 'skill-DSA', name: 'DSA', normalizedName: 'dsa' };
+    const seededWeb = { id: 'skill-WEB', name: 'WEB', normalizedName: 'web' };
+    dbUser = null;
+    dbUserSkills = [];
+    dbColleges.clear();
+    dbDepartments.clear();
+    dbSkills.clear();
+    dbColleges.set(seededCollege.id, seededCollege);
+    dbDepartments.set(seededDepartment.id, seededDepartment);
+    dbSkills.set(seededDsa.id, seededDsa);
+    dbSkills.set(seededWeb.id, seededWeb);
+    verifyToken.mockResolvedValue({ sub: clerkUserId, email, name: 'Race Student' });
+
+    let releaseBarrier;
+    const barrierPromise = new Promise((resolve) => {
+      releaseBarrier = resolve;
+    });
+    userCreateBarrier = { promise: barrierPromise, release: releaseBarrier };
+    userCreateBarrierCalls = 0;
+
+    try {
+      const webhookPromise = processClerkEvent({
+        type: 'user.created',
+        data: {
+          id: clerkUserId,
+          email_addresses: [{ id: 'race-email', email_address: email }],
+          primary_email_address_id: 'race-email',
+          first_name: 'Race',
+          last_name: 'Student',
+        },
+      });
+      const registrationPromise = request(app)
+        .post('/api/user/register')
+        .set('Authorization', 'Bearer valid_clerk_jwt_race')
+        .send({
+          name: 'Race Student',
+          college: 'harvard university',
+          collegeLocation: 'Cambridge',
+          department: 'cse',
+          year: 2,
+          teaches: ['dsa'],
+          learns: ['web'],
+        });
+
+      const [webhookUser, registrationResponse] = await Promise.all([
+        webhookPromise,
+        registrationPromise,
+      ]);
+
+      expect(webhookUser.clerkUserId).toBe(clerkUserId);
+      expect(registrationResponse.status).toBe(200);
+      expect(registrationResponse.body.error).not.toBe('Database operation failed.');
+      expect(registrationResponse.body.user).toMatchObject({
+        clerkUserId,
+        profileComplete: true,
+        isActive: true,
+        college: 'Harvard University',
+        department: 'CSE',
+        teaches: ['DSA'],
+        learns: ['WEB'],
+      });
+      expect(dbUser.deletedAt).toBeNull();
+    } finally {
+      userCreateBarrier = null;
+    }
   });
 });

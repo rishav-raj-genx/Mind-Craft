@@ -377,21 +377,45 @@ const BadgeCard = ({ icon, name, description }) => (
 const Profile = () => {
   const { uid } = useParams();
   const navigate = useNavigate();
-  const { currentUser, logout } = useAuth();
+  const { currentUser, userProfile, logout } = useAuth();
   const { isDark } = useAppContext();
   const queryClient = useQueryClient();
 
   const currentIdentifier = currentUser?.uid || currentUser?.id;
-  const isOwner = Boolean(currentUser && (currentIdentifier === uid));
+  const isOwner = Boolean(currentUser && [currentUser.uid, currentUser.id, currentUser.clerkUserId].includes(uid));
 
-  const { data: fullProfileRes, isLoading: isProfileLoading } = useFullProfile(uid);
+  const { data: fullProfileRes, isLoading: isProfileLoading } = useFullProfile(uid, { staleTime: 0 });
   const { data: badgesRes } = useBadges(uid);
   const { data: followingRes } = useFollowing(currentIdentifier, {
     enabled: Boolean(currentIdentifier && currentIdentifier !== uid),
   });
 
   const [localProfileOverrides, setLocalProfileOverrides] = useState(null);
-  const baseProfileData = fullProfileRes?.data || fullProfileRes || null;
+  const cachedSelfProfile = isOwner && (userProfile || currentUser)
+    ? (userProfile || currentUser)
+    : null;
+  const baseProfileData = useMemo(() => (
+    fullProfileRes?.data || fullProfileRes || (cachedSelfProfile ? {
+      user: cachedSelfProfile,
+      profileComplete: Boolean(cachedSelfProfile.profileComplete),
+      tokenBalance: cachedSelfProfile.tokenBalance || cachedSelfProfile.mind_tokens || 0,
+      streak: {
+        currentStreak: cachedSelfProfile.currentStreak || 0,
+        longestStreak: cachedSelfProfile.longestStreak || 0,
+        activeDates: [],
+      },
+      skillGraph: {
+        teaches: cachedSelfProfile.teaches || [],
+        learns: cachedSelfProfile.learns || [],
+      },
+      reviews: [],
+      stats: {
+        completedSessionsCount: cachedSelfProfile.totalSessions || 0,
+        totalStudyHours: 0,
+        averageRating: cachedSelfProfile.averageRating || 0,
+      },
+    } : null)
+  ), [cachedSelfProfile, fullProfileRes]);
   const profileData = useMemo(() => {
     if (!localProfileOverrides) return baseProfileData;
     return {
@@ -650,12 +674,12 @@ const Profile = () => {
 
               {/* User Info (Right of avatar) */}
               <div className="min-w-0 text-left">
-                <div className="flex items-center gap-2 min-w-0">
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">{user.name}</h1>
+                <div className="flex items-start gap-2 min-w-0">
+                  <h1 className="min-w-0 text-xl font-bold text-gray-900 dark:text-white break-words [overflow-wrap:anywhere]">{user.name}</h1>
                   {isOwner && (
                     <button
                       onClick={() => setShowEditModal(true)}
-                      className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
+                      className="shrink-0 pt-1 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
                       title="Edit Profile"
                     >
                       <Edit2 size={14} />

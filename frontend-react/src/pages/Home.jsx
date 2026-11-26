@@ -23,7 +23,7 @@ const CountUp = ({ to, duration = 1.5 }) => {
 };
 
 const Home = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
   const navigate = useNavigate();
   const { data: profileResponse } = useProfile(currentUser?.uid);
   const { data: streakResponse } = useStreak(currentUser?.uid);
@@ -31,7 +31,7 @@ const Home = () => {
   const { data: matchesResponse } = usePeerMatches(currentUser?.uid);
   const { data: followingResponse } = useFollowing(currentUser?.uid);
   const { data: trendingResponse } = useTrendingDoubts();
-  const profile = profileResponse?.data || profileResponse || {};
+  const profile = profileResponse?.data || profileResponse || userProfile || {};
   const streak = streakResponse?.data || streakResponse || { currentStreak: 0 };
   const badgeCount = badgesResponse?.data?.totalEarned || badgesResponse?.totalEarned || 0;
   const topMates = (matchesResponse?.data || matchesResponse?.matches || []).slice(0, 3).map(item => ({
