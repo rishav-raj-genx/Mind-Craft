@@ -4,12 +4,13 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../middleware/auth');
+const { requireClerkAuth } = require('../middleware/auth');
 const { resolveUser } = require('../utils/userResolver');
 
-router.get('/me', requireAuth, async (req, res, next) => {
+router.get('/me', requireClerkAuth, async (req, res, next) => {
   try {
-    const user = await resolveUser(req.user.clerkUserId, {
+    const clerkId = req.user?.clerkUserId || req.auth?.userId;
+    const user = await resolveUser(clerkId, {
       include: {
         college: true,
         department: true,
@@ -17,32 +18,54 @@ router.get('/me', requireAuth, async (req, res, next) => {
       },
     });
 
-    if (!user) {
-      return res.json({
+    if (!user || !user.profileComplete) {
+      return res.status(200).json({
         success: true,
-        data: {
-          uid: req.user.clerkUserId,
-          email: req.user.email,
-          profileComplete: false,
-        },
+        registered: false,
+        needsOnboarding: true,
+        user: null,
+        message: 'No Mindcraft account/profile is attached to this email yet. Please complete signup first.',
       });
     }
 
-    res.json({
+    const teaches = (user.skills || [])
+      .filter((s) => s.kind === 'TEACHES')
+      .map((s) => s.skill?.name || s.name || s);
+    const learns = (user.skills || [])
+      .filter((s) => s.kind === 'LEARNS')
+      .map((s) => s.skill?.name || s.name || s);
+
+    const formattedUser = {
+      id: user.id,
+      uid: user.clerkUserId,
+      clerkUserId: user.clerkUserId,
+      name: user.name,
+      email: user.email,
+      photoUrl: user.photoUrl,
+      gender: user.gender || '',
+      college: user.college?.name || '',
+      collegeId: user.collegeId,
+      collegeLocation: user.collegeLocation || '',
+      department: user.department?.name || '',
+      departmentId: user.departmentId,
+      year: user.year,
+      mindTokens: user.mindTokens || 0,
+      tokenBalance: user.mindTokens || 0,
+      currentStreak: user.currentStreak || 0,
+      longestStreak: user.longestStreak || 0,
+      totalSessions: user.totalSessions || 0,
+      averageRating: Number(user.averageRating) || 0,
+      profileComplete: true,
+      teaches,
+      learns,
+    };
+
+    return res.status(200).json({
       success: true,
-      data: {
-        uid: user.clerkUserId,
-        email: user.email,
-        name: user.name,
-        photoUrl: user.photoUrl,
-        college: user.college?.name || '',
-        department: user.department?.name || '',
-        year: user.year,
-        mind_tokens: user.mindTokens,
-        currentStreak: user.currentStreak,
-        longestStreak: user.longestStreak,
-        profileComplete: Boolean(user.profileComplete),
-      },
+      registered: true,
+      needsOnboarding: false,
+      user: formattedUser,
+      data: formattedUser,
     });
   } catch (err) {
     next(err);

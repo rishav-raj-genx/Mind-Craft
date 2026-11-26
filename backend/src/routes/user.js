@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireClerkAuth } = require('../middleware/auth');
 const { prisma } = require('../config/prisma');
 const { resolveUser } = require('../utils/userResolver');
 const { getBalance, getTransactionHistory } = require('../services/tokenEconomy');
@@ -47,7 +47,7 @@ function normalizeUser(u) {
   };
 }
 
-router.post('/register', requireAuth, async (req, res, next) => {
+router.post('/register', requireClerkAuth, async (req, res, next) => {
   try {
     const clerkUserId = req.user.clerkUserId;
     const email = req.user.email || req.body.email || `${clerkUserId}@clerk.internal`;
@@ -202,10 +202,13 @@ router.post('/register', requireAuth, async (req, res, next) => {
       },
     });
 
+    const normalized = normalizeUser(fullUser || user);
     res.status(200).json({
       success: true,
+      registered: true,
       message: 'Profile registered successfully',
-      data: normalizeUser(fullUser || user),
+      user: normalized,
+      data: normalized,
     });
   } catch (err) {
     next(err);
@@ -274,6 +277,40 @@ router.get('/search', requireAuth, async (req, res, next) => {
       offset,
       hasMore: data.length === limit,
       data,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/me', requireClerkAuth, async (req, res, next) => {
+  try {
+    const clerkId = req.user?.clerkUserId || req.auth?.userId;
+    const user = await resolveUser(clerkId, {
+      include: {
+        college: true,
+        department: true,
+        skills: { include: { skill: true } },
+      },
+    });
+
+    if (!user || !user.profileComplete) {
+      return res.status(200).json({
+        success: true,
+        registered: false,
+        needsOnboarding: true,
+        user: null,
+        message: 'No Mindcraft account/profile is attached to this email yet. Please complete signup first.',
+      });
+    }
+
+    const formatted = normalizeUser(user);
+    return res.status(200).json({
+      success: true,
+      registered: true,
+      needsOnboarding: false,
+      user: formatted,
+      data: formatted,
     });
   } catch (err) {
     next(err);

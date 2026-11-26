@@ -1,7 +1,17 @@
 import axios from 'axios';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:3000';
+function normalizeBaseUrl(raw) {
+  if (!raw || typeof raw !== 'string') return 'http://localhost:3000';
+  let url = raw.trim();
+  url = url.replace(/\/+$/, '');
+  url = url.replace(/\/api\/?$/i, '');
+  url = url.replace(/\/+$/, '');
+  return url || 'http://localhost:3000';
+}
+
+const RAW_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+export const API_BASE_URL = normalizeBaseUrl(RAW_API_BASE_URL);
+export const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:3000').trim().replace(/\/+$/, '');
 
 let clerkTokenProvider = null;
 
