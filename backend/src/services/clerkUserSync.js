@@ -34,19 +34,28 @@ async function syncCreatedUser(data) {
     if (existingByClerkId) {
       const updated = await prisma.user.update({
         where: { id: existingByClerkId.id },
-        data: fields,
+        data: {
+          ...fields,
+          deletedAt: null,
+        },
       });
       console.log(`[Clerk Webhook] Updated existing user by clerkUserId: ${fields.clerkUserId}`);
       return updated;
     }
 
-    const existingByEmail = await prisma.user.findUnique({
+    const existingByEmail = (await prisma.user.findUnique({
       where: { email: fields.email },
-    });
+    })) || (prisma.user.findFirst ? await prisma.user.findFirst({
+      where: { email: fields.email },
+    }) : null);
+
     if (existingByEmail) {
       const updated = await prisma.user.update({
         where: { id: existingByEmail.id },
-        data: fields,
+        data: {
+          ...fields,
+          deletedAt: null,
+        },
       });
       console.log(`[Clerk Webhook] Linked existing user by email: ${fields.email} to clerkUserId: ${fields.clerkUserId}`);
       return updated;
@@ -72,7 +81,10 @@ async function syncUpdatedUser(data) {
     if (existing) {
       const updated = await prisma.user.update({
         where: { id: existing.id },
-        data: fields,
+        data: {
+          ...fields,
+          deletedAt: null,
+        },
       });
       console.log(`[Clerk Webhook] Updated user ${fields.clerkUserId}`);
       return updated;
@@ -92,7 +104,10 @@ async function deactivateUser(data) {
     if (!user) return null;
     const deleted = await prisma.user.update({
       where: { id: user.id },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+        profileComplete: false,
+      },
     });
     console.log(`[Clerk Webhook] Deactivated user ${data.id}`);
     return deleted;

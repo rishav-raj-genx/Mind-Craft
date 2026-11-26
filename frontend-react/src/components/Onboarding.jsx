@@ -1,145 +1,194 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, Sparkles, BookOpen, Users, Trophy, ChevronLeft } from 'lucide-react';
+import {
+  Sparkles,
+  ChevronRight,
+  ChevronLeft,
+  X,
+} from 'lucide-react';
 import MindcraftLogo from './MindcraftLogo';
+import { INTRO_SLIDES } from '../constants/introSlides';
 
-const slides = [
-  {
-    id: 0,
-    title: "Welcome to Mind Craft",
-    description: "Master skills. Find your tribe. Elevate your mind.",
-    icon: Sparkles,
-    color: "from-green-400 to-green-600 dark:from-success-lime dark:to-green-700",
-    shadow: "shadow-green-500/30"
-  },
-  {
-    id: 1,
-    title: "Find Study Mates",
-    description: "Connect with peers who share your passions and complement your skills.",
-    icon: Users,
-    color: "from-blue-400 to-blue-600 dark:from-blue-300 dark:to-blue-700",
-    shadow: "shadow-blue-500/30"
-  },
-  {
-    id: 2,
-    title: "Teach & Learn",
-    description: "Exchange knowledge through 1-on-1 sessions and community doubt forums.",
-    icon: BookOpen,
-    color: "from-purple-400 to-purple-600 dark:from-secondary dark:to-focus-purple",
-    shadow: "shadow-purple-500/30"
-  },
-  {
-    id: 3,
-    title: "Gamify Your Growth",
-    description: "Earn badges, maintain streaks, and climb to the top of the leaderboard.",
-    icon: Trophy,
-    color: "from-orange-400 to-orange-600 dark:from-orange-300 dark:to-orange-700",
-    shadow: "shadow-orange-500/30"
-  }
-];
-
-const Onboarding = ({ onComplete }) => {
+const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  const nextSlide = () => {
-    if (currentIndex < slides.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    } else {
-      onComplete();
-    }
-  };
+  const handleFinish = useCallback(() => {
+    if (onComplete) onComplete();
+    else if (onClose) onClose();
+  }, [onComplete, onClose]);
 
-  const prevSlide = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
+  const nextSlide = useCallback(() => {
+    if (currentIndex < INTRO_SLIDES.length - 1) {
+      setCurrentIndex((prev) => prev + 1);
+    } else {
+      handleFinish();
     }
-  };
+  }, [currentIndex, handleFinish]);
+
+  const prevSlide = useCallback(() => {
+    if (currentIndex > 0) {
+      setCurrentIndex((prev) => prev - 1);
+    }
+  }, [currentIndex]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isOpen) return;
+      if (e.key === 'ArrowRight') nextSlide();
+      if (e.key === 'ArrowLeft') prevSlide();
+      if (e.key === 'Escape') handleFinish();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, nextSlide, prevSlide, handleFinish]);
+
+  if (!isOpen) return null;
+
+  const currentSlide = INTRO_SLIDES[currentIndex];
+  const IconComponent = currentSlide.icon;
+  const isFinalSlide = currentIndex === INTRO_SLIDES.length - 1;
 
   return (
-    <div className="fixed inset-0 z-[200] bg-gray-50 dark:bg-background-deep flex flex-col items-center justify-center p-6 overflow-hidden">
-      {/* Dynamic Background */}
-      <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-20 flex items-center justify-center">
-        <motion.div 
-          key={`bg-${currentIndex}`}
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Mindcraft Platform Tour"
+      className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-hidden select-none animate-in fade-in duration-200"
+    >
+      {/* Background ambient glow matching current slide */}
+      <div className="absolute inset-0 pointer-events-none flex items-center justify-center overflow-hidden">
+        <motion.div
+          key={`glow-${currentIndex}`}
           initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1, rotate: currentIndex * 45 }}
-          transition={{ duration: 1 }}
-          className={`w-[120vw] h-[120vw] max-w-[800px] max-h-[800px] rounded-full blur-[120px] bg-gradient-to-tr ${slides[currentIndex].color}`}
+          animate={{ opacity: 0.18, scale: 1 }}
+          transition={{ duration: 0.7 }}
+          className={`w-[90vw] h-[90vw] max-w-[650px] max-h-[650px] rounded-full blur-[140px] bg-gradient-to-tr ${currentSlide.gradient}`}
         />
       </div>
 
-      <div className="flex-1 w-full max-w-md flex flex-col justify-center relative z-10 perspective-[1000px]">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentIndex}
-            initial={{ opacity: 0, rotateY: 90, scale: 0.8 }}
-            animate={{ opacity: 1, rotateY: 0, scale: 1 }}
-            exit={{ opacity: 0, rotateY: -90, scale: 0.8 }}
-            transition={{ duration: 0.6, type: "spring", bounce: 0.3 }}
-            className="bg-white/90 dark:bg-surface-container/80 backdrop-blur-xl rounded-[40px] p-8 shadow-2xl border border-slate-200 dark:border-surface-raised flex flex-col items-center text-center transform-style-3d"
-          >
-            {/* 3D Floating Icon Container */}
-            <motion.div 
-              animate={{ y: [0, -15, 0] }}
-              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-              className={`w-32 h-32 rounded-full mb-8 flex items-center justify-center bg-gradient-to-br ${slides[currentIndex].color} shadow-lg ${slides[currentIndex].shadow}`}
+      {/* Main Modal Card */}
+      <div className="relative z-10 w-full max-w-lg bg-[#12121E] border border-white/10 rounded-[32px] sm:rounded-[36px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col">
+        {/* Top Header Bar */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-white/5">
+          <div className="flex items-center gap-2">
+            <MindcraftLogo size="sm" showIcon={true} variant="default" />
+            <span
+              data-testid="intro-step-counter"
+              className="ml-2 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/10 text-gray-300 border border-white/10"
             >
-              {currentIndex === 0 ? (
-                <MindcraftLogo showIcon={false} className="text-white" />
-              ) : (
-                <div className="text-white">
-                  {(() => {
-                    const Icon = slides[currentIndex].icon;
-                    return <Icon size={64} strokeWidth={1.5} />;
-                  })()}
-                </div>
-              )}
-            </motion.div>
+              {currentSlide.step}
+            </span>
+          </div>
 
-            <h2 className="text-3xl font-black font-headline-lg text-gray-900 dark:text-white mb-4">
-              {slides[currentIndex].title}
-            </h2>
-            <p className="text-slate-600 dark:text-on-surface-variant font-body-lg text-lg leading-relaxed">
-              {slides[currentIndex].description}
-            </p>
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* Controls */}
-      <div className="w-full max-w-md relative z-10 flex flex-col items-center gap-8 pb-8">
-        {/* Indicators */}
-        <div className="flex gap-3">
-          {slides.map((_, idx) => (
-            <motion.div
-              key={idx}
-              className={`h-2.5 rounded-full transition-all duration-300 ${idx === currentIndex ? 'w-8 bg-green-500 dark:bg-success-lime' : 'w-2.5 bg-gray-300 dark:bg-surface-raised'}`}
-              initial={false}
-              animate={{ width: idx === currentIndex ? 32 : 10 }}
-            />
-          ))}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleFinish}
+              className="text-xs font-semibold text-gray-400 hover:text-white transition-colors cursor-pointer py-1 px-2 rounded-lg hover:bg-white/5"
+            >
+              Skip
+            </button>
+            <button
+              onClick={handleFinish}
+              aria-label="Close walkthrough"
+              className="p-1.5 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
-        {/* Buttons */}
-        <div className="flex w-full justify-between items-center px-4">
+        {/* Slide Content Area */}
+        <div className="p-6 sm:p-8 flex flex-col items-center text-center min-h-[360px] justify-center">
+          <AnimatePresence>
+            <motion.div
+              key={currentIndex}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.2 }}
+              className="flex flex-col items-center w-full"
+            >
+              {/* Floating Animated Icon Badge */}
+              <motion.div
+                animate={{ y: [0, -8, 0] }}
+                transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+                className={`w-20 h-20 sm:w-24 sm:h-24 rounded-3xl mb-5 flex items-center justify-center bg-gradient-to-br ${currentSlide.gradient} ${currentSlide.shadowColor} shadow-xl border border-white/20`}
+              >
+                <IconComponent size={42} className="text-gray-950 stroke-[2]" />
+              </motion.div>
+
+              <h2 className="text-2xl sm:text-3xl font-black font-headline-lg text-white mb-1.5 tracking-tight">
+                {currentSlide.title}
+              </h2>
+
+              <p className="text-xs sm:text-sm font-semibold text-[#DCFD8B] tracking-wide mb-3">
+                {currentSlide.subtitle}
+              </p>
+
+              <p className="text-gray-300 font-body-md text-sm sm:text-base leading-relaxed max-w-md">
+                {currentSlide.description}
+              </p>
+
+              {/* Highlight chips */}
+              <div className="flex flex-wrap justify-center gap-1.5 sm:gap-2 mt-5 max-w-md">
+                {currentSlide.highlights.map((h, i) => (
+                  <span
+                    key={i}
+                    className={`text-[11px] font-semibold px-3 py-1 rounded-full border ${currentSlide.tagColor}`}
+                  >
+                    ✦ {h}
+                  </span>
+                ))}
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Footer Navigation Bar */}
+        <div className="flex items-center justify-between px-6 sm:px-8 py-5 border-t border-white/5 bg-[#0D0D17]">
+          {/* Back button */}
           <button
             onClick={prevSlide}
-            className={`p-4 rounded-full transition-all ${currentIndex === 0 ? 'opacity-0 pointer-events-none' : 'opacity-100 hover:bg-gray-200 dark:hover:bg-surface-raised text-gray-600 dark:text-on-surface-variant'}`}
-          >
-            <ChevronLeft size={28} />
-          </button>
-
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={nextSlide}
-            className={`py-4 px-8 rounded-full font-label-lg text-lg font-bold flex items-center gap-2 shadow-xl transition-all ${
-              currentIndex === slides.length - 1
-                ? 'bg-gradient-to-r from-green-500 to-green-700 dark:from-success-lime dark:to-green-600 text-white dark:text-green-950 hover:shadow-green-500/30'
-                : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100'
+            disabled={currentIndex === 0}
+            className={`flex items-center gap-1 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all ${
+              currentIndex === 0
+                ? 'opacity-0 pointer-events-none'
+                : 'text-gray-400 hover:text-white hover:bg-white/5 active:scale-95 cursor-pointer'
             }`}
           >
-            {currentIndex === slides.length - 1 ? 'Get Started' : 'Next'}
-            {currentIndex !== slides.length - 1 && <ChevronRight size={24} />}
+            <ChevronLeft size={16} />
+            <span>Back</span>
+          </button>
+
+          {/* Indicator Dots */}
+          <div className="flex items-center gap-2" data-testid="intro-progress-dots">
+            {INTRO_SLIDES.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => setCurrentIndex(idx)}
+                aria-label={`Go to slide ${idx + 1}`}
+                className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
+                  idx === currentIndex
+                    ? 'w-6 bg-[#DCFD8B] shadow-[0_0_10px_rgba(220,253,139,0.5)]'
+                    : 'w-2 bg-white/20 hover:bg-white/40'
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Next / Get Started button */}
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={nextSlide}
+            className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-lg transition-all cursor-pointer ${
+              isFinalSlide
+                ? 'bg-[#DCFD8B] text-[#151f00] hover:bg-[#c9ef74] shadow-[0_0_20px_rgba(220,253,139,0.4)]'
+                : 'bg-white text-gray-950 hover:bg-gray-100'
+            }`}
+          >
+            <span>{isFinalSlide ? 'Get Started' : 'Next'}</span>
+            {isFinalSlide ? <Sparkles size={14} /> : <ChevronRight size={14} />}
           </motion.button>
         </div>
       </div>

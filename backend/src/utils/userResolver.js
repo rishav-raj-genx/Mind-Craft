@@ -111,13 +111,13 @@ async function autoProvisionUser(clerkUserId, claims = {}, profileData = {}) {
   // Check if an existing row matches this email (e.g. from prior invite or manual seed)
   if (prisma.user?.findFirst) {
     const existingByEmail = await prisma.user.findFirst({
-      where: { email: cleanEmail, deletedAt: null },
+      where: { email: cleanEmail },
       include: { college: true, department: true },
     });
     if (existingByEmail) {
       return prisma.user.update({
         where: { id: existingByEmail.id },
-        data: { clerkUserId },
+        data: { clerkUserId, deletedAt: null },
         include: { college: true, department: true },
       });
     }

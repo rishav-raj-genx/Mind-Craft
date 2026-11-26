@@ -1,39 +1,58 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppContext } from '../context/AppContext';
 
-const STARS = Array.from({ length: 50 }, (_, i) => {
-  const seed1 = ((i * 9301 + 49297) % 233280) / 233280;
-  const seed2 = (((i + 1) * 9301 + 49297) % 233280) / 233280;
-  const seed3 = (((i + 2) * 9301 + 49297) % 233280) / 233280;
-  const seed4 = (((i + 3) * 9301 + 49297) % 233280) / 233280;
+// Deterministic 32-bit PRNG (Mulberry32) for React-19 purity
+function createPrng(seed) {
+  let s = seed >>> 0;
+  return function next() {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const rng = createPrng(0x9e3779b9);
+const TOTAL_STARS = 100;
+
+const STARS = Array.from({ length: TOTAL_STARS }, (_, i) => {
+  const x = +(rng() * 100).toFixed(2);
+  const y = +(rng() * 100).toFixed(2);
+  const sizeRoll = rng();
+  // Vary star sizes from 1px to 2.5px
+  const size = sizeRoll < 0.5 ? 1 : sizeRoll < 0.8 ? 1.5 : sizeRoll < 0.94 ? 2 : 2.5;
+  const baseOpacity = +(rng() * 0.45 + 0.25).toFixed(2); // 0.25 to 0.70
+  const duration = +(rng() * 3 + 2.5).toFixed(2); // 2.5s to 5.5s
+  const delay = +(rng() * 5).toFixed(2); // 0s to 5s
+  const hasGlow = size >= 2;
+
   return {
     id: i,
-    width: `${seed1 * 2 + 1}px`,
-    height: `${seed1 * 2 + 1}px`,
-    top: `${seed2 * 100}%`,
-    left: `${seed3 * 100}%`,
-    opacity: seed4 * 0.8 + 0.2,
-    duration: seed1 * 3 + 2,
-    delay: seed2 * 2,
+    top: `${y}%`,
+    left: `${x}%`,
+    size,
+    baseOpacity,
+    duration,
+    delay,
+    hasGlow,
   };
 });
 
 export const StarsBackground = () => (
-  <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+  <div className="fixed inset-0 w-screen h-screen overflow-hidden pointer-events-none z-0" aria-hidden="true">
     {STARS.map((star) => (
-      <motion.div
+      <div
         key={star.id}
-        className="absolute bg-white rounded-full"
+        className="absolute rounded-full bg-white pointer-events-none"
         style={{
-          width: star.width,
-          height: star.height,
+          width: `${star.size}px`,
+          height: `${star.size}px`,
           top: star.top,
           left: star.left,
-          opacity: star.opacity,
-          boxShadow: '0 0 8px #fff',
+          '--star-base-opacity': star.baseOpacity,
+          boxShadow: star.hasGlow ? '0 0 6px 1px rgba(255, 255, 255, 0.85)' : undefined,
+          animation: `star-twinkle ${star.duration}s ease-in-out ${star.delay}s infinite`,
         }}
-        animate={{ opacity: [star.opacity, 1, star.opacity] }}
-        transition={{ duration: star.duration, repeat: Infinity, ease: 'easeInOut', delay: star.delay }}
       />
     ))}
   </div>

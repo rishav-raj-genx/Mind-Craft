@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { gamificationService } from '../services/gamificationService';
+import { useStreak } from '../hooks/useGamification';
 import { ArrowLeft, Flame, Shield, Sparkles, BookOpen, X, Loader2, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence, animate, useMotionValue, useTransform } from 'framer-motion';
+import ConsistencyGraph from '../components/ConsistencyGraph';
 
 // ─── CountUp Component ────────────────────────────────────────────────────────
 const CountUp = ({ to, duration = 1.5 }) => {
@@ -178,120 +179,26 @@ const EmptyStreakState = ({ navigate }) => (
 const StreakDetail = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const [streakData, setStreakData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { data: streakResponse, isLoading } = useStreak(currentUser?.uid);
+  const streakData = streakResponse?.data || streakResponse || null;
+  const loading = isLoading && !streakData;
   const [showCelebration, setShowCelebration] = useState(false);
 
   const dismissCelebration = useCallback(() => setShowCelebration(false), []);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!streakData || !currentUser?.uid) return;
+    const lastSeenStreak = parseInt(localStorage.getItem(`streak_seen_${currentUser.uid}`) || '0', 10);
+    const currentStreak = streakData.currentStreak || 0;
 
-    const loadStreak = async () => {
-      setLoading(true);
-      try {
-        // First try check-in (records today's visit)
-        let data = null;
-        try {
-          const checkInRes = await gamificationService.checkIn();
-          data = checkInRes.data || checkInRes;
-        } catch {
-          // Fallback to GET if check-in fails
-          const res = await gamificationService.getStreak(currentUser.uid);
-          data = res.data || res;
-        }
-
-        if (data) {
-          setStreakData(data);
-
-          // Show celebration only if streak increased this session
-          const lastSeenStreak = parseInt(localStorage.getItem(`streak_seen_${currentUser.uid}`) || '0', 10);
-          const currentStreak = data.currentStreak || 0;
-
-          if (currentStreak > 0 && currentStreak > lastSeenStreak) {
-            setShowCelebration(true);
-            localStorage.setItem(`streak_seen_${currentUser.uid}`, String(currentStreak));
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load streak data:', err);
-        // Set empty streak data so the page renders with empty state
-        setStreakData({
-          currentStreak: 0,
-          longestStreak: 0,
-          activeDates: [],
-          badges: { earned: [], next: null, daysToNext: 0, progress: 0 },
-          streakFreezes: 2,
-          totalActiveDays: 0,
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadStreak();
-  }, [currentUser?.uid]);
-
-  const buildGrid = () => {
-    const activeDates = new Set(
-      (streakData?.activeDates || []).map(d =>
-        typeof d === 'string' ? d.split('T')[0] : new Date(d).toISOString().split('T')[0]
-      )
-    );
-    const nowLocal = new Date();
-    const utcMs = nowLocal.getTime() + (nowLocal.getTimezoneOffset() * 60000);
-    const today = new Date(utcMs + (5.5 * 60 * 60 * 1000));
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    
-    // End at today's column (Saturday = end of week), go back 5 weeks (35 days)
-    const endDate = new Date(today);
-    while (endDate.getDay() !== 6) endDate.setDate(endDate.getDate() + 1);
-    
-    const startDate = new Date(endDate);
-    startDate.setDate(endDate.getDate() - (5 * 7) + 1);
-    while (startDate.getDay() !== 0) startDate.setDate(startDate.getDate() - 1);
-    
-    const columns = [];
-    const monthLabels = [];
-    let prevMonth = -1;
-    let currDate = new Date(startDate);
-    
-    let col = 0;
-    while (currDate <= endDate) {
-      const week = [];
-      for (let row = 0; row < 7; row++) {
-        const y = currDate.getFullYear();
-        const m = String(currDate.getMonth()+1).padStart(2,'0');
-        const d = String(currDate.getDate()).padStart(2,'0');
-        const ds = `${y}-${m}-${d}`;
-        const isFuture = ds > todayStr;
-        const isActive = !isFuture && activeDates.has(ds);
-        week.push({
-          date: ds,
-          level: isFuture ? -1 : (isActive ? 1 : 0),
-          label: currDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        });
-        
-        if (row === 0 && currDate.getMonth() !== prevMonth) {
-          monthLabels.push({ col, label: currDate.toLocaleDateString('en-US', { month: 'short' }) });
-          prevMonth = currDate.getMonth();
-        }
-        currDate.setDate(currDate.getDate() + 1);
-      }
-      columns.push(week);
-      col++;
+    if (currentStreak > 0 && currentStreak > lastSeenStreak) {
+      localStorage.setItem(`streak_seen_${currentUser.uid}`, String(currentStreak));
+      const timer = setTimeout(() => {
+        setShowCelebration(true);
+      }, 0);
+      return () => clearTimeout(timer);
     }
-    
-    return { columns, monthLabels };
-  };
-
-  const graphScrollRef = useRef(null);
-
-  useEffect(() => {
-    if (graphScrollRef.current && streakData) {
-      graphScrollRef.current.scrollLeft = graphScrollRef.current.scrollWidth;
-    }
-  }, [streakData]);
+  }, [streakData, currentUser?.uid]);
 
   // ── Loading State ─────────────────────────────────────────────────
   if (loading) {
@@ -314,15 +221,6 @@ const StreakDetail = () => {
   const badges = streakData?.badges || { earned: [], next: null, daysToNext: 0, progress: 0 };
   const streakFreezes = streakData?.streakFreezes ?? 2;
   const totalActiveDays = streakData?.totalActiveDays || 0;
-
-  const gridData = buildGrid();
-  // Count active days in the generated grid
-  let activeDaysInGrid = 0;
-  gridData.columns.forEach(week => {
-    week.forEach(cell => {
-      if (cell.level > 0) activeDaysInGrid++;
-    });
-  });
 
   // ── Next badge info ───────────────────────────────────────────────
   const nextBadge = badges.next;
@@ -405,7 +303,7 @@ const StreakDetail = () => {
               <div className="flex items-center gap-3 mt-4 relative z-10 flex-wrap justify-center">
                 <div className="flex items-center gap-2 bg-gray-50 dark:bg-surface-container rounded-full py-2 px-5 border border-gray-200 dark:border-surface-raised">
                   <Sparkles size={16} className="text-focus-purple" />
-                  <span className="font-label-lg text-label-lg text-gray-700 dark:text-on-surface">{activeDaysInGrid} Active Days</span>
+                  <span className="font-label-lg text-label-lg text-gray-700 dark:text-on-surface">{totalActiveDays || (streakData?.activeDates || []).length} Active Days</span>
                 </div>
                 <div className="flex items-center gap-2 bg-gray-50 dark:bg-surface-container rounded-full py-2 px-5 border border-gray-200 dark:border-surface-raised">
                   <TrendingUp size={16} className="text-orange-500" />
@@ -414,58 +312,20 @@ const StreakDetail = () => {
               </div>
             </motion.section>
 
-            {/* 35-Day Contribution Grid */}
-            <motion.section
+            {/* Consistency Heatmap */}
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.1 }}
-              className="bg-white dark:bg-surface-container-low rounded-[24px] p-6 shadow-lg dark:shadow-[0px_10px_30px_rgba(0,0,0,0.2)] transition-colors"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">
-                  Consistency
-                </h3>
-                <span className="font-label-md text-label-md text-gray-400 dark:text-on-surface-variant">Last 35 Days</span>
-              </div>
-
-              <div className="w-full overflow-x-auto pb-2 hide-scrollbar" ref={graphScrollRef}>
-                <div className="flex flex-col min-w-max px-1">
-                  <div className="flex gap-[3px]">
-                    {gridData.columns.map((week, cIdx) => (
-                      <div key={cIdx} className="flex flex-col gap-[3px]">
-                        {week.map((cell, rIdx) => (
-                          <div
-                            key={`${cIdx}-${rIdx}`}
-                            title={cell.label}
-                            className={`w-[14px] h-[14px] rounded-[3px] transition-all ${
-                              cell.level === -1
-                                ? 'bg-transparent border border-dashed border-gray-200 dark:border-surface-raised/50'
-                                : cell.level > 0
-                                ? 'bg-[#DCFD8B] shadow-[0_0_10px_rgba(220,253,139,0.3)]'
-                                : 'bg-gray-100 dark:bg-surface-raised/50 opacity-60'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                  {/* Month labels */}
-                  <div className="relative h-5 mt-2 text-[10px] font-bold text-gray-400">
-                    {gridData.monthLabels.map((ml, i) => (
-                      <span key={i} className="absolute" style={{ left: ml.col * 17 }}>
-                        {ml.label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-2 mt-4 text-xs font-label-md text-gray-500">
-                <span>Less</span>
-                <div className="w-3 h-3 rounded-[3px] bg-gray-100 dark:bg-surface-raised/50 opacity-60"></div>
-                <div className="w-3 h-3 rounded-[3px] bg-[#DCFD8B]"></div>
-                <span>More</span>
-              </div>
-            </motion.section>
+              <ConsistencyGraph
+                activeDates={streakData?.activeDates || []}
+                activityDays={streakData?.activityDays || []}
+                streakData={streakData}
+                title="Consistency"
+                subtitle="Past year"
+              />
+            </motion.div>
 
             {/* Earned Badges */}
             {earnedBadges.length > 0 && (

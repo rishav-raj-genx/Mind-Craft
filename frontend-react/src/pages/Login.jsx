@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { SignIn } from '@clerk/react';
 import { useNavigate } from 'react-router-dom';
+import { HelpCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { clerkAppearance } from '../config/clerkAppearance';
 import { PageSpinner } from '../App';
@@ -47,6 +48,16 @@ const Login = () => {
           fallbackRedirectUrl="/"
           appearance={clerkAppearance}
         />
+
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('open-mindcraft-tour'))}
+          className="mt-6 flex items-center gap-1.5 text-xs font-semibold text-purple-300 hover:text-white dark:text-purple-300 dark:hover:text-success-lime bg-white/5 hover:bg-white/10 px-3.5 py-1.5 rounded-full border border-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
+          aria-label="How Mindcraft works"
+        >
+          <HelpCircle size={14} className="text-success-lime" />
+          <span>How it works</span>
+        </button>
       </div>
     </div>
   );

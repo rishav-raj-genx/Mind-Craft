@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { gamificationService } from '../services/gamificationService';
+import { useBadges } from '../hooks/useGamification';
 import {
   ArrowLeft, Flame, Code, Moon, Bug, BookOpen, GraduationCap,
   Trophy, Star, Users, Loader2, ChevronDown, ChevronUp, Coins,
@@ -158,36 +158,12 @@ const BadgeHistoryPanel = ({ history, onClose }) => (
 const BadgeProgress = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const [badgeData, setBadgeData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { data: badgesResponse, isLoading } = useBadges(currentUser?.uid);
+  const badgeData = badgesResponse?.data || badgesResponse || null;
+  const loading = isLoading && !badgeData;
   const [expandedBadge, setExpandedBadge] = useState(null);
   const [showSessions, setShowSessions] = useState(false);
   const [showBadgeHistory, setShowBadgeHistory] = useState(false);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const loadBadges = async () => {
-      setLoading(true);
-      try {
-        const res = await gamificationService.getBadges(currentUser.uid);
-        setBadgeData(res.data || res);
-      } catch (err) {
-        console.error('Failed to load badges:', err);
-        setBadgeData({
-          badges: [],
-          totalEarned: 0,
-          totalSessions: 0,
-          sessionHistory: [],
-          badgeHistory: [],
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadBadges();
-  }, [currentUser?.uid]);
 
   // ── Loading State ─────────────────────────────────────────────────
   if (loading) {

@@ -49,14 +49,35 @@ async function authenticate(req, options = {}) {
     user = await resolveUser(clerkUserId, { includeDeleted: true, include: { college: true, department: true } });
   }
 
+  const isRegister = Boolean(
+    options.allowUnregistered ||
+    req.path === '/register' ||
+    req.path?.endsWith('/register') ||
+    req.originalUrl?.includes('/register') ||
+    req.url?.includes('/register')
+  );
+
   if (user && user.deletedAt) {
+    if (isRegister) {
+      req.auth = { ...claims, userId: clerkUserId, clerkUserId };
+      req.user = {
+        ...user,
+        clerkUserId,
+        uid: clerkUserId,
+        email: claims.email || user.email || '',
+        name: claims.name || user.name || '',
+        profileComplete: false,
+        isUnregistered: true,
+      };
+      return req.user;
+    }
     const error = new Error('This account has been deactivated');
     error.statusCode = 403;
     throw error;
   }
 
   if (!user) {
-    if (options.allowUnregistered) {
+    if (isRegister) {
       req.auth = { ...claims, userId: clerkUserId, clerkUserId };
       req.user = {
         clerkUserId,
@@ -80,7 +101,13 @@ async function authenticate(req, options = {}) {
 
 async function requireAuth(req, res, next) {
   try {
-    await authenticate(req, { allowUnregistered: false });
+    const isRegister = Boolean(
+      req.path === '/register' ||
+      req.path?.endsWith('/register') ||
+      req.originalUrl?.includes('/register') ||
+      req.url?.includes('/register')
+    );
+    await authenticate(req, { allowUnregistered: isRegister });
     return next();
   } catch (err) {
     const status = err.statusCode || 401;

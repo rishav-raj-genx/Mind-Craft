@@ -11,8 +11,8 @@ export const isRetryableError = (error) => {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60_000,
+      staleTime: 2 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
       retry: false,
       refetchOnWindowFocus: false,
     },

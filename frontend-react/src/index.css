@@ -426,3 +426,15 @@ html:not(.dark) .fixed.inset-0 .bg-white,
 html:not(.dark) [role="dialog"] {
   border-color: #cbd5e1 !important;
 }
+
+/* Galactic Starfield Twinkling Animation */
+@keyframes star-twinkle {
+  0%, 100% {
+    opacity: var(--star-base-opacity, 0.3);
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.15);
+  }
+}

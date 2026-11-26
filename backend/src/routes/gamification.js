@@ -247,7 +247,7 @@ router.post('/streak/check-in', requireAuth, handleCheckIn);
 router.get('/streak/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
-    let user = await resolveUser(uid);
+    let user = (uid === req.user.clerkUserId || uid === req.user.id) ? req.user : await resolveUser(uid);
     if (!user) {
       if (uid === req.user.clerkUserId || uid === req.user.id) {
         user = req.user;
@@ -263,6 +263,7 @@ router.get('/streak/:uid', requireAuth, async (req, res, next) => {
       currentStreak: user.currentStreak || 0,
       longestStreak: user.longestStreak || 0,
       activeDates: [],
+      activityDays: [],
       grid: [],
       badges: [],
       streakFreezes: 2,
@@ -275,6 +276,7 @@ router.get('/streak/:uid', requireAuth, async (req, res, next) => {
         currentStreak: streak.currentStreak || 0,
         longestStreak: streak.longestStreak || 0,
         activeDates: streak.activeDates || [],
+        activityDays: streak.activityDays || [],
         grid: streak.grid || [],
         badges: streak.badges || [],
         streakFreezes: streak.streakFreezes ?? 2,
@@ -289,7 +291,7 @@ router.get('/streak/:uid', requireAuth, async (req, res, next) => {
 router.get('/badges/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
-    let user = await resolveUser(uid);
+    let user = (uid === req.user.clerkUserId || uid === req.user.id) ? req.user : await resolveUser(uid);
     if (!user) {
       if (uid === req.user.clerkUserId || uid === req.user.id) {
         user = req.user;
@@ -301,19 +303,26 @@ router.get('/badges/:uid', requireAuth, async (req, res, next) => {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's badges" });
     }
 
-    const earnedBadges = user?.id ? await prisma.userBadge.findMany({
-      where: { userId: user.id },
-      include: { badge: true },
-      orderBy: { awardedAt: 'desc' },
-    }).catch(() => []) : [];
-
-    const result = await calculateBadges(user.clerkUserId).catch(() => ({
-      badges: [],
-      totalEarned: 0,
-      totalSessions: 0,
-      sessionHistory: [],
-      badgeHistory: [],
-    }));
+    const [earnedBadges, result] = await Promise.all([
+      user?.id ? prisma.userBadge.findMany({
+        where: { userId: user.id },
+        select: {
+          badgeId: true,
+          auditWeek: true,
+          awardedAt: true,
+          metadata: true,
+          badge: { select: { name: true, level: true } },
+        },
+        orderBy: { awardedAt: 'desc' },
+      }).catch(() => []) : Promise.resolve([]),
+      calculateBadges(user.clerkUserId).catch(() => ({
+        badges: [],
+        totalEarned: 0,
+        totalSessions: 0,
+        sessionHistory: [],
+        badgeHistory: [],
+      })),
+    ]);
     result.badgeHistory = (earnedBadges || []).map((ub) => ({
       id: `${ub.badgeId}_${ub.auditWeek}`,
       badgeId: ub.badgeId,

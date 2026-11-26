@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, Medal, Coins, Trophy } from 'lucide-react';
+import { ArrowLeft, Coins, Trophy, Crown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAvatarUrl } from '../utils/avatar';
 import { useLeaderboard } from '../hooks/useGamification';
@@ -12,7 +12,7 @@ const Leaderboard = () => {
   const [showModal, setShowModal] = useState(false);
   const data = leaderboardResponse?.data || leaderboardResponse || null;
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <div className="w-10 h-10 border-4 border-focus-purple border-t-transparent rounded-full animate-spin"></div>
@@ -29,7 +29,7 @@ const Leaderboard = () => {
   return (
     <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out] pb-[100px]">
       {/* Header */}
-      <header className="flex items-center gap-3 px-4 pt-4">
+      <header className="flex items-center gap-3 px-4 pt-4 pb-2">
         <button
           onClick={() => navigate(-1)}
           aria-label="Go back"
@@ -49,12 +49,12 @@ const Leaderboard = () => {
       ) : (
         <>
           {/* Podium (Top 3) */}
-          <section className="mt-8 mb-4 px-4 h-64 flex items-end justify-center gap-2 md:gap-4 relative">
+          <section className="mt-10 sm:mt-12 pt-6 sm:pt-8 mb-4 px-4 min-h-64 flex items-end justify-center gap-2 md:gap-4 relative">
             <div className="absolute inset-0 bg-gradient-to-t from-focus-purple/20 to-transparent blur-3xl pointer-events-none -z-10"></div>
             
             {/* Rank 2 */}
             {topUsers[1] && (
-              <div className="w-1/3 flex flex-col items-center relative z-10" style={{ animationDelay: '200ms', animation: 'slideUp 0.5s ease-out both' }}>
+              <div className={`${topUsers.length === 2 ? 'w-1/2 max-w-[220px]' : 'w-1/3 max-w-[220px]'} flex flex-col items-center relative z-10`} style={{ animationDelay: '200ms', animation: 'slideUp 0.5s ease-out both' }}>
                 <div className="relative mb-3">
                   <img src={topUsers[1].photoUrl || getAvatarUrl(topUsers[1].name)} alt={topUsers[1].name} className="w-16 h-16 rounded-full border-[3px] border-gray-300 dark:border-gray-500 object-cover shadow-lg bg-gray-100 dark:bg-gray-800" />
                   <div className="absolute -bottom-2 -right-2 w-6 h-6 bg-gray-300 dark:bg-gray-500 rounded-full flex items-center justify-center text-xs font-bold text-white border border-white dark:border-background-deep shadow-md">2</div>
@@ -67,30 +67,30 @@ const Leaderboard = () => {
             
             {/* Rank 1 */}
             {topUsers[0] && (
-              <div className="w-1/3 flex flex-col items-center relative z-20" style={{ animationDelay: '0ms', animation: 'slideUp 0.5s ease-out both' }}>
-                <div className="absolute -top-12">
-                  <Medal size={32} className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.6)]" />
-                </div>
+              <div className={`${topUsers.length === 1 ? 'w-full max-w-[220px]' : topUsers.length === 2 ? 'w-1/2 max-w-[220px]' : 'w-1/3 max-w-[220px]'} flex flex-col items-center relative z-20`} style={{ animationDelay: '0ms', animation: 'slideUp 0.5s ease-out both' }}>
                 <div className="relative mb-3">
+                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+                    <Crown size={28} className="text-yellow-400 fill-yellow-400 drop-shadow-[0_0_12px_rgba(250,204,21,0.8)]" />
+                  </div>
                   <img src={topUsers[0].photoUrl || getAvatarUrl(topUsers[0].name)} alt={topUsers[0].name} className="w-24 h-24 rounded-full border-[4px] border-yellow-400 object-cover shadow-[0_0_20px_rgba(250,204,21,0.4)] bg-gray-100 dark:bg-gray-800" />
                   <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center text-sm font-bold text-yellow-900 border-2 border-white dark:border-background-deep shadow-md">1</div>
                 </div>
                 <h3 className="font-body-lg text-body-lg font-bold text-gray-900 dark:text-on-surface truncate w-full text-center px-1">{topUsers[0].name}</h3>
                 <p className="font-label-lg text-label-lg text-focus-purple font-bold mt-0.5">{topUsers[0].tokens} Tokens</p>
-                <div className="w-full bg-gradient-to-t from-focus-purple/30 to-transparent h-32 mt-4 rounded-t-2xl border-t border-x border-focus-purple/50 dark:border-focus-purple/30 shadow-[0_-10px_20px_rgba(188,132,238,0.15)] opacity-90"></div>
+                <div className="w-full bg-gradient-to-t from-purple-100 dark:from-focus-purple/30 to-transparent h-32 mt-4 rounded-t-2xl border-t border-x border-purple-300 dark:border-focus-purple/40 shadow-[0_-10px_20px_rgba(188,132,238,0.15)] opacity-90"></div>
               </div>
             )}
 
             {/* Rank 3 */}
             {topUsers[2] && (
-              <div className="w-1/3 flex flex-col items-center relative z-10" style={{ animationDelay: '400ms', animation: 'slideUp 0.5s ease-out both' }}>
+              <div className="w-1/3 max-w-[220px] flex flex-col items-center relative z-10" style={{ animationDelay: '400ms', animation: 'slideUp 0.5s ease-out both' }}>
                 <div className="relative mb-3">
                   <img src={topUsers[2].photoUrl || getAvatarUrl(topUsers[2].name)} alt={topUsers[2].name} className="w-16 h-16 rounded-full border-[3px] border-orange-400 object-cover shadow-lg bg-gray-100 dark:bg-gray-800" />
                   <div className="absolute -bottom-2 -right-2 w-6 h-6 bg-orange-400 rounded-full flex items-center justify-center text-xs font-bold text-white border border-white dark:border-background-deep shadow-md">3</div>
                 </div>
                 <h3 className="font-body-md text-body-md font-bold text-gray-900 dark:text-on-surface truncate w-full text-center px-1">{topUsers[2].name}</h3>
                 <p className="font-label-md text-label-md text-focus-purple mt-0.5">{topUsers[2].tokens} Tokens</p>
-                <div className="w-full bg-gradient-to-t from-orange-200 dark:from-orange-900/30 to-transparent h-20 mt-4 rounded-t-2xl border-t border-x border-orange-300 dark:border-orange-500/30 opacity-80"></div>
+                <div className="w-full bg-gradient-to-t from-orange-100 dark:from-orange-900/30 to-transparent h-20 mt-4 rounded-t-2xl border-t border-x border-orange-300 dark:border-orange-500/30 opacity-80"></div>
               </div>
             )}
           </section>

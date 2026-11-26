@@ -1,5 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useState, lazy, Suspense } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { AuthenticateWithRedirectCallback } from '@clerk/react';
 import { useAuth } from './context/AuthContext';
 import { AppProvider, useAppContext } from './context/AppContext';
@@ -101,42 +101,60 @@ const ProfileRedirect = () => {
   return <Navigate to={`/profile/${uid}`} replace />;
 };
 
-const AppContent = () => {
-  const { isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding } = useAuth();
-  const { isDark } = useAppContext();
-  const location = useLocation();
-  const [hasSeenOnboarding, setHasSeenOnboarding] = useState(
-    () => localStorage.getItem('hasSeenOnboarding') === 'true'
-  );
+export const INTRO_SEEN_KEY = 'mindcraft_intro_seen_v1';
 
-  const isAuthPage =
-    location.pathname.startsWith('/login') ||
-    location.pathname.startsWith('/signup') ||
-    location.pathname.startsWith('/sso-callback');
+const AppContent = () => {
+  const { isLoaded, isSignedIn, isCheckingProfile } = useAuth();
+  const { isDark } = useAppContext();
+  const [showIntroModal, setShowIntroModal] = useState(() => {
+    try {
+      return localStorage.getItem(INTRO_SEEN_KEY) !== 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const handleOpenTour = () => setShowIntroModal(true);
+    window.addEventListener('open-mindcraft-tour', handleOpenTour);
+    return () => window.removeEventListener('open-mindcraft-tour', handleOpenTour);
+  }, []);
+
+  const handleIntroComplete = useCallback(() => {
+    try {
+      localStorage.setItem(INTRO_SEEN_KEY, 'true');
+    } catch (e) {
+      console.error(e);
+    }
+    setShowIntroModal(false);
+  }, []);
 
   if (!isLoaded || (isSignedIn && isCheckingProfile)) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-[#1C1C2E]' : 'bg-[#FAFAFA]'}`}>
         <PageSpinner />
+        {showIntroModal && (
+          <Onboarding
+            isOpen={showIntroModal}
+            onComplete={handleIntroComplete}
+            onClose={handleIntroComplete}
+          />
+        )}
       </div>
-    );
-  }
-
-  // Show onboarding guide only to fully registered users after signup
-  if (isSignedIn && isRegistered && !needsOnboarding && !hasSeenOnboarding && !isAuthPage) {
-    return (
-      <Onboarding
-        onComplete={() => {
-          localStorage.setItem('hasSeenOnboarding', 'true');
-          setHasSeenOnboarding(true);
-        }}
-      />
     );
   }
 
   return (
     <div className={`relative min-h-screen transition-colors ${isDark ? 'bg-[#1C1C2E] text-white' : 'bg-[#FAFAFA] text-gray-900'}`}>
       {isDark && <StarsBackground />}
+
+      {showIntroModal && (
+        <Onboarding
+          isOpen={showIntroModal}
+          onComplete={handleIntroComplete}
+          onClose={handleIntroComplete}
+        />
+      )}
 
       <NotificationProvider>
         <Suspense fallback={<PageSpinner />}>

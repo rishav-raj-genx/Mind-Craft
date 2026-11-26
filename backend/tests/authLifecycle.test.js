@@ -48,11 +48,12 @@ jest.mock('../src/services/matchingEngine', () => ({
 
 jest.mock('../src/services/streakCalculator', () => ({
   calculateStreak: jest.fn().mockResolvedValue({
-    currentStreak: 0,
-    longestStreak: 0,
+    currentStreak: 1,
+    longestStreak: 1,
     activeDates: [],
     grid: [],
   }),
+  recordCheckIn: jest.fn().mockResolvedValue({ alreadyCheckedIn: false }),
 }));
 
 const testClerkId = 'user_test_lifecycle_999';
@@ -72,11 +73,16 @@ const mockPrisma = {
   user: {
     findFirst: jest.fn().mockImplementation(async ({ where = {} } = {}) => {
       if (!dbUser) return null;
+      if (where.deletedAt === null && dbUser.deletedAt !== null) return null;
       if (where.clerkUserId && where.clerkUserId === dbUser.clerkUserId) return dbUser;
       if (where.id && where.id === dbUser.id) return dbUser;
+      if (where.email && where.email.toLowerCase() === dbUser.email?.toLowerCase()) return dbUser;
       if (Array.isArray(where.OR)) {
         const match = where.OR.some(
-          (c) => (c.clerkUserId && c.clerkUserId === dbUser.clerkUserId) || (c.id && c.id === dbUser.id)
+          (c) =>
+            (c.clerkUserId && c.clerkUserId === dbUser.clerkUserId) ||
+            (c.id && c.id === dbUser.id) ||
+            (c.email && c.email.toLowerCase() === dbUser.email?.toLowerCase())
         );
         if (match) return dbUser;
       }
@@ -84,8 +90,10 @@ const mockPrisma = {
     }),
     findUnique: jest.fn().mockImplementation(async ({ where = {} } = {}) => {
       if (!dbUser) return null;
+      if (where.deletedAt === null && dbUser.deletedAt !== null) return null;
       if (where.clerkUserId && where.clerkUserId === dbUser.clerkUserId) return dbUser;
       if (where.id && where.id === dbUser.id) return dbUser;
+      if (where.email && where.email.toLowerCase() === dbUser.email?.toLowerCase()) return dbUser;
       return null;
     }),
     create: jest.fn().mockImplementation(async ({ data }) => {
@@ -104,10 +112,11 @@ const mockPrisma = {
         year: data.year ? String(data.year) : '',
         profileComplete: true,
         mindTokens: 0,
-        currentStreak: 0,
-        longestStreak: 0,
+        currentStreak: 1,
+        longestStreak: 1,
         totalSessions: 0,
         averageRating: 0,
+        totalActiveDays: 1,
         deletedAt: null,
         college: col,
         department: dept,
@@ -116,7 +125,11 @@ const mockPrisma = {
       return dbUser;
     }),
     update: jest.fn().mockImplementation(async ({ data }) => {
+      const col = data.collegeId ? dbColleges.get(data.collegeId) : dbUser?.college;
+      const dept = data.departmentId ? dbDepartments.get(data.departmentId) : dbUser?.department;
       Object.assign(dbUser, data);
+      if (col) dbUser.college = col;
+      if (dept) dbUser.department = dept;
       return dbUser;
     }),
   },
@@ -318,5 +331,134 @@ describe('Full Authentication & Onboarding Lifecycle Integration', () => {
     expect(profileRes.body.data.user.department).toBe('CSE');
     expect(profileRes.body.data.skillGraph.teaches).toContain('DSA');
     expect(profileRes.body.data.skillGraph.learns).toContain('WEB');
+  });
+
+  it('Test 5: User deleted via user.deleted webhook can re-register with the same email and a new clerkId and receive 200 OK', async () => {
+    const { processClerkEvent } = require('../src/services/clerkUserSync');
+
+    // 5a. Webhook deactivates the user
+    await processClerkEvent({
+      type: 'user.deleted',
+      data: { id: testClerkId },
+    });
+
+    expect(dbUser.deletedAt).toBeInstanceOf(Date);
+
+    // 5b. Authenticated protected routes block the deactivated user with 403
+    verifyToken.mockResolvedValueOnce({
+      sub: testClerkId,
+      email: 'student@hitech.edu',
+    });
+    const blockedRes = await request(app)
+      .get(`/api/user/${testClerkId}/profile`)
+      .set('Authorization', 'Bearer valid_clerk_jwt');
+
+    expect(blockedRes.status).toBe(403);
+    expect(blockedRes.body.error).toBe('This account has been deactivated');
+
+    // 5c. User creates a brand-new Clerk account with the same email
+    const newClerkId = 'user_test_lifecycle_reborn_1000';
+    verifyToken.mockResolvedValue({
+      sub: newClerkId,
+      email: 'student@hitech.edu',
+      name: 'HiTech Student Reborn',
+    });
+
+    // 5d. POST /api/user/register reactivates the account and updates profile
+    const reRegisterPayload = {
+      name: 'HiTech Student Reborn',
+      gender: 'Male',
+      college: 'Hi-Tech University',
+      collegeLocation: 'Ghaziabad',
+      department: 'CSE',
+      year: 3,
+      teaches: ['System Design'],
+      learns: ['Rust'],
+    };
+
+    const registerRes = await request(app)
+      .post('/api/user/register')
+      .set('Authorization', 'Bearer valid_clerk_jwt_new')
+      .send(reRegisterPayload);
+
+    expect(registerRes.status).toBe(200);
+    expect(registerRes.body.success).toBe(true);
+    expect(registerRes.body.registered).toBe(true);
+    expect(registerRes.body.user).toBeDefined();
+    expect(registerRes.body.user.clerkUserId).toBe(newClerkId);
+    expect(registerRes.body.user.name).toBe('HiTech Student Reborn');
+    expect(registerRes.body.user.year).toBe('3');
+    expect(registerRes.body.user.teaches).toEqual(['System Design']);
+    expect(registerRes.body.user.learns).toEqual(['Rust']);
+    expect(registerRes.body.user.profileComplete).toBe(true);
+    expect(registerRes.body.user.isActive).toBe(true);
+
+    // Database row is reactivated: deletedAt is cleared and clerkUserId updated
+    expect(dbUser.deletedAt).toBeNull();
+    expect(dbUser.clerkUserId).toBe(newClerkId);
+
+    // 5e. Subsequent GET /api/auth/me returns active registered user
+    const authMeRes = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', 'Bearer valid_clerk_jwt_new');
+
+    expect(authMeRes.status).toBe(200);
+    expect(authMeRes.body.success).toBe(true);
+    expect(authMeRes.body.registered).toBe(true);
+    expect(authMeRes.body.needsOnboarding).toBe(false);
+    expect(authMeRes.body.user.clerkUserId).toBe(newClerkId);
+  });
+
+  it('Test 6: User deleted via webhook and synced via user.created webhook before POST /api/user/register also reactivates with 200 OK', async () => {
+    const { processClerkEvent } = require('../src/services/clerkUserSync');
+
+    // Soft-delete user
+    const currentClerkId = dbUser.clerkUserId;
+    await processClerkEvent({
+      type: 'user.deleted',
+      data: { id: currentClerkId },
+    });
+    expect(dbUser.deletedAt).toBeInstanceOf(Date);
+
+    // Clerk fires user.created webhook with a third clerkId
+    const thirdClerkId = 'user_test_lifecycle_third_2000';
+    await processClerkEvent({
+      type: 'user.created',
+      data: {
+        id: thirdClerkId,
+        email_addresses: [{ id: 'email-3', email_address: 'student@hitech.edu' }],
+        primary_email_address_id: 'email-3',
+        first_name: 'HiTech',
+        last_name: 'Third',
+      },
+    });
+
+    // Row is reactivated by the user.created webhook sync
+    expect(dbUser.deletedAt).toBeNull();
+    expect(dbUser.clerkUserId).toBe(thirdClerkId);
+
+    // User completes onboarding
+    verifyToken.mockResolvedValue({
+      sub: thirdClerkId,
+      email: 'student@hitech.edu',
+    });
+
+    const res = await request(app)
+      .post('/api/user/register')
+      .set('Authorization', 'Bearer valid_clerk_jwt_third')
+      .send({
+        name: 'HiTech Third',
+        college: 'Hi-Tech University',
+        department: 'CSE',
+        year: 4,
+        teaches: ['Algorithms'],
+        learns: ['Go'],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.user.clerkUserId).toBe(thirdClerkId);
+    expect(res.body.user.isActive).toBe(true);
+    expect(dbUser.deletedAt).toBeNull();
   });
 });

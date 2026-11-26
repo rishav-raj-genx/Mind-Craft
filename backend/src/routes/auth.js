@@ -56,6 +56,7 @@ router.get('/me', requireClerkAuth, async (req, res, next) => {
       totalSessions: user.totalSessions || 0,
       averageRating: Number(user.averageRating) || 0,
       profileComplete: true,
+      isActive: !user.deletedAt,
       teaches,
       learns,
     };

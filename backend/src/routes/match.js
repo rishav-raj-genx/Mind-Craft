@@ -44,7 +44,19 @@ async function handleGetMatchRequests(req, res, next) {
         recipientId: user.id,
         status: 'PENDING',
       },
-      include: { requester: true },
+      select: {
+        id: true,
+        sharedSkill: true,
+        status: true,
+        createdAt: true,
+        requester: {
+          select: {
+            clerkUserId: true,
+            name: true,
+            photoUrl: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: limit,

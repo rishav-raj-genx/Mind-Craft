@@ -126,6 +126,41 @@ export const AuthProvider = ({ children }) => {
     return base;
   }, [user, userProfile]);
 
+  useEffect(() => {
+    if (!isSignedIn || !isRegistered || needsOnboarding) return;
+    const uid = currentUser?.uid || currentUser?.id;
+    if (!uid) return;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const storageKey = `mindcraft_checkin_${uid}_${todayStr}`;
+
+    if (localStorage.getItem(storageKey)) return;
+
+    let isMounted = true;
+    api.post('/streak/checkin')
+      .then((res) => {
+        if (!isMounted) return;
+        localStorage.setItem(storageKey, 'true');
+        queryClient.invalidateQueries({ queryKey: ['streak'] });
+        queryClient.invalidateQueries({ queryKey: ['profile'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        queryClient.invalidateQueries({ queryKey: ['badges'] });
+        queryClient.invalidateQueries({ queryKey: ['tokens'] });
+
+        const updatedStreak = res.data?.data?.currentStreak;
+        if (typeof updatedStreak === 'number') {
+          setUserProfile((prev) => (prev ? { ...prev, currentStreak: updatedStreak } : prev));
+        }
+      })
+      .catch((err) => {
+        console.warn('Auto streak check-in skipped/failed:', err?.message);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isSignedIn, isRegistered, needsOnboarding, currentUser?.uid, currentUser?.id]);
+
   // Safe fallback auth methods delegating to Clerk's modal or navigation API
   const loginWithGoogle = useCallback(async () => {
     if (clerk?.openSignIn) {

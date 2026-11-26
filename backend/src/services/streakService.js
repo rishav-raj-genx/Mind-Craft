@@ -62,11 +62,20 @@ async function calculateStreak(uid) {
   // Track true continuous daily activity without artificial 90-day reset floor
   const rows = await prisma.activityDay.findMany({
     where: { userId: user.id },
-    select: { activityDate: true },
+    select: { activityDate: true, activityTypes: true },
     orderBy: { activityDate: 'asc' },
   });
 
-  const activeDates = rows.map((row) => row.activityDate.toISOString().slice(0, 10));
+  const activityDays = rows.map((row) => {
+    const date = row.activityDate.toISOString().slice(0, 10);
+    const count = Array.isArray(row.activityTypes) && row.activityTypes.length > 0 ? row.activityTypes.length : 1;
+    return {
+      date,
+      count,
+      activityTypes: Array.isArray(row.activityTypes) ? row.activityTypes : [],
+    };
+  });
+  const activeDates = activityDays.map((a) => a.date);
   const activeDateSet = new Set(activeDates);
   const longestStreak = computeLongestStreak(activeDates);
   const totalActiveDays = activeDates.length;
@@ -95,7 +104,9 @@ async function calculateStreak(uid) {
   return {
     currentStreak,
     longestStreak: effectiveLongest,
-    activeDates: getLast35ActiveDates(activeDateSet, now),
+    activeDates,
+    activityDays,
+    recentActiveDates: getLast35ActiveDates(activeDateSet, now),
     grid,
     badges,
     streakFreezes,

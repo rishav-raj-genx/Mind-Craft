@@ -6,7 +6,7 @@ const { prisma } = require('../config/prisma');
 const { resolveUser } = require('../utils/userResolver');
 const { getBalance, getTransactionHistory } = require('../services/tokenEconomy');
 const { getUserSkillGraph } = require('../services/matchingEngine');
-const { calculateStreak } = require('../services/streakCalculator');
+const { calculateStreak, recordCheckIn } = require('../services/streakCalculator');
 const { getPagination } = require('../utils/pagination');
 
 function normalizeUser(u) {
@@ -42,6 +42,7 @@ function normalizeUser(u) {
     currentStreak: u.currentStreak || 0,
     longestStreak: u.longestStreak || 0,
     profileComplete: Boolean(u.profileComplete),
+    isActive: !u.deletedAt,
     teaches,
     learns,
     createdAt: u.createdAt ? new Date(u.createdAt).getTime() : Date.now(),
@@ -99,7 +100,6 @@ router.post('/register', requireClerkAuth, async (req, res, next) => {
             { clerkUserId },
             ...(email ? [{ email }] : []),
           ],
-          deletedAt: null,
         },
       });
 
@@ -120,12 +120,17 @@ router.post('/register', requireClerkAuth, async (req, res, next) => {
       const u = existing
         ? await tx.user.update({
             where: { id: existing.id },
-            data: { ...userData, clerkUserId },
+            data: {
+              ...userData,
+              clerkUserId,
+              deletedAt: null,
+            },
           })
         : await tx.user.create({
             data: {
               clerkUserId,
               ...userData,
+              deletedAt: null,
             },
           });
 
@@ -194,6 +199,14 @@ router.post('/register', requireClerkAuth, async (req, res, next) => {
 
       return u;
     });
+
+    try {
+      const regUid = user.clerkUserId || clerkUserId;
+      await recordCheckIn(regUid);
+      await calculateStreak(regUid);
+    } catch (_streakErr) {
+      // non-blocking initial streak checkin
+    }
 
     const fullUser = await resolveUser(user.id, {
       include: {
@@ -320,13 +333,15 @@ router.get('/me', requireClerkAuth, async (req, res, next) => {
 
 router.get('/:uid/profile', requireAuth, async (req, res, next) => {
   try {
-    let user = await resolveUser(req.params.uid, {
-      include: {
-        college: true,
-        department: true,
-        skills: { include: { skill: true } },
-      },
-    });
+    let user = (req.params.uid === req.user?.clerkUserId || req.params.uid === req.user?.id) && req.user?.skills
+      ? req.user
+      : await resolveUser(req.params.uid, {
+          include: {
+            college: true,
+            department: true,
+            skills: { include: { skill: true } },
+          },
+        });
 
     if (!user) {
       if (req.params.uid === req.user?.clerkUserId || req.params.uid === req.user?.id) {
@@ -337,6 +352,9 @@ router.get('/:uid/profile', requireAuth, async (req, res, next) => {
     }
 
     const uid = user.clerkUserId;
+    const directTeaches = (user.skills || []).filter((s) => s.kind === 'TEACHES').map((s) => s.skill?.name || s.name || s);
+    const directLearns = (user.skills || []).filter((s) => s.kind === 'LEARNS').map((s) => s.skill?.name || s.name || s);
+
     const [tokenBalance, transactions, streak, skillGraph, sessions] = await Promise.all([
       getBalance(uid).catch(() => 0),
       getTransactionHistory(uid, 10).catch(() => []),
@@ -344,18 +362,24 @@ router.get('/:uid/profile', requireAuth, async (req, res, next) => {
         currentStreak: user.currentStreak || 0,
         longestStreak: user.longestStreak || 0,
         activeDates: [],
+        activityDays: [],
         grid: [],
       })),
-      getUserSkillGraph(uid).catch(() => ({
-        teaches: (user.skills || []).filter((s) => s.kind === 'TEACHES').map((s) => s.skill?.name || s.name || s),
-        learns: (user.skills || []).filter((s) => s.kind === 'LEARNS').map((s) => s.skill?.name || s.name || s),
-      })),
+      (directTeaches.length > 0 || directLearns.length > 0)
+        ? Promise.resolve({ teaches: directTeaches, learns: directLearns })
+        : getUserSkillGraph(uid).catch(() => ({ teaches: directTeaches, learns: directLearns })),
       user.id ? prisma.tutoringSession.findMany({
         where: {
           OR: [{ teacherId: user.id }, { learnerId: user.id }],
           status: 'COMPLETED',
         },
-        include: { teacher: true, learner: true },
+        select: {
+          id: true,
+          title: true,
+          teacherId: true,
+          scheduledFor: true,
+          learner: { select: { clerkUserId: true } },
+        },
         orderBy: { scheduledFor: 'desc' },
         take: 20,
       }).catch(() => []) : Promise.resolve([]),
