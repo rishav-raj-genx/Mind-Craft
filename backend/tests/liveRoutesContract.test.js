@@ -290,6 +290,12 @@ const mockPrisma = {
     findMany: jest.fn().mockResolvedValue([]),
     findUnique: jest.fn().mockResolvedValue(null),
   },
+  matchRequest: {
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null),
+    findUnique: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockResolvedValue({ id: 'mr-1', status: 'PENDING' }),
+  },
   chatParticipant: {
     findMany: jest.fn().mockResolvedValue([]),
     findUnique: jest.fn().mockResolvedValue(null),
@@ -519,6 +525,18 @@ describe('Live Routes Contract Suite (Zero 404s for New Unseeded Clerk User)', (
   it('14. GET /api/chat/threads/:id returns 200 with empty threads array', async () => {
     const res = await request(app)
       .get(`/api/chat/threads/${brandNewClerkId}`)
+      .set('Authorization', token);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data).toEqual([]);
+  });
+
+  // Route 15: GET /api/match/requests/:id
+  it('15. GET /api/match/requests/:id returns 200 with empty match requests array', async () => {
+    const res = await request(app)
+      .get(`/api/match/requests/${brandNewClerkId}`)
       .set('Authorization', token);
 
     expect(res.status).toBe(200);

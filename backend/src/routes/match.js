@@ -10,6 +10,73 @@ const { resolveUser } = require('../utils/userResolver');
 const { getPagination } = require('../utils/pagination');
 const { broadcastToGlobal } = require('../services/chatService');
 
+async function handleGetMatchRequests(req, res, next) {
+  try {
+    const uid = req.params.uid || req.params.id;
+    let user = await resolveUser(uid);
+    if (!user) {
+      if (uid === req.user.clerkUserId || uid === req.user.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+    }
+
+    if (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id) {
+      return res.status(403).json({ success: false, error: "Cannot fetch another user's requests" });
+    }
+
+    const { limit, offset } = getPagination(req.query);
+
+    if (!user.id) {
+      return res.json({
+        success: true,
+        count: 0,
+        limit,
+        offset,
+        hasMore: false,
+        data: [],
+      });
+    }
+
+    const requests = await prisma.matchRequest.findMany({
+      where: {
+        recipientId: user.id,
+        status: 'PENDING',
+      },
+      include: { requester: true },
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+    });
+
+    const data = requests.map((r) => ({
+      requestId: r.id,
+      fromUid: r.requester.clerkUserId,
+      toUid: user.clerkUserId,
+      sharedSkill: r.sharedSkill,
+      status: r.status,
+      createdAt: new Date(r.createdAt).getTime(),
+      requesterName: r.requester.name,
+      requesterPhoto: r.requester.photoUrl,
+    }));
+
+    res.json({
+      success: true,
+      count: data.length,
+      limit,
+      offset,
+      hasMore: data.length === limit,
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.get('/requests/:uid', requireAuth, handleGetMatchRequests);
+router.get('/requests/:id', requireAuth, handleGetMatchRequests);
+
 router.get('/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
@@ -209,70 +276,6 @@ router.post('/decline', requireAuth, [body('requestId').trim().notEmpty()], asyn
     });
 
     res.json({ success: true, message: 'Match request declined' });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get('/requests/:uid', requireAuth, async (req, res, next) => {
-  try {
-    const { uid } = req.params;
-    let user = await resolveUser(uid);
-    if (!user) {
-      if (uid === req.user.clerkUserId || uid === req.user.id) {
-        user = req.user;
-      } else {
-        return res.status(404).json({ success: false, error: 'User not found' });
-      }
-    }
-
-    if (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id) {
-      return res.status(403).json({ success: false, error: "Cannot fetch another user's requests" });
-    }
-
-    const { limit, offset } = getPagination(req.query);
-
-    if (!user.id) {
-      return res.json({
-        success: true,
-        count: 0,
-        limit,
-        offset,
-        hasMore: false,
-        data: [],
-      });
-    }
-
-    const requests = await prisma.matchRequest.findMany({
-      where: {
-        recipientId: user.id,
-        status: 'PENDING',
-      },
-      include: { requester: true },
-      orderBy: { createdAt: 'desc' },
-      skip: offset,
-      take: limit,
-    });
-
-    const data = requests.map((r) => ({
-      requestId: r.id,
-      fromUid: r.requester.clerkUserId,
-      toUid: user.clerkUserId,
-      sharedSkill: r.sharedSkill,
-      status: r.status,
-      createdAt: new Date(r.createdAt).getTime(),
-      requesterName: r.requester.name,
-      requesterPhoto: r.requester.photoUrl,
-    }));
-
-    res.json({
-      success: true,
-      count: data.length,
-      limit,
-      offset,
-      hasMore: data.length === limit,
-      data,
-    });
   } catch (err) {
     next(err);
   }
