@@ -182,14 +182,14 @@ const SessionsDetail = () => {
   const [ratingSessionId, setRatingSessionId] = useState(null);
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser?.uid) {
       const status = filter === 'all' ? null : filter;
       sessionService.getSessions(currentUser.uid, status)
         .then(res => setSessions(res.data || []))
         .catch(err => console.error('Sessions fetch error', err))
         .finally(() => setLoading(false));
     }
-  }, [currentUser, filter]);
+  }, [currentUser?.uid, filter]);
 
   const handleRateSession = async (sessionId, rating, comment) => {
     try {

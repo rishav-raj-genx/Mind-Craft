@@ -13,7 +13,7 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       gcTime: 5 * 60_000,
-      retry: (failureCount, error) => failureCount < 1 && isRetryableError(error),
+      retry: false,
       refetchOnWindowFocus: false,
     },
     mutations: { retry: 0 },

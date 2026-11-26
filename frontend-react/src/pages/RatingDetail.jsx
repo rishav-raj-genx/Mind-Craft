@@ -12,7 +12,7 @@ const RatingDetail = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser?.uid) {
       userService.getFullProfile(currentUser.uid)
         .then(res => {
           const data = res.data || {};
@@ -23,7 +23,7 @@ const RatingDetail = () => {
         .catch(err => console.error('Fetch reviews error:', err))
         .finally(() => setLoading(false));
     }
-  }, [currentUser]);
+  }, [currentUser?.uid]);
 
   return (
     <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out]">

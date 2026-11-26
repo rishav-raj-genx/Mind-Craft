@@ -38,6 +38,7 @@ const { startChatPersistenceWorker, closeChatPersistenceWorker } = require('./sr
 
 // ── Express app ──────────────────────────────────────────────────────
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 // ── Global middleware ────────────────────────────────────────────────
@@ -97,9 +98,10 @@ app.use(compression({
 // ── Rate limiters ───────────────────────────────────────────────────
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
   message: {
     success: false,
     error: 'Too many requests, please try again later.',
@@ -108,9 +110,10 @@ const globalLimiter = rateLimit({
 
 const strictLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
-  max: 10,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
   message: {
     success: false,
     error: 'Rate limit exceeded, please slow down.',
@@ -174,11 +177,15 @@ app.get('/health', async (_req, res) => {
 // ── API routes ───────────────────────────────────────────────────────
 app.use('/api/user', userRoutes);
 app.use('/api/match', matchRoutes);
+app.use('/api/matches', matchRoutes);
 app.use('/api/voice-search', strictLimiter, voiceSearchRoutes);
 app.use('/api', gamificationRoutes);
+app.use('/api/gamification', gamificationRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/session', sessionRoutes);
-app.use('/api/doubt', strictLimiter, doubtRoutes);
+app.use('/api/sessions', sessionRoutes);
+app.use('/api/doubt', doubtRoutes);
+app.use('/api/doubts', doubtRoutes);
 app.use('/api/auth', authRoutes);
 
 // ── 404 + error handling ─────────────────────────────────────────────

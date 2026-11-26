@@ -230,7 +230,7 @@ const StreakDetail = () => {
     };
 
     loadStreak();
-  }, [currentUser]);
+  }, [currentUser?.uid]);
 
   const buildGrid = () => {
     const activeDates = new Set(

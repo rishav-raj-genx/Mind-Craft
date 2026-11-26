@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext, useEffect, useMemo, useCallback } from 'react';
 import { useAuth as useClerkAuth, useClerk, useUser } from '@clerk/react';
 import { setClerkTokenProvider } from '../config/api';
 import { queryClient } from '../config/queryClient';
@@ -22,18 +22,26 @@ export const AuthProvider = ({ children }) => {
     }
   }, [getToken, isAuthLoaded]);
 
-  const currentUser = user
-    ? {
+  const currentUser = useMemo(() => {
+    if (!user) return null;
+    return {
       ...user,
       uid: user.id,
       email: user.primaryEmailAddress?.emailAddress || '',
       name: user.fullName || user.username || '',
       photoURL: user.imageUrl,
-    }
-    : null;
+    };
+  }, [
+    user?.id,
+    user?.updatedAt,
+    user?.fullName,
+    user?.username,
+    user?.imageUrl,
+    user?.primaryEmailAddress?.emailAddress,
+  ]);
 
   // Safe fallback auth methods delegating to Clerk's modal or navigation API
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = useCallback(async () => {
     if (clerk?.openSignIn) {
       clerk.openSignIn({});
       return null;
@@ -43,9 +51,9 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
     return null;
-  };
+  }, [clerk]);
 
-  const loginWithEmail = async () => {
+  const loginWithEmail = useCallback(async () => {
     if (clerk?.openSignIn) {
       clerk.openSignIn({});
       return null;
@@ -55,9 +63,9 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
     return null;
-  };
+  }, [clerk]);
 
-  const registerWithEmail = async () => {
+  const registerWithEmail = useCallback(async () => {
     if (clerk?.openSignUp) {
       clerk.openSignUp({});
       return null;
@@ -67,14 +75,14 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
     return null;
-  };
+  }, [clerk]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await signOut();
     queryClient.clear();
-  };
+  }, [signOut]);
 
-  const value = {
+  const value = useMemo(() => ({
     currentUser,
     isLoaded,
     isSignedIn,
@@ -84,7 +92,17 @@ export const AuthProvider = ({ children }) => {
     loginWithEmail,
     registerWithEmail,
     logout,
-  };
+  }), [
+    currentUser,
+    isLoaded,
+    isSignedIn,
+    clerk,
+    getToken,
+    loginWithGoogle,
+    loginWithEmail,
+    registerWithEmail,
+    logout,
+  ]);
 
   return (
     <AuthContext.Provider value={value}>

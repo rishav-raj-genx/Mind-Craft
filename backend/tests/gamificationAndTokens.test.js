@@ -66,6 +66,13 @@ jest.mock('../src/middleware/auth', () => ({
     };
     next();
   },
+  optionalAuth: (req, _res, next) => {
+    req.user = {
+      id: '00000000-0000-0000-0000-000000000001',
+      clerkUserId: 'clerk-user-1',
+    };
+    next();
+  },
 }));
 
 jest.mock('../src/services/chatService', () => ({

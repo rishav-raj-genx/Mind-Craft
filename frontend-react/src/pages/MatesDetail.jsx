@@ -12,7 +12,7 @@ const MatesDetail = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser?.uid) {
       matchService.getMatches(currentUser.uid)
         .then(res => {
           const list = res.data || res.matches || [];
@@ -21,7 +21,7 @@ const MatesDetail = () => {
         .catch(err => console.error('Mates fetch error:', err))
         .finally(() => setLoading(false));
     }
-  }, [currentUser]);
+  }, [currentUser?.uid]);
 
   return (
     <div className="flex flex-col gap-6 animate-[fadeIn_0.3s_ease-out]">

@@ -180,15 +180,15 @@ router.post('/book', requireAuth, [
   }
 });
 
-router.get('/:uid', requireAuth, async (req, res, next) => {
+const handleGetUserSessions = async (req, res, next) => {
   try {
-    const { uid } = req.params;
+    const targetUid = req.params.uid || req.params.id;
     const { status } = req.query;
     const { limit, offset } = getPagination(req.query);
 
-    let user = await resolveUser(uid);
+    let user = await resolveUser(targetUid);
     if (!user) {
-      if (uid === req.user.clerkUserId || uid === req.user.id) {
+      if (targetUid === req.user.clerkUserId || targetUid === req.user.id) {
         user = req.user;
       } else {
         return res.status(404).json({ success: false, error: 'User not found' });
@@ -223,7 +223,7 @@ router.get('/:uid', requireAuth, async (req, res, next) => {
       take: limit,
     });
 
-    const sessions = rawSessions.map((s) => normalizeSession(s, user.id));
+    const sessions = (rawSessions || []).map((s) => normalizeSession(s, user.id));
 
     res.json({
       success: true,
@@ -236,7 +236,11 @@ router.get('/:uid', requireAuth, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+};
+
+router.get('/user/:uid', requireAuth, handleGetUserSessions);
+router.get('/user/:id', requireAuth, handleGetUserSessions);
+router.get('/:uid', requireAuth, handleGetUserSessions);
 
 router.patch('/:sessionId/accept', requireAuth, async (req, res, next) => {
   try {

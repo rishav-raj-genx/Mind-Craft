@@ -404,6 +404,7 @@ const Profile = () => {
   const isOwner = currentUser?.uid === uid;
 
   useEffect(() => {
+    if (!uid) return;
     let isMounted = true;
     const load = async () => {
       try {
@@ -412,7 +413,7 @@ const Profile = () => {
         setProfileData(profileRes.data);
         if (profileRes.data?.streak) setStreakData(profileRes.data.streak);
 
-        if (currentUser && currentUser.uid !== uid) {
+        if (currentUser?.uid && currentUser.uid !== uid) {
           try {
             const followingRes = await userService.getFollowing(currentUser.uid);
             if (followingRes.data && followingRes.data.some(u => u.uid === uid)) {
@@ -442,7 +443,7 @@ const Profile = () => {
     return () => {
       isMounted = false;
     };
-  }, [uid, currentUser]);
+  }, [uid, currentUser?.uid]);
 
   // Auto-scroll consistency graph to the right (current month) when data loads
   useEffect(() => {

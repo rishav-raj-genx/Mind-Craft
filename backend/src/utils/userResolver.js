@@ -71,7 +71,7 @@ async function autoProvisionUser(clerkUserId, claims = {}, profileData = {}) {
   }
 
   // Check if user already exists
-  const existing = await resolveUser(clerkUserId, { includeDeleted: true });
+  const existing = await resolveUser(clerkUserId, { includeDeleted: true, include: { college: true, department: true } });
   if (existing) {
     return existing;
   }
@@ -112,29 +112,57 @@ async function autoProvisionUser(clerkUserId, claims = {}, profileData = {}) {
   if (prisma.user?.findFirst) {
     const existingByEmail = await prisma.user.findFirst({
       where: { email: cleanEmail, deletedAt: null },
+      include: { college: true, department: true },
     });
     if (existingByEmail) {
       return prisma.user.update({
         where: { id: existingByEmail.id },
         data: { clerkUserId },
+        include: { college: true, department: true },
       });
     }
   }
 
   if (prisma.user?.upsert) {
-    return prisma.user.upsert({
-      where: { clerkUserId },
-      create: {
-        clerkUserId,
-        email: cleanEmail,
-        name: displayName,
-        photoUrl,
-        profileComplete: Boolean(profileData.profileComplete),
-      },
-      update: {
-        ...(profileData.profileComplete ? { profileComplete: true } : {}),
-      },
-    });
+    try {
+      return await prisma.user.upsert({
+        where: { clerkUserId },
+        create: {
+          clerkUserId,
+          email: cleanEmail,
+          name: displayName,
+          photoUrl,
+          profileComplete: Boolean(profileData.profileComplete),
+        },
+        update: {
+          ...(displayName ? { name: displayName } : {}),
+          ...(photoUrl ? { photoUrl } : {}),
+          ...(profileData.profileComplete ? { profileComplete: true } : {}),
+        },
+        include: { college: true, department: true },
+      });
+    } catch (upsertErr) {
+      if (upsertErr.code === 'P2002') {
+        const fallbackEmail = `${clerkUserId}_${Date.now()}@clerk.internal`;
+        return await prisma.user.upsert({
+          where: { clerkUserId },
+          create: {
+            clerkUserId,
+            email: fallbackEmail,
+            name: displayName,
+            photoUrl,
+            profileComplete: Boolean(profileData.profileComplete),
+          },
+          update: {
+            ...(displayName ? { name: displayName } : {}),
+            ...(photoUrl ? { photoUrl } : {}),
+            ...(profileData.profileComplete ? { profileComplete: true } : {}),
+          },
+          include: { college: true, department: true },
+        });
+      }
+      throw upsertErr;
+    }
   }
 
   if (prisma.user?.create) {
@@ -146,6 +174,7 @@ async function autoProvisionUser(clerkUserId, claims = {}, profileData = {}) {
         photoUrl,
         profileComplete: Boolean(profileData.profileComplete),
       },
+      include: { college: true, department: true },
     });
   }
 

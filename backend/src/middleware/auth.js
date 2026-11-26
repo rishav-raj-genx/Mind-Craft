@@ -40,20 +40,20 @@ async function authenticate(req) {
       where: { clerkUserId },
       include: { college: true, department: true },
     });
-    if (found && (!found.deletedAt || true)) {
+    if (found) {
       user = found;
     }
   }
 
   if (!user) {
-    user = await resolveUser(clerkUserId, { includeDeleted: true });
+    user = await resolveUser(clerkUserId, { includeDeleted: true, include: { college: true, department: true } });
   }
 
   if (!user) {
     try {
       user = await autoProvisionUser(clerkUserId, claims);
     } catch (_provErr) {
-      // Auto-provisioning error fallback
+      console.error('[Auth] autoProvisionUser fallback error:', _provErr.message);
     }
   }
 

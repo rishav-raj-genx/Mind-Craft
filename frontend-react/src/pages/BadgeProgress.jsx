@@ -187,7 +187,7 @@ const BadgeProgress = () => {
     };
 
     loadBadges();
-  }, [currentUser]);
+  }, [currentUser?.uid]);
 
   // ── Loading State ─────────────────────────────────────────────────
   if (loading) {

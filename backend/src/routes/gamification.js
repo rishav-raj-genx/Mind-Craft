@@ -3,7 +3,7 @@ const { body } = require('express-validator');
 const router = express.Router();
 
 const { prisma } = require('../config/prisma');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { resolveUser } = require('../utils/userResolver');
 const {
@@ -24,15 +24,23 @@ const { broadcastToGlobal } = require('../services/chatService');
 router.get('/tokens/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
-    if (uid !== req.user.clerkUserId && uid !== req.user.id) {
+    let user = await resolveUser(uid);
+    if (!user) {
+      if (uid === req.user.clerkUserId || uid === req.user.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+    }
+    if (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id) {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's token wallet" });
     }
     const { limit } = getPagination(req.query);
     const after = req.query.after || null;
 
     const [balance, transactions] = await Promise.all([
-      getBalance(req.user.clerkUserId),
-      getTransactionHistory(req.user.clerkUserId, limit, after),
+      getBalance(user.clerkUserId).catch(() => 0),
+      getTransactionHistory(user.clerkUserId, limit, after).catch(() => []),
     ]);
 
     res.json({
@@ -170,9 +178,13 @@ router.post(
 const handleCheckIn = async (req, res, next) => {
   try {
     const uid = req.user.clerkUserId;
-    const user = await resolveUser(uid);
+    let user = await resolveUser(uid);
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      if (req.user?.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
     }
 
     const todayUTC = new Date().toISOString().slice(0, 10);
@@ -235,17 +247,25 @@ router.post('/streak/check-in', requireAuth, handleCheckIn);
 router.get('/streak/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
-    if (uid !== req.user.clerkUserId && uid !== req.user.id) {
+    let user = await resolveUser(uid);
+    if (!user) {
+      if (uid === req.user.clerkUserId || uid === req.user.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+    }
+    if (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id) {
       return res.status(403).json({ success: false, error: "Cannot fetch another user's streak" });
     }
 
-    const streak = await calculateStreak(req.user.clerkUserId).catch(() => ({
-      currentStreak: req.user.currentStreak || 0,
-      longestStreak: req.user.longestStreak || 0,
+    const streak = await calculateStreak(user.clerkUserId).catch(() => ({
+      currentStreak: user.currentStreak || 0,
+      longestStreak: user.longestStreak || 0,
       activeDates: [],
       grid: [],
       badges: [],
-      streakFreezes: 0,
+      streakFreezes: 2,
       totalActiveDays: 0,
     }));
 
@@ -257,7 +277,7 @@ router.get('/streak/:uid', requireAuth, async (req, res, next) => {
         activeDates: streak.activeDates || [],
         grid: streak.grid || [],
         badges: streak.badges || [],
-        streakFreezes: streak.streakFreezes || 0,
+        streakFreezes: streak.streakFreezes ?? 2,
         totalActiveDays: streak.totalActiveDays || 0,
       },
     });
@@ -269,13 +289,16 @@ router.get('/streak/:uid', requireAuth, async (req, res, next) => {
 router.get('/badges/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
-    if (uid !== req.user.clerkUserId && uid !== req.user.id) {
-      return res.status(403).json({ success: false, error: "Cannot fetch another user's badges" });
-    }
-
     let user = await resolveUser(uid);
     if (!user) {
-      user = req.user;
+      if (uid === req.user.clerkUserId || uid === req.user.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+    }
+    if (user.clerkUserId !== req.user.clerkUserId && user.id !== req.user.id) {
+      return res.status(403).json({ success: false, error: "Cannot fetch another user's badges" });
     }
 
     const earnedBadges = user?.id ? await prisma.userBadge.findMany({
@@ -284,13 +307,19 @@ router.get('/badges/:uid', requireAuth, async (req, res, next) => {
       orderBy: { awardedAt: 'desc' },
     }).catch(() => []) : [];
 
-    const result = await calculateBadges(user?.clerkUserId || req.user.clerkUserId);
-    result.badgeHistory = earnedBadges.map((ub) => ({
+    const result = await calculateBadges(user.clerkUserId).catch(() => ({
+      badges: [],
+      totalEarned: 0,
+      totalSessions: 0,
+      sessionHistory: [],
+      badgeHistory: [],
+    }));
+    result.badgeHistory = (earnedBadges || []).map((ub) => ({
       id: `${ub.badgeId}_${ub.auditWeek}`,
       badgeId: ub.badgeId,
       badgeName: ub.badge?.name || ub.badgeId,
       level: ub.badge?.level || 1,
-      earnedAt: ub.awardedAt.toISOString(),
+      earnedAt: ub.awardedAt ? ub.awardedAt.toISOString() : new Date().toISOString(),
       metadata: ub.metadata,
     }));
 
@@ -300,9 +329,9 @@ router.get('/badges/:uid', requireAuth, async (req, res, next) => {
   }
 });
 
-router.get('/leaderboard', requireAuth, async (req, res, next) => {
+router.get('/leaderboard', optionalAuth, async (req, res, next) => {
   try {
-    const result = await getLeaderboard(req.user.clerkUserId);
+    const result = await getLeaderboard(req.user?.clerkUserId || null);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

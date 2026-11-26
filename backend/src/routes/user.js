@@ -280,6 +280,95 @@ router.get('/search', requireAuth, async (req, res, next) => {
   }
 });
 
+router.get('/:uid/profile', requireAuth, async (req, res, next) => {
+  try {
+    let user = await resolveUser(req.params.uid, {
+      include: {
+        college: true,
+        department: true,
+        skills: { include: { skill: true } },
+      },
+    });
+
+    if (!user) {
+      if (req.params.uid === req.user?.clerkUserId || req.params.uid === req.user?.id) {
+        user = req.user;
+      } else {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+    }
+
+    const uid = user.clerkUserId;
+    const [tokenBalance, transactions, streak, skillGraph, sessions] = await Promise.all([
+      getBalance(uid).catch(() => 0),
+      getTransactionHistory(uid, 10).catch(() => []),
+      calculateStreak(uid).catch(() => ({
+        currentStreak: user.currentStreak || 0,
+        longestStreak: user.longestStreak || 0,
+        activeDates: [],
+        grid: [],
+      })),
+      getUserSkillGraph(uid).catch(() => ({
+        teaches: (user.skills || []).filter((s) => s.kind === 'TEACHES').map((s) => s.skill?.name || s.name || s),
+        learns: (user.skills || []).filter((s) => s.kind === 'LEARNS').map((s) => s.skill?.name || s.name || s),
+      })),
+      user.id ? prisma.tutoringSession.findMany({
+        where: {
+          OR: [{ teacherId: user.id }, { learnerId: user.id }],
+          status: 'COMPLETED',
+        },
+        include: { teacher: true, learner: true },
+        orderBy: { scheduledFor: 'desc' },
+        take: 20,
+      }).catch(() => []) : Promise.resolve([]),
+    ]);
+
+    const totalStudyMins = sessions.length * 60;
+    const totalStudyHours = +(totalStudyMins / 60).toFixed(1);
+    const completedSessionsCount = sessions.length;
+    const averageRating = Number(user.averageRating) || 0;
+
+    const reviews = sessions
+      .filter((s) => s.teacherId === user.id)
+      .map((s) => ({
+        sessionId: s.id,
+        skill: s.title || 'Tutoring',
+        rating: 5,
+        ratingComment: 'Great session!',
+        learnerUid: s.learner?.clerkUserId || '',
+        scheduledAt: s.scheduledFor ? new Date(s.scheduledFor).getTime() : 0,
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        user: normalizeUser(user),
+        profileComplete: Boolean(user.profileComplete),
+        tokenBalance,
+        recentTransactions: transactions,
+        streak,
+        skillGraph,
+        reviews,
+        stats: {
+          completedSessionsCount,
+          totalStudyHours,
+          averageRating,
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:uid/follow', requireAuth, async (_req, res) => {
+  res.json({ success: true, message: 'Successfully followed user' });
+});
+
+router.get('/:uid/following', requireAuth, async (_req, res) => {
+  res.json({ success: true, count: 0, limit: 20, offset: 0, hasMore: false, data: [] });
+});
+
 router.get('/:uid', requireAuth, async (req, res, next) => {
   try {
     let user = await resolveUser(req.params.uid, {
@@ -463,94 +552,6 @@ router.patch('/:uid', requireAuth, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
-
-router.get('/:uid/profile', requireAuth, async (req, res, next) => {
-  try {
-    let user = await resolveUser(req.params.uid, {
-      include: {
-        college: true,
-        department: true,
-        skills: { include: { skill: true } },
-      },
-    });
-
-    if (!user) {
-      if (req.params.uid === req.user?.clerkUserId || req.params.uid === req.user?.id) {
-        user = req.user;
-      } else {
-        return res.status(404).json({ success: false, error: 'User not found' });
-      }
-    }
-
-    const uid = user.clerkUserId;
-    const [tokenBalance, transactions, streak, skillGraph, sessions] = await Promise.all([
-      getBalance(uid).catch(() => 0),
-      getTransactionHistory(uid, 10).catch(() => []),
-      calculateStreak(uid).catch(() => ({
-        currentStreak: user.currentStreak || 0,
-        longestStreak: user.longestStreak || 0,
-        activeDates: [],
-        grid: [],
-      })),
-      getUserSkillGraph(uid).catch(() => ({
-        teaches: (user.skills || []).filter((s) => s.kind === 'TEACHES').map((s) => s.skill?.name || s.name || s),
-        learns: (user.skills || []).filter((s) => s.kind === 'LEARNS').map((s) => s.skill?.name || s.name || s),
-      })),
-      user.id ? prisma.tutoringSession.findMany({
-        where: {
-          OR: [{ teacherId: user.id }, { learnerId: user.id }],
-          status: 'COMPLETED',
-        },
-        include: { teacher: true, learner: true },
-        orderBy: { scheduledFor: 'desc' },
-        take: 20,
-      }).catch(() => []) : Promise.resolve([]),
-    ]);
-
-    const totalStudyMins = sessions.length * 60;
-    const totalStudyHours = +(totalStudyMins / 60).toFixed(1);
-    const completedSessionsCount = sessions.length;
-    const averageRating = Number(user.averageRating) || 0;
-
-    const reviews = sessions
-      .filter((s) => s.teacherId === user.id)
-      .map((s) => ({
-        sessionId: s.id,
-        skill: s.title || 'Tutoring',
-        rating: 5,
-        ratingComment: 'Great session!',
-        learnerUid: s.learner?.clerkUserId || '',
-        scheduledAt: s.scheduledFor ? new Date(s.scheduledFor).getTime() : 0,
-      }));
-
-    res.json({
-      success: true,
-      data: {
-        user: normalizeUser(user),
-        tokenBalance,
-        recentTransactions: transactions,
-        streak,
-        skillGraph,
-        reviews,
-        stats: {
-          completedSessionsCount,
-          totalStudyHours,
-          averageRating,
-        },
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/:uid/follow', requireAuth, async (_req, res) => {
-  res.json({ success: true, message: 'Successfully followed user' });
-});
-
-router.get('/:uid/following', requireAuth, async (_req, res) => {
-  res.json({ success: true, count: 0, limit: 20, offset: 0, hasMore: false, data: [] });
 });
 
 module.exports = router;

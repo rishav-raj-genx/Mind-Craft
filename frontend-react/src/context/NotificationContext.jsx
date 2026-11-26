@@ -64,6 +64,11 @@ export const NotificationProvider = ({ children }) => {
   const socketRef = useRef(null);
   const chatListeners = useRef(new Map());
   const pathRef = useRef(location.pathname);
+  const getTokenRef = useRef(getToken);
+
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
 
   useEffect(() => {
     pathRef.current = location.pathname;
@@ -202,7 +207,7 @@ export const NotificationProvider = ({ children }) => {
       path: '/socket.io',
       auth: async (cb) => {
         try {
-          const token = await getToken();
+          const token = await getTokenRef.current?.();
           cb({ token });
         } catch {
           cb({});
@@ -377,7 +382,7 @@ export const NotificationProvider = ({ children }) => {
       isMounted = false;
       socket.disconnect();
     };
-  }, [currentUser, getToken, pushNotification, shouldConnect, updateUnreadForumIds]);
+  }, [currentUser?.uid, pushNotification, shouldConnect, updateUnreadForumIds]);
 
   const subscribeToChat = useCallback((matchId, callback) => {
     chatListeners.current.set(matchId, callback);

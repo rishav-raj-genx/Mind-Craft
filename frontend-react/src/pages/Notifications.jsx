@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -188,20 +188,25 @@ const Notifications = () => {
     setLoading(false);
   }, [currentUser]);
 
+  const clearUnreadRef = useRef(clearUnreadNotifications);
   useEffect(() => {
-    if (!currentUser) return;
+    clearUnreadRef.current = clearUnreadNotifications;
+  }, [clearUnreadNotifications]);
+
+  useEffect(() => {
+    if (!currentUser?.uid) return;
     let isMounted = true;
     const run = async () => {
       await buildNotifications();
       if (isMounted) {
-        clearUnreadNotifications?.();
+        clearUnreadRef.current?.();
       }
     };
     run();
     return () => {
       isMounted = false;
     };
-  }, [currentUser, clearUnreadNotifications, buildNotifications]);
+  }, [currentUser?.uid, buildNotifications]);
 
   // Handle local "mark as read" for REST items
   const handleMarkRead = useCallback((notif) => {
