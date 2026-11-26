@@ -4,7 +4,6 @@ import { useAuth } from './AuthContext';
 import { API_BASE_URL } from '../config/api';
 import { chatService } from '../services/chatService';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useProfile } from '../hooks/useUserProfile';
 
 const NotificationContext = createContext({});
 
@@ -24,7 +23,7 @@ const sortThreadsByTimestamp = (threads) =>
   [...threads].sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
 
 export const NotificationProvider = ({ children }) => {
-  const { currentUser, getToken } = useAuth();
+  const { currentUser, getToken, isRegistered, needsOnboarding } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -33,19 +32,9 @@ export const NotificationProvider = ({ children }) => {
     location.pathname.startsWith('/signup') ||
     location.pathname.startsWith('/sso-callback');
 
-  const { data: profileRes } = useProfile(currentUser?.uid, {
-    enabled: Boolean(currentUser?.uid) && !isAuthPage,
-    staleTime: 60_000,
-    retry: false,
-  });
-
-  const isProfileComplete = Boolean(
-    profileRes?.data?.profileComplete ??
-    profileRes?.data?.user?.profileComplete ??
-    profileRes?.profileComplete
+  const shouldConnect = Boolean(
+    currentUser && !isAuthPage && isRegistered && !needsOnboarding
   );
-
-  const shouldConnect = Boolean(currentUser && !isAuthPage && isProfileComplete);
 
   const [threads, setThreads] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});

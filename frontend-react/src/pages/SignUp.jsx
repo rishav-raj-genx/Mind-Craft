@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { SignUp as ClerkSignUp } from '@clerk/react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   User,
   MapPin,
@@ -17,9 +17,9 @@ import {
   Loader2,
   Link2,
   LogOut,
+  AlertCircle,
 } from 'lucide-react';
 import { userService } from '../services/userService';
-import { useFullProfile } from '../hooks/useUserProfile';
 import { queryClient } from '../config/queryClient';
 import { useAppContext } from '../context/AppContext';
 import { clerkAppearance } from '../config/clerkAppearance';
@@ -209,23 +209,20 @@ const SocialLinksModal = ({ socials, onSave, onClose }) => {
 };
 
 const SignUp = () => {
-  const { currentUser, isLoaded, logout } = useAuth();
+  const {
+    currentUser,
+    isLoaded,
+    isSignedIn,
+    isCheckingProfile,
+    isRegistered,
+    needsOnboarding,
+    refreshProfile,
+    logout,
+  } = useAuth();
   const { isDark, setIsDark } = useAppContext();
   const navigate = useNavigate();
-
-  const {
-    data: profileRes,
-    isLoading: isCheckingProfile,
-  } = useFullProfile(currentUser?.uid, {
-    retry: false,
-    enabled: Boolean(currentUser?.uid),
-  });
-
-  const isProfileComplete = Boolean(
-    profileRes?.data?.profileComplete ??
-    profileRes?.data?.user?.profileComplete ??
-    profileRes?.profileComplete
-  );
+  const [searchParams] = useSearchParams();
+  const reason = searchParams.get('reason');
 
   const [enteredName, setEnteredName] = useState('');
   const [customPhotoUrl, setCustomPhotoUrl] = useState('');
@@ -255,10 +252,10 @@ const SignUp = () => {
 
   // Redirect if profile already fully exists
   useEffect(() => {
-    if (isProfileComplete) {
-      navigate('/');
+    if (isSignedIn && isRegistered && !needsOnboarding) {
+      navigate('/', { replace: true });
     }
-  }, [isProfileComplete, navigate]);
+  }, [isSignedIn, isRegistered, needsOnboarding, navigate]);
 
   // Fetch taxonomy dropdown suggestions
   useEffect(() => {
@@ -332,14 +329,20 @@ const SignUp = () => {
       setSubmitting(true);
       setError('');
       await userService.register(buildUserData(currentUser));
+      await refreshProfile();
       if (currentUser?.uid) {
         queryClient.invalidateQueries({ queryKey: ['profile', currentUser.uid] });
         queryClient.invalidateQueries({ queryKey: ['fullProfile', currentUser.uid] });
       }
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (err) {
       console.error('Profile registration error:', err);
-      setError(err.response?.data?.message || err.message || 'Failed to complete profile registration.');
+      const msg =
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to complete profile registration.';
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -368,7 +371,7 @@ const SignUp = () => {
   const removeTeach = (topic) => setTeaches(teaches.filter((t) => t !== topic));
   const removeLearn = (topic) => setLearns(learns.filter((t) => t !== topic));
 
-  if (!isLoaded || (currentUser && isCheckingProfile)) {
+  if (!isLoaded || (isSignedIn && isCheckingProfile)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background-deep text-on-background">
         <Loader2 className="animate-spin text-success-lime" size={36} />
@@ -377,7 +380,7 @@ const SignUp = () => {
   }
 
   // ── Step 1: If user is not yet signed up with Clerk, render official Clerk <SignUp /> ──
-  if (!currentUser || isProfileComplete) {
+  if (!isSignedIn) {
     return (
       <div className="bg-background-deep text-on-background min-h-screen flex flex-col justify-center items-center font-body-md overflow-x-hidden relative p-4">
         <div className="blob-bg">
@@ -396,7 +399,7 @@ const SignUp = () => {
             routing="path"
             path="/signup"
             signInUrl="/login"
-            forceRedirectUrl="/signup"
+            fallbackRedirectUrl="/signup"
             appearance={clerkAppearance}
           />
         </div>
@@ -412,6 +415,40 @@ const SignUp = () => {
           <h1 className="font-headline-xl text-headline-xl text-success-lime tracking-tighter mb-1">Welcome to Mindcraft</h1>
           <p className="font-body-sm text-body-sm text-on-surface-variant">Complete your profile to connect with campus study mates.</p>
         </header>
+
+        {/* Prominent info alert banner when user is logged into Clerk without a Mindcraft profile */}
+        {(needsOnboarding || reason === 'no_profile') && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                <AlertCircle size={20} />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-sm text-white mb-0.5">
+                  No Mindcraft profile exists for this email yet
+                </h3>
+                <p className="text-xs text-amber-200/80 mb-2">
+                  Complete your profile below to finish signing up!
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-amber-500/20 text-xs">
+                  <span className="text-on-surface-variant font-mono">
+                    {currentUser?.email || 'Logged into Clerk'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await logout();
+                      navigate('/login', { replace: true });
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium transition-colors"
+                  >
+                    <LogOut size={13} /> Sign Out / Switch Account
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && <div className="text-red-500 mb-4 z-10 relative text-sm bg-red-950/40 border border-red-900/50 p-3 rounded-xl">{error}</div>}
 

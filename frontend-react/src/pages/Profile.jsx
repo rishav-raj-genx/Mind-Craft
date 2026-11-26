@@ -401,7 +401,7 @@ const Profile = () => {
   const [showTokenModal, setShowTokenModal] = useState(false);
   const photoInputRef = useRef(null);
   const graphScrollRef = useRef(null);
-  const isOwner = currentUser?.uid === uid;
+  const isOwner = Boolean(currentUser && (currentUser.uid === uid || currentUser.id === uid));
 
   useEffect(() => {
     if (!uid) return;
@@ -413,10 +413,11 @@ const Profile = () => {
         setProfileData(profileRes.data);
         if (profileRes.data?.streak) setStreakData(profileRes.data.streak);
 
-        if (currentUser?.uid && currentUser.uid !== uid) {
+        const currentIdentifier = currentUser?.uid || currentUser?.id;
+        if (currentIdentifier && currentIdentifier !== uid) {
           try {
-            const followingRes = await userService.getFollowing(currentUser.uid);
-            if (followingRes.data && followingRes.data.some(u => u.uid === uid)) {
+            const followingRes = await userService.getFollowing(currentIdentifier);
+            if (followingRes.data && followingRes.data.some(u => u.uid === uid || u.id === uid)) {
               setIsConnected(true);
             }
           } catch { /* ignore */ }
@@ -443,7 +444,7 @@ const Profile = () => {
     return () => {
       isMounted = false;
     };
-  }, [uid, currentUser?.uid]);
+  }, [uid, currentUser?.uid, currentUser?.id]);
 
   // Auto-scroll consistency graph to the right (current month) when data loads
   useEffect(() => {

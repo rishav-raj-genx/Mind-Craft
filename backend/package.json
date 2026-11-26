@@ -10,6 +10,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
+    "db:clean-users": "node scripts/cleanTestUsers.js",
     "workflow:weekly-audit": "node src/workflows/weeklyAudit.js",
     "worker:chat": "node src/workers/chatPersistenceWorker.js",
     "worker:weekly-audit": "node src/workers/weeklyAuditWorker.js",

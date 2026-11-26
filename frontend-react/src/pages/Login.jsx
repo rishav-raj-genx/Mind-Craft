@@ -2,32 +2,27 @@ import { useEffect } from 'react';
 import { SignIn } from '@clerk/react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useFullProfile } from '../hooks/useUserProfile';
 import { clerkAppearance } from '../config/clerkAppearance';
+import { PageSpinner } from '../App';
 
 const Login = () => {
-  const { currentUser } = useAuth();
+  const { isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding } = useAuth();
   const navigate = useNavigate();
-  const { data: profileRes, isLoading } = useFullProfile(currentUser?.uid, {
-    retry: false,
-    enabled: Boolean(currentUser?.uid),
-  });
-
-  const isProfileComplete = Boolean(
-    profileRes?.data?.profileComplete ??
-    profileRes?.data?.user?.profileComplete ??
-    profileRes?.profileComplete
-  );
 
   useEffect(() => {
-    if (currentUser && !isLoading) {
-      if (isProfileComplete) {
-        navigate('/');
-      } else {
-        navigate('/signup');
+    if (!isLoaded || (isSignedIn && isCheckingProfile)) return;
+    if (isSignedIn) {
+      if (isRegistered && !needsOnboarding) {
+        navigate('/', { replace: true });
+      } else if (needsOnboarding || !isRegistered) {
+        navigate('/signup?reason=no_profile', { replace: true });
       }
     }
-  }, [currentUser, isLoading, isProfileComplete, navigate]);
+  }, [isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding, navigate]);
+
+  if (!isLoaded || (isSignedIn && isCheckingProfile)) {
+    return <PageSpinner />;
+  }
 
   return (
     <div className="bg-background-deep text-on-background min-h-screen flex flex-col justify-center items-center font-body-md overflow-x-hidden relative p-4">
@@ -49,7 +44,7 @@ const Login = () => {
           routing="path"
           path="/login"
           signUpUrl="/signup"
-          forceRedirectUrl="/"
+          fallbackRedirectUrl="/"
           appearance={clerkAppearance}
         />
       </div>

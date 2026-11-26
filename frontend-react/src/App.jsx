@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState, lazy, Suspense } from 'react';
 import { AuthenticateWithRedirectCallback } from '@clerk/react';
 import { useAuth } from './context/AuthContext';
@@ -33,28 +33,97 @@ export const PageSpinner = () => (
   </div>
 );
 
+// Route guard for authenticated + registered users (State 3)
 const ProtectedRoute = ({ children }) => {
-  const { currentUser } = useAuth();
-  if (!currentUser) return <Navigate to="/login" replace />;
+  const { isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding } = useAuth();
+
+  if (!isLoaded || (isSignedIn && isCheckingProfile)) {
+    return <PageSpinner />;
+  }
+
+  if (!isSignedIn) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (needsOnboarding || !isRegistered) {
+    return <Navigate to="/signup?reason=no_profile" replace />;
+  }
+
+  return children;
+};
+
+// Route guard for /login:
+// - Not signed in -> render Login
+// - Signed in + needs onboarding -> redirect to /signup?reason=no_profile
+// - Signed in + registered -> redirect to /
+const PublicLoginRoute = ({ children }) => {
+  const { isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding } = useAuth();
+
+  if (!isLoaded || (isSignedIn && isCheckingProfile)) {
+    return <PageSpinner />;
+  }
+
+  if (isSignedIn) {
+    if (isRegistered && !needsOnboarding) {
+      return <Navigate to="/" replace />;
+    }
+    return <Navigate to="/signup?reason=no_profile" replace />;
+  }
+
+  return children;
+};
+
+// Route guard for /signup:
+// - Not signed in -> render SignUp (Step 1 Clerk SignUp)
+// - Signed in + needs onboarding -> render SignUp (Step 2 Onboarding Form)
+// - Signed in + registered -> redirect to /
+const PublicSignUpRoute = ({ children }) => {
+  const { isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding } = useAuth();
+
+  if (!isLoaded || (isSignedIn && isCheckingProfile)) {
+    return <PageSpinner />;
+  }
+
+  if (isSignedIn && isRegistered && !needsOnboarding) {
+    return <Navigate to="/" replace />;
+  }
+
   return children;
 };
 
 const ProfileRedirect = () => {
-  const { currentUser } = useAuth();
-  if (!currentUser?.uid) return <Navigate to="/login" replace />;
-  return <Navigate to={`/profile/${currentUser.uid}`} replace />;
+  const { currentUser, isRegistered, needsOnboarding } = useAuth();
+  if (needsOnboarding || !isRegistered) {
+    return <Navigate to="/signup?reason=no_profile" replace />;
+  }
+  const uid = currentUser?.uid || currentUser?.id;
+  if (!uid) return <Navigate to="/login" replace />;
+  return <Navigate to={`/profile/${uid}`} replace />;
 };
 
 const AppContent = () => {
-  const { currentUser } = useAuth();
+  const { isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding } = useAuth();
   const { isDark } = useAppContext();
+  const location = useLocation();
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(
-    localStorage.getItem('hasSeenOnboarding') === 'true'
+    () => localStorage.getItem('hasSeenOnboarding') === 'true'
   );
 
-  const isAuthPage = window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/signup') || window.location.pathname.startsWith('/sso-callback');
+  const isAuthPage =
+    location.pathname.startsWith('/login') ||
+    location.pathname.startsWith('/signup') ||
+    location.pathname.startsWith('/sso-callback');
 
-  if (currentUser && !hasSeenOnboarding && !isAuthPage) {
+  if (!isLoaded || (isSignedIn && isCheckingProfile)) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-[#1C1C2E]' : 'bg-[#FAFAFA]'}`}>
+        <PageSpinner />
+      </div>
+    );
+  }
+
+  // Show onboarding guide only to fully registered users after signup
+  if (isSignedIn && isRegistered && !needsOnboarding && !hasSeenOnboarding && !isAuthPage) {
     return (
       <Onboarding
         onComplete={() => {
@@ -72,8 +141,8 @@ const AppContent = () => {
       <NotificationProvider>
         <Suspense fallback={<PageSpinner />}>
           <Routes>
-            <Route path="/login/*" element={<Login />} />
-            <Route path="/signup/*" element={<SignUp />} />
+            <Route path="/login/*" element={<PublicLoginRoute><Login /></PublicLoginRoute>} />
+            <Route path="/signup/*" element={<PublicSignUpRoute><SignUp /></PublicSignUpRoute>} />
             <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback signInForceRedirectUrl="/" signUpForceRedirectUrl="/signup" />} />
             <Route path="/login/sso-callback" element={<AuthenticateWithRedirectCallback signInForceRedirectUrl="/" signUpForceRedirectUrl="/signup" />} />
 

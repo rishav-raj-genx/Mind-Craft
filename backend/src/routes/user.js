@@ -21,6 +21,7 @@ function normalizeUser(u) {
   return {
     id: u.id,
     uid: u.clerkUserId,
+    clerkUserId: u.clerkUserId,
     email: u.email,
     name: u.name,
     photoUrl: u.photoUrl || '',
