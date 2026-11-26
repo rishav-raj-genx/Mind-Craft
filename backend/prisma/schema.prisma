@@ -19,6 +19,7 @@ enum DoubtStatus {
 }
 
 enum AiAssistStatus {
+  PENDING
   SKIPPED
   GENERATED
   FALLBACK
@@ -106,6 +107,8 @@ model User {
   activityDays     ActivityDay[]
   images           DoubtImage[]       @relation("ImageUploader")
   badges           UserBadge[]
+  following        UserFollow[]       @relation("UserFollowing")
+  followers        UserFollow[]       @relation("UserFollowers")
 
   @@index([collegeId, departmentId])
   @@index([mindTokens])
@@ -130,13 +133,15 @@ model Department {
 }
 
 model Skill {
-  id        String      @id @default(uuid()) @db.Uuid
-  name      String      @unique
-  users     UserSkill[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id             String      @id @default(uuid()) @db.Uuid
+  name           String      @unique
+  normalizedName String?     @unique
+  users          UserSkill[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
   @@index([name])
+  @@index([normalizedName])
 }
 
 model UserSkill {
@@ -262,7 +267,20 @@ model MatchRequest {
 
   @@index([recipientId, status, createdAt])
   @@index([requesterId, status, createdAt])
-  @@index([requesterId, recipientId, status])
+  @@unique([requesterId, recipientId, status])
+}
+
+model UserFollow {
+  followerId  String   @db.Uuid
+  followingId String   @db.Uuid
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followingId])
+  @@index([followerId, createdAt])
+  @@index([followingId, createdAt])
 }
 
 model ChatThread {
@@ -324,6 +342,7 @@ model TutoringSession {
   mode          SessionMode   @default(ONLINE)
   status        SessionStatus @default(PENDING)
   scheduledFor  DateTime?
+  duration      Int           @default(60)
   completedAt   DateTime?
   completionKey String?       @unique
   createdAt     DateTime      @default(now())

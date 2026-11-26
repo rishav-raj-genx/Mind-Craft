@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback, us
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { queryClient } from '../config/queryClient';
 import { chatService } from '../services/chatService';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -192,16 +193,28 @@ export const NotificationProvider = ({ children }) => {
 
     loadData();
 
+    let authRetryCount = 0;
+    let authRetryTimer = null;
+    const MAX_AUTH_RETRIES = 5;
+
+    const authHandler = async (cb) => {
+      try {
+        if (authHandler.token) {
+          const refreshedToken = authHandler.token;
+          delete authHandler.token;
+          cb({ token: refreshedToken });
+          return;
+        }
+        const token = await getTokenRef.current?.();
+        cb({ token });
+      } catch {
+        cb({});
+      }
+    };
+
     const socket = io(API_BASE_URL, {
       path: '/socket.io',
-      auth: async (cb) => {
-        try {
-          const token = await getTokenRef.current?.();
-          cb({ token });
-        } catch {
-          cb({});
-        }
-      },
+      auth: authHandler,
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
@@ -211,14 +224,59 @@ export const NotificationProvider = ({ children }) => {
 
     socket.on('connect', () => {
       if (!isMounted) return;
+      authRetryCount = 0;
+      if (authRetryTimer) {
+        clearTimeout(authRetryTimer);
+        authRetryTimer = null;
+      }
       chatListeners.current.forEach((_callback, matchId) => {
         socket.emit('thread:join', { threadId: matchId });
       });
     });
 
+    socket.on('connect_error', async (err) => {
+      if (!isMounted) return;
+      const errCode = err?.data?.code;
+      const errMessage = err?.message || '';
+      const isAuthFailure =
+        errCode === 'AUTH_INVALID' ||
+        errCode === 'AUTH_REQUIRED' ||
+        /AUTH_INVALID|AUTH_REQUIRED|authentication|token|unauthorized/i.test(errMessage);
+
+      if (!isAuthFailure || authRetryCount >= MAX_AUTH_RETRIES) {
+        return;
+      }
+
+      const backoffMs = Math.min(1000 * (2 ** authRetryCount), 30000);
+      authRetryCount += 1;
+
+      if (authRetryTimer) {
+        clearTimeout(authRetryTimer);
+      }
+
+      authRetryTimer = setTimeout(async () => {
+        if (!isMounted) return;
+        try {
+          const freshToken = await getTokenRef.current?.({ skipCache: true });
+          if (!isMounted || !freshToken) return;
+          if (socket.auth && typeof socket.auth === 'object') {
+            socket.auth.token = freshToken;
+          } else if (typeof socket.auth === 'function') {
+            socket.auth.token = freshToken;
+          } else {
+            socket.auth = { token: freshToken };
+          }
+          socket.connect();
+        } catch (refreshErr) {
+          console.warn('Socket auth token refresh failed', refreshErr);
+        }
+      }, backoffMs);
+    });
+
     socket.on('chat:message', (message) => {
       if (!isMounted) return;
       const matchId = message.threadId;
+      const resolvedSenderUid = message.senderUid || message.senderId;
 
       // Update listeners
       const listener = chatListeners.current.get(matchId);
@@ -227,25 +285,29 @@ export const NotificationProvider = ({ children }) => {
           type: 'message',
           matchId,
           messageId: message.messageId,
-          senderUid: message.senderId,
+          localId: message.clientMessageId,
+          senderUid: message.senderUid,
+          senderId: message.senderId,
           senderName: message.senderName,
           text: message.text,
           timestamp: new Date(message.createdAt).getTime(),
         });
       }
 
+      const isSelf =
+        resolvedSenderUid === currentUser.uid || message.senderId === currentUser.uid;
+
       // Update thread in list
       setThreads((prev) => {
         const existingIdx = prev.findIndex((t) => t.matchId === matchId);
         const updated = [...prev];
-        const isSelf = message.senderId === currentUser.uid;
         if (existingIdx !== -1) {
           const thread = updated.splice(existingIdx, 1)[0];
           updated.unshift({
             ...thread,
             lastMessage: message.text,
             lastMessageTime: new Date(message.createdAt).getTime(),
-            lastMessageSender: message.senderId,
+            lastMessageSender: resolvedSenderUid,
             unread: !isSelf,
           });
         }
@@ -254,7 +316,7 @@ export const NotificationProvider = ({ children }) => {
 
       // Update unread count if not viewing this thread
       const currentMatchId = pathRef.current.split('/chat/')[1];
-      if (message.senderId !== currentUser.uid && currentMatchId !== matchId) {
+      if (!isSelf && currentMatchId !== matchId) {
         setUnreadCounts((prev) => ({
           ...prev,
           [matchId]: (prev[matchId] || 0) + 1,
@@ -285,15 +347,34 @@ export const NotificationProvider = ({ children }) => {
     socket.on('chat:typing', (data) => {
       const listener = chatListeners.current.get(data.threadId);
       if (listener) {
-        listener({ type: 'typing', matchId: data.threadId, uid: data.userId, isTyping: data.isTyping });
+        listener({
+          type: 'typing',
+          matchId: data.threadId,
+          uid: data.senderUid || data.userId,
+          isTyping: data.isTyping,
+        });
       }
     });
 
     socket.on('chat:read', (data) => {
       const listener = chatListeners.current.get(data.threadId);
       if (listener) {
-        listener({ type: 'read_receipt', matchId: data.threadId, readerUid: data.userId });
+        listener({
+          type: 'read_receipt',
+          matchId: data.threadId,
+          readerUid: data.senderUid || data.userId,
+        });
       }
+    });
+
+    socket.on('message_edited', (data) => {
+      const listener = chatListeners.current.get(data.matchId);
+      if (listener) listener({ type: 'message_edited', ...data });
+    });
+
+    socket.on('message_deleted', (data) => {
+      const listener = chatListeners.current.get(data.matchId);
+      if (listener) listener({ type: 'message_deleted', ...data });
     });
 
     socket.on('presence:changed', (data) => {
@@ -304,22 +385,48 @@ export const NotificationProvider = ({ children }) => {
 
     socket.on('global_notification', (data) => {
       const notification = data.notification || {};
+      const subType = data.subType || '';
+      const isMatchRequest = subType === 'match_request';
+      const isMatchAccepted = subType === 'match_accepted';
+
+      let category = subType || CATEGORIES.SESSION;
+      if (isMatchRequest || isMatchAccepted) {
+        category = CATEGORIES.SOCIAL;
+      } else if (subType.startsWith('session_')) {
+        category = CATEGORIES.SESSION;
+      } else if (subType === 'new_review') {
+        category = CATEGORIES.REVIEW;
+      }
+
+      const notifId = isMatchRequest && data.data?.requestId
+        ? `match-req-${data.data.requestId}`
+        : (data.id || data.data?.id || `notif-${Date.now()}`);
+
+      const title =
+        notification.title ||
+        (isMatchRequest ? 'Match Request' : isMatchAccepted ? 'Match Accepted' : 'Notification');
+      const message = notification.body || data.data?.message || '';
+      const route = data.data?.route || '/sessions';
+
       pushNotification({
-        id: data.id || `notif-${Date.now()}`,
-        category: data.subType || CATEGORIES.SESSION,
-        type: data.subType?.toUpperCase() || 'INFO',
-        title: notification.title || 'Notification',
-        message: notification.body || data.data?.message || '',
+        id: notifId,
+        category,
+        type: subType ? subType.toUpperCase() : 'INFO',
+        title,
+        message,
         timestamp: data.timestamp || Date.now(),
         read: false,
-        route: data.data?.route || '/sessions',
+        route,
         sessionId: data.sessionId,
+        requestId: data.data?.requestId,
+        matchId: data.data?.matchId,
+        actionable: isMatchRequest && Boolean(data.data?.requestId),
       });
 
       setToastMessage({
-        senderName: notification.title || 'Mindcraft',
-        text: notification.body || data.data?.message || '',
-        route: data.data?.route || '/sessions',
+        senderName: title || 'Mindcraft',
+        text: message,
+        route,
         timestamp: Date.now(),
       });
       setTimeout(() => setToastMessage(null), 4000);
@@ -340,35 +447,103 @@ export const NotificationProvider = ({ children }) => {
 
     socket.on('global_forum_doubt', (data) => {
       const doubt = data.data || {};
-      if (!doubt.doubtId || doubt.authorUid === currentUser.uid) return;
+      if ((!doubt.doubtId && !doubt.route) || (doubt.authorUid && doubt.authorUid === currentUser.uid)) return;
 
-      if (pathRef.current !== '/forum') {
+      const subType = data.subType || 'new_doubt';
+      const authorName = doubt.authorName || 'Someone';
+      const doubtTitle = doubt.doubtTitle || doubt.title || 'a doubt';
+      const route = doubt.route || (doubt.doubtId ? `/forum?doubtId=${doubt.doubtId}` : '/forum');
+
+      if (doubt.doubtId && pathRef.current !== '/forum') {
         updateUnreadForumIds((prev) => new Set(prev).add(doubt.doubtId));
       }
 
+      let title = 'New Doubt';
+      let message = `${authorName} asked: "${doubt.doubtTitle || doubt.title || 'a new doubt'}"`;
+      let notifType = 'NEW_DOUBT';
+      let notifId = `forum-${doubt.doubtId || Date.now()}`;
+      let toastSender = doubt.authorName || 'Forum';
+      let toastText = `New doubt: ${doubt.doubtTitle || doubt.title || 'Open forum'}`;
+
+      if (subType === 'new_answer') {
+        title = 'New Answer to Your Doubt';
+        message = `${authorName} answered: "${doubtTitle}"`;
+        notifType = 'NEW_ANSWER';
+        notifId = `forum-answer-${doubt.doubtId || Date.now()}-${data.timestamp || Date.now()}`;
+        toastSender = title;
+        toastText = message;
+      } else if (subType === 'answer_accepted') {
+        const reward = doubt.tokenReward ?? 10;
+        title = 'Solution Accepted! 🌟';
+        message = `Your answer was marked as the accepted solution (+${reward} Tokens)!`;
+        notifType = 'ANSWER_ACCEPTED';
+        notifId = `forum-accepted-${doubt.doubtId || Date.now()}-${doubt.answerId || data.timestamp || Date.now()}`;
+        toastSender = title;
+        toastText = message;
+      }
+
       setToastMessage({
-        senderName: doubt.authorName || 'Forum',
-        text: `New doubt: ${doubt.title || 'Open forum'}`,
-        route: `/forum?doubtId=${doubt.doubtId}`,
+        senderName: toastSender,
+        text: toastText,
+        route,
         timestamp: Date.now(),
       });
       setTimeout(() => setToastMessage(null), 4000);
 
       pushNotification({
-        id: `forum-${doubt.doubtId}`,
+        id: notifId,
         category: CATEGORIES.FORUM,
-        type: 'NEW_DOUBT',
-        title: 'New Doubt',
-        message: `${doubt.authorName || 'Someone'} asked: "${doubt.title || 'a new doubt'}"`,
-        timestamp: Date.now(),
+        type: notifType,
+        title,
+        message,
+        timestamp: data.timestamp || Date.now(),
         read: false,
-        route: `/forum?doubtId=${doubt.doubtId}`,
+        route,
         doubtId: doubt.doubtId,
+      });
+    });
+
+    const handleSocketError = (err) => {
+      if (!isMounted) return;
+      const errMsg = typeof err === 'string' ? err : err?.message || 'Socket connection error';
+      console.warn('Socket error event:', errMsg);
+      setToastMessage({
+        senderName: 'System',
+        text: errMsg,
+        timestamp: Date.now(),
+      });
+      setTimeout(() => {
+        if (isMounted) setToastMessage(null);
+      }, 4000);
+    };
+
+    socket.on('error', handleSocketError);
+
+    socket.on('doubt:hint_ready', (payload) => {
+      if (!payload?.doubtId) return;
+      queryClient.setQueriesData({ queryKey: ['doubts'] }, (old) => {
+        if (!old || !Array.isArray(old.data)) return old;
+        let changed = false;
+        const nextData = old.data.map((d) => {
+          if (d?.id !== payload.doubtId) return d;
+          changed = true;
+          return {
+            ...d,
+            aiHint: payload.aiHint ?? d.aiHint,
+            aiAssistStatus: payload.aiAssistStatus ?? d.aiAssistStatus,
+            aiAssistError: payload.aiAssistError ?? null,
+          };
+        });
+        return changed ? { ...old, data: nextData } : old;
       });
     });
 
     return () => {
       isMounted = false;
+      if (authRetryTimer) {
+        clearTimeout(authRetryTimer);
+      }
+      socket.off?.('error', handleSocketError);
       socket.disconnect();
     };
   }, [currentUser?.uid, pushNotification, shouldConnect, updateUnreadForumIds]);

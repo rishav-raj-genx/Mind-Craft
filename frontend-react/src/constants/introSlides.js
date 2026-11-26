@@ -29,11 +29,11 @@ export const INTRO_SLIDES = [
     title: 'Smart Peer Matching',
     subtitle: 'Find Mates Who Teach What You Learn',
     description:
-      'Search naturally with Sarvam AI vernacular voice search in Indian languages. Our matchmaking engine pairs you with compatible peers based on mutual skills and schedule.',
+      'Connect with compatible study partners based on mutual skills, courses, and schedules. Teach what you excel in and learn what you need through collaborative peer sessions.',
     highlights: [
-      'Vernacular Voice Search (Hindi, Tamil, Telugu)',
-      'Smart Mutual Skill Compatibility',
-      'Instant Match Discovery',
+      'Mutual Skill Matchmaking',
+      'Course & Topic Alignment',
+      'Verified Study Partners',
     ],
     icon: Users,
     gradient: 'from-cyan-400 to-blue-500',

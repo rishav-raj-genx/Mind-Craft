@@ -18,22 +18,23 @@ function getIntensityLevel(count, isFuture) {
 /**
  * Returns Tailwind classNames for each cell level in both light and dark modes.
  */
-function getCellColorClass(level) {
+// eslint-disable-next-line react-refresh/only-export-components
+export function getCellColorClass(level) {
   switch (level) {
     case -1:
       return 'bg-transparent border border-dashed border-gray-200 dark:border-white/5 opacity-0 pointer-events-none';
     case 0:
       return 'bg-slate-100 dark:bg-[#1E1E2F] border border-slate-200/80 dark:border-[#2D2D44] hover:border-slate-400 dark:hover:border-slate-500';
     case 1:
-      return 'bg-[#d9f99d] dark:bg-[#24421b] border border-[#bef264] dark:border-[#356127] hover:scale-110';
+      return 'bg-[#4C1D95] dark:bg-[#2E1065] border border-[#3B0764] hover:scale-110';
     case 2:
-      return 'bg-[#a3e635] dark:bg-[#3b6d26] border border-[#84cc16] dark:border-[#529635] hover:scale-110';
+      return 'bg-[#7C3AED] dark:bg-[#6D28D9] border border-[#6D28D9] dark:border-[#7C3AED] hover:scale-110';
     case 3:
-      return 'bg-[#65a30d] dark:bg-[#74be34] border border-[#4d7c0f] dark:border-[#8ce33e] hover:scale-110';
+      return 'bg-[#BC84EE] dark:bg-[#A855F7] border border-[#A855F7] dark:border-[#BC84EE] hover:scale-110';
     case 4:
-      return 'bg-[#4d7c0f] dark:bg-[#DCFD8B] border border-[#3f6212] dark:border-[#DCFD8B] dark:shadow-[0_0_8px_rgba(220,253,139,0.5)] hover:scale-110';
+      return 'bg-[#DCFD8B] dark:bg-[#DCFD8B] border border-[#bef264] dark:border-[#DCFD8B] shadow-[0_0_6px_rgba(220,253,139,0.4)] dark:shadow-[0_0_10px_rgba(220,253,139,0.7)] hover:scale-110 text-slate-900';
     default:
-      return 'bg-slate-100 dark:bg-[#1E1E2F] border border-slate-200 dark:border-[#2D2D44]';
+      return 'bg-slate-100 dark:bg-[#1E1E2F] border border-slate-200/80 dark:border-[#2D2D44]';
   }
 }
 

@@ -86,8 +86,67 @@ async function handleGetMatchRequests(req, res, next) {
   }
 }
 
+function parseMatchFilters(query = {}) {
+  const { limit, offset } = getPagination(query);
+  const skillFilter = typeof query.skill === 'string' && query.skill.trim() ? query.skill.trim() : null;
+  const college = typeof query.college === 'string' && query.college.trim() ? query.college.trim() : null;
+  const department = typeof query.department === 'string' && query.department.trim() ? query.department.trim() : null;
+  const year = query.year !== undefined && query.year !== null && String(query.year).trim()
+    ? String(query.year).trim()
+    : null;
+  const parsedRating = Number(query.minRating);
+  const minRating = Number.isFinite(parsedRating) && parsedRating > 0 ? parsedRating : 0;
+  const sortBy = ['relevance', 'rating', 'name'].includes(query.sortBy) ? query.sortBy : 'relevance';
+  const sameCollegeOnly = query.sameCollegeOnly === 'true' || query.sameCollegeOnly === true;
+  const cursor = typeof query.cursor === 'string' && query.cursor.trim() ? query.cursor.trim() : null;
+
+  return {
+    limit,
+    offset,
+    skillFilter,
+    college,
+    department,
+    year,
+    minRating,
+    sortBy,
+    sameCollegeOnly,
+    cursor,
+  };
+}
+
+function formatMatchRequest(record, requester, recipient) {
+  return {
+    id: record.id,
+    requestId: record.id,
+    requesterId: record.requesterId,
+    recipientId: record.recipientId,
+    fromUid: requester?.clerkUserId || record.requesterId,
+    toUid: recipient?.clerkUserId || record.recipientId,
+    sharedSkill: record.sharedSkill,
+    status: record.status,
+    createdAt: record.createdAt ? new Date(record.createdAt).getTime() : Date.now(),
+  };
+}
+
 router.get('/requests/:uid', requireAuth, handleGetMatchRequests);
 router.get('/requests/:id', requireAuth, handleGetMatchRequests);
+
+router.get('/recommendations', requireAuth, async (req, res, next) => {
+  try {
+    const filters = parseMatchFilters(req.query);
+    const matches = await findMatches(req.user.clerkUserId, filters);
+    res.json({
+      success: true,
+      count: matches.length,
+      limit: filters.limit,
+      offset: filters.offset,
+      hasMore: matches.length === filters.limit,
+      data: matches,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/:uid', requireAuth, async (req, res, next) => {
   try {
@@ -95,10 +154,16 @@ router.get('/:uid', requireAuth, async (req, res, next) => {
     if (uid !== req.user.clerkUserId && uid !== req.user.id) {
       return res.status(403).json({ success: false, error: 'Cannot fetch matches for another user' });
     }
-    const { limit, offset } = getPagination(req.query);
-    const skill = req.query.skill || null;
-    const matches = await findMatches(req.user.clerkUserId, { limit, offset, skillFilter: skill });
-    res.json({ success: true, count: matches.length, limit, offset, hasMore: matches.length === limit, data: matches });
+    const filters = parseMatchFilters(req.query);
+    const matches = await findMatches(req.user.clerkUserId, filters);
+    res.json({
+      success: true,
+      count: matches.length,
+      limit: filters.limit,
+      offset: filters.offset,
+      hasMore: matches.length === filters.limit,
+      data: matches,
+    });
   } catch (err) {
     next(err);
   }
@@ -110,12 +175,28 @@ router.get('/:uid/broad', requireAuth, async (req, res, next) => {
     if (uid !== req.user.clerkUserId && uid !== req.user.id) {
       return res.status(403).json({ success: false, error: 'Cannot fetch matches for another user' });
     }
-    const { limit, offset } = getPagination(req.query);
-    let matches = await findBroadMatches(req.user.clerkUserId, limit, offset);
-    if (matches.length === 0) {
-      matches = await findAnyMatches(req.user.clerkUserId, limit, offset);
+    const filters = parseMatchFilters(req.query);
+    let matches = await findBroadMatches(req.user.clerkUserId, { ...filters, sameCollegeOnly: false });
+    const hasCustomFilters = Boolean(
+      filters.skillFilter
+      || filters.college
+      || filters.department
+      || filters.year
+      || filters.minRating > 0
+      || (filters.sortBy && filters.sortBy !== 'relevance')
+      || Boolean(req.query.sortBy),
+    );
+    if (matches.length === 0 && !hasCustomFilters) {
+      matches = await findAnyMatches(req.user.clerkUserId, filters.limit, filters.offset);
     }
-    res.json({ success: true, count: matches.length, limit, offset, hasMore: matches.length === limit, data: matches });
+    res.json({
+      success: true,
+      count: matches.length,
+      limit: filters.limit,
+      offset: filters.offset,
+      hasMore: matches.length === filters.limit,
+      data: matches,
+    });
   } catch (err) {
     next(err);
   }
@@ -145,60 +226,101 @@ router.post('/request', requireAuth, [
       return res.status(400).json({ success: false, error: 'Cannot match with yourself' });
     }
 
-    const existingPending = await prisma.matchRequest.findFirst({
-      where: {
-        requesterId: requester.id,
-        recipientId: recipient.id,
-        status: 'PENDING',
-      },
-    });
+    let txResult;
+    try {
+      txResult = await prisma.$transaction(async (tx) => {
+        const existingThread = await tx.chatThread.findFirst({
+          where: {
+            AND: [
+              { participants: { some: { userId: requester.id } } },
+              { participants: { some: { userId: recipient.id } } },
+            ],
+          },
+        });
 
-    if (existingPending) {
-      return res.status(409).json({ success: false, error: 'Match request already pending' });
+        if (existingThread) {
+          return { alreadyMatched: true };
+        }
+
+        const existingPending = await tx.matchRequest.findFirst({
+          where: {
+            OR: [
+              { requesterId: requester.id, recipientId: recipient.id, status: 'PENDING' },
+              { requesterId: recipient.id, recipientId: requester.id, status: 'PENDING' },
+            ],
+          },
+        });
+
+        if (existingPending) {
+          return { requestRecord: existingPending, alreadyRequested: true };
+        }
+
+        const created = await tx.matchRequest.create({
+          data: {
+            requesterId: requester.id,
+            recipientId: recipient.id,
+            sharedSkill: sharedSkill.trim(),
+            status: 'PENDING',
+          },
+        });
+
+        return { requestRecord: created, alreadyRequested: false };
+      });
+    } catch (txErr) {
+      if (txErr.code === 'P2002') {
+        const existingPending = await prisma.matchRequest.findFirst({
+          where: {
+            OR: [
+              { requesterId: requester.id, recipientId: recipient.id, status: 'PENDING' },
+              { requesterId: recipient.id, recipientId: requester.id, status: 'PENDING' },
+            ],
+          },
+        });
+        if (existingPending) {
+          return res.status(200).json({
+            success: true,
+            alreadyRequested: true,
+            data: formatMatchRequest(existingPending, requester, recipient),
+          });
+        }
+      }
+      throw txErr;
     }
 
-    const existingThread = await prisma.chatThread.findFirst({
-      where: {
-        AND: [
-          { participants: { some: { userId: requester.id } } },
-          { participants: { some: { userId: recipient.id } } },
-        ],
-      },
-    });
-
-    if (existingThread) {
+    if (txResult.alreadyMatched) {
       return res.status(409).json({ success: false, error: 'Already matched with this user' });
     }
 
-    const matchReq = await prisma.matchRequest.create({
-      data: {
-        requesterId: requester.id,
-        recipientId: recipient.id,
-        sharedSkill,
-        status: 'PENDING',
-      },
-    });
+    if (txResult.alreadyRequested) {
+      return res.status(200).json({
+        success: true,
+        alreadyRequested: true,
+        data: formatMatchRequest(txResult.requestRecord, requester, recipient),
+      });
+    }
+
+    const matchReq = txResult.requestRecord;
 
     broadcastToGlobal(recipient.clerkUserId, {
       type: 'global_notification',
       subType: 'match_request',
+      notification: {
+        title: 'New Match Request!',
+        body: `${requester.name} requested to study with you for ${sharedSkill}!`,
+      },
       data: {
         message: `${requester.name} requested to study with you for ${sharedSkill}!`,
         requestId: matchReq.id,
         requesterName: requester.name,
+        route: '/notifications',
       },
       timestamp: Date.now(),
     });
 
     res.status(201).json({
       success: true,
-      data: {
-        requestId: matchReq.id,
-        fromUid: requester.clerkUserId,
-        toUid: recipient.clerkUserId,
-        sharedSkill,
-        status: 'PENDING',
-      },
+      alreadyRequested: false,
+      data: formatMatchRequest(matchReq, requester, recipient),
     });
   } catch (err) {
     next(err);
@@ -250,9 +372,14 @@ router.post('/accept', requireAuth, [body('requestId').trim().notEmpty()], async
     broadcastToGlobal(request.requester.clerkUserId, {
       type: 'global_notification',
       subType: 'match_accepted',
+      notification: {
+        title: 'Match Request Accepted!',
+        body: `${request.recipient.name} accepted your study request for ${request.sharedSkill}!`,
+      },
       data: {
         message: `${request.recipient.name} accepted your study request for ${request.sharedSkill}!`,
         matchId: thread.id,
+        route: `/chat/${thread.id}`,
       },
       timestamp: Date.now(),
     });

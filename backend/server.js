@@ -15,6 +15,7 @@ const morgan = require('morgan');
 const http = require('http');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 
 // ── Middleware ────────────────────────────────────────────────────────
 const { globalErrorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
@@ -35,6 +36,8 @@ const { prisma, disconnectPrisma } = require('./src/config/prisma');
 const { initSocketServer, closeSocketServer } = require('./src/config/socket');
 const { getRedisClients, closeRedis } = require('./src/config/redis');
 const { startChatPersistenceWorker, closeChatPersistenceWorker } = require('./src/workers/chatPersistenceWorker');
+const cron = require('node-cron');
+const weeklyWarriorService = require('./src/services/weeklyWarriorService');
 
 // ── Express app ──────────────────────────────────────────────────────
 const app = express();
@@ -120,6 +123,20 @@ const strictLimiter = rateLimit({
   },
 });
 
+const doubtCreationLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req) => req.user?.clerkUserId || req.user?.uid || req.user?.id || ipKeyGenerator(req.ip),
+  message: {
+    success: false,
+    error: 'Too many doubts posted. Maximum 5 doubts allowed per 10 minutes.',
+  },
+});
+
 app.use(globalLimiter);
 
 // Clerk signs webhook requests against the unparsed payload (mounted before express.json)
@@ -193,6 +210,8 @@ app.use('/api/gamification', gamificationRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/session', sessionRoutes);
 app.use('/api/sessions', sessionRoutes);
+app.post('/api/doubt', doubtCreationLimiter);
+app.post('/api/doubts', doubtCreationLimiter);
 app.use('/api/doubt', doubtRoutes);
 app.use('/api/doubts', doubtRoutes);
 app.use('/api/auth', authRoutes);
@@ -216,8 +235,8 @@ async function boot() {
   // 1b. In-process BullMQ worker fallback for single-dyno hosting
   const shouldRunInProcessWorker =
     process.env.RUN_IN_PROCESS_WORKERS === 'true' ||
-    (process.env.NODE_ENV === 'production' && process.env.STANDALONE_WORKER !== 'true' && process.env.RUN_IN_PROCESS_WORKERS !== 'false') ||
-    process.env.EMBEDDED_WORKERS === 'true';
+    process.env.EMBEDDED_WORKERS === 'true' ||
+    (process.env.STANDALONE_WORKER !== 'true' && process.env.RUN_IN_PROCESS_WORKERS !== 'false');
 
   if (shouldRunInProcessWorker) {
     try {
@@ -227,6 +246,21 @@ async function boot() {
       console.warn('   ⚠️ Failed to start in-process chat persistence worker:', workerErr.message);
     }
   }
+
+  // 1c. Weekly Warrior cron job (Sundays at 23:59) for single-dyno Render hosting
+  const weeklyCronTask = cron.schedule(
+    '59 23 * * 0',
+    async () => {
+      try {
+        console.log('   ⏰ Running Weekly Warrior audit...');
+        await weeklyWarriorService.runWeeklyAudit();
+      } catch (cronErr) {
+        console.warn('   ⚠️ Weekly Warrior audit cron failed:', cronErr.message);
+      }
+    },
+    { timezone: process.env.WEEKLY_AUDIT_TIMEZONE || 'UTC' },
+  );
+  console.log('   ✔ Weekly Warrior cron scheduled (Sundays 23:59)');
 
   // 2. Start listening
   httpServer.listen(PORT, () => {
@@ -240,6 +274,10 @@ async function boot() {
   // ── Graceful shutdown ───────────────────────────────────────────
   const shutdown = async (signal) => {
     console.log(`\n⏹️  ${signal} received — shutting down gracefully…`);
+
+    if (weeklyCronTask) {
+      weeklyCronTask.stop();
+    }
 
     const forceExitTimeout = setTimeout(() => {
       console.error('   ⚠️ Forced shutdown after timeout');
@@ -275,4 +313,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, httpServer, boot };
+module.exports = { app, httpServer, boot, doubtCreationLimiter };

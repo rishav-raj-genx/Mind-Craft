@@ -222,6 +222,18 @@ const Chat = () => {
 
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const markReadTimeoutRef = useRef(null);
+
+  const scheduleMarkRead = useCallback((targetMatchId) => {
+    if (!targetMatchId) return;
+    if (markReadTimeoutRef.current) {
+      clearTimeout(markReadTimeoutRef.current);
+    }
+    markReadTimeoutRef.current = setTimeout(() => {
+      markReadTimeoutRef.current = null;
+      globalMarkRead(targetMatchId);
+    }, 300);
+  }, [globalMarkRead]);
 
   const loadSessions = useCallback(async () => {
     if (!currentUser?.uid || !matchId) return;
@@ -264,7 +276,7 @@ const Chat = () => {
         
         // Fetch sessions for this match
         loadSessions();
-        setTimeout(() => globalMarkRead(matchId), 250);
+        scheduleMarkRead(matchId);
       } catch (err) {
         console.error("Failed to init chat", err);
       }
@@ -275,6 +287,7 @@ const Chat = () => {
     // Subscribe to unified WebSocket
     const unsubscribe = subscribeToChat(matchId, (data) => {
       if (data.type === 'read_receipt') {
+        if (data.readerUid && data.readerUid === currentUser.uid) return;
         setMessages(prev => prev.map(m => {
           const isMine = m.senderUid === currentUser.uid || m.senderId === currentUser.uid;
           return isMine ? { ...m, read: true, status: 'read' } : m;
@@ -307,6 +320,7 @@ const Chat = () => {
           messageId: data.messageId,
           localId: data.localId,
           senderUid: data.senderUid,
+          senderId: data.senderId,
           senderName: data.senderName,
           text: data.text,
           timestamp: data.timestamp,
@@ -315,32 +329,29 @@ const Chat = () => {
         };
 
         setMessages(prev => {
-          // If we sent this message optimistically, match by localId
-          if (incoming.localId) {
-            const optimisticIdx = prev.findIndex(m => m.localId === incoming.localId);
-            if (optimisticIdx !== -1) {
-              const updated = [...prev];
-              updated[optimisticIdx] = { ...updated[optimisticIdx], ...incoming, status: 'sent' };
-              return updated;
-            }
+          const existingIndex = prev.findIndex(m => m.localId && incoming.localId && m.localId === incoming.localId);
+          if (existingIndex !== -1) {
+            const updated = [...prev];
+            updated[existingIndex] = { ...incoming, status: 'sent' };
+            return updated;
           }
-          
-          // Duplicate fallback
-          const isDuplicate = prev.find(m => m.id === incoming.id || m.messageId === incoming.messageId);
-          if (isDuplicate) return prev;
-          
+          if (prev.some(m => m.id === incoming.id || m.messageId === incoming.messageId)) return prev;
           return [...prev, incoming];
         });
         
         setIsTyping(false);
         if (incoming.senderUid !== currentUser.uid && incoming.senderId !== currentUser.uid) {
-          setTimeout(() => globalMarkRead(matchId), 150);
+          scheduleMarkRead(matchId);
         }
       }
     });
 
-    return () => unsubscribe();
-  }, [matchId, currentUser, globalMarkRead, subscribeToChat, loadSessions]);
+    return () => {
+      clearTimeout(markReadTimeoutRef.current);
+      clearTimeout(typingTimeoutRef.current);
+      unsubscribe();
+    };
+  }, [matchId, currentUser, scheduleMarkRead, subscribeToChat, loadSessions]);
 
   useEffect(() => {
     const container = document.getElementById('messages-container');
@@ -414,7 +425,14 @@ const Chat = () => {
     if (!sent) {
       // Fallback if WS fails
       try {
-        await chatService.sendMessage(matchId, text);
+        const res = await chatService.sendMessage(matchId, text);
+        const saved = res?.data;
+        setMessages(prev => prev.map(m => m.localId === localId ? {
+          ...m,
+          id: saved?.messageId || m.id,
+          messageId: saved?.messageId || m.messageId,
+          status: 'sent',
+        } : m));
       } catch {
         setMessages(prev => prev.map(m => m.localId === localId ? {...m, status: 'error'} : m));
       }
@@ -682,7 +700,7 @@ const Chat = () => {
       {/* Messages Area */}
       <div id="messages-container" className="flex-1 overflow-y-auto py-4 flex flex-col gap-3 hide-scrollbar">
         {messages.map((msg, idx) => {
-          const isMine = msg.senderId === currentUser.uid || msg.senderUid === currentUser.uid;
+          const isMine = msg.senderUid === currentUser.uid || msg.senderId === currentUser.uid;
           const previous = messages[idx - 1];
           const showDivider = !previous || !sameMessageDay(previous.timestamp, msg.timestamp);
           return (

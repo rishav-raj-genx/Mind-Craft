@@ -1,4 +1,10 @@
 jest.mock('../src/config/prisma', () => {
+  const tutoringSessionMock = {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+  };
   const mockTx = {
     user: {
       update: jest.fn(),
@@ -12,6 +18,7 @@ jest.mock('../src/config/prisma', () => {
       findUnique: jest.fn(),
       upsert: jest.fn(),
     },
+    tutoringSession: tutoringSessionMock,
   };
   return {
     prisma: {
@@ -31,11 +38,7 @@ jest.mock('../src/config/prisma', () => {
         findMany: jest.fn(),
         upsert: jest.fn(),
       },
-      tutoringSession: {
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
-        update: jest.fn(),
-      },
+      tutoringSession: tutoringSessionMock,
       doubtAnswer: {
         findFirst: jest.fn(),
         count: jest.fn(),

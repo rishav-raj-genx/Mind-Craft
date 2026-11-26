@@ -27,7 +27,7 @@ export const useFollowing = (uid, options = {}) => useQuery({
 export const useSearchUsers = (query, options = {}) => useQuery({
   queryKey: queryKeys.searchUsers(query),
   queryFn: () => userService.searchUsers(query),
-  enabled: Boolean(query?.trim()) && (options.enabled ?? true),
+  enabled: Boolean(query && query.trim().length >= 2) && (options.enabled ?? true),
   ...options,
 });
 

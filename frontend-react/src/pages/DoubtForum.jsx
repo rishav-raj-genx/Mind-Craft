@@ -12,7 +12,8 @@ import {
   useAcceptAnswer,
 } from '../hooks/useDoubtForum';
 import { voiceService } from '../services/voiceService';
-import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight, Mic, Square } from 'lucide-react';
+import { useDebounce } from '../hooks/useDebounce';
+import { Plus, MessageCircle, X, ChevronUp, Send, Tag, Loader2, AlertCircle, Clock, Eye, CheckCircle2, Sparkles, Image as ImageIcon, ChevronLeft, ChevronRight, Mic, Square, Search } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import DOMPurify from 'dompurify';
 
@@ -93,16 +94,19 @@ const tagColor = (tag) => {
 const AIAssistHint = ({ hint, status, error }) => {
   if (!hint && !status && !error) return null;
 
+  const normalizedStatus = String(status || '').toLowerCase();
   const message = hint || (
-    status === 'failed'
-      ? 'AI Assist could not generate a Sarvam study hint for this doubt yet.'
-      : 'AI Assist is waiting for the Sarvam study hint.'
+    normalizedStatus === 'failed'
+      ? (error || 'AI Assist could not generate a Sarvam study hint for this doubt yet.')
+      : normalizedStatus === 'pending'
+        ? 'AI Assist is generating a Sarvam study hint...'
+        : 'AI Assist is waiting for the Sarvam study hint.'
   );
 
   return (
     <div className="mt-3 rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50 dark:bg-cyan-950/30 px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-cyan-700 dark:text-cyan-300 mb-1">
-        <Sparkles size={13} />
+        {normalizedStatus === 'pending' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
         AI Assist
       </div>
       <p className="text-sm leading-relaxed whitespace-pre-line text-gray-700 dark:text-gray-300">{message}</p>
@@ -683,20 +687,77 @@ const ResolveConfirmModal = ({ post, onClose, onConfirm, loading }) => {
   );
 };
 
+const decodeTagParam = (rawTag) => {
+  if (!rawTag) return 'All Doubts';
+  try {
+    return decodeURIComponent(rawTag);
+  } catch {
+    return rawTag;
+  }
+};
+
 // ── Main DoubtForum Component ─────────────────────────────────────────
 const DoubtForum = () => {
   const { currentUser } = useAuth();
   const { markForumVisited } = useNotifications();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeFilter, setActiveFilter] = useState('All Doubts');
+  const urlTag = searchParams.get('tag');
+  const [activeFilter, setActiveFilter] = useState(() => decodeTagParam(urlTag));
+  const [searchInput, setSearchInput] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState('newest');
+  const debouncedSearch = useDebounce(searchInput, 300);
+
   const [showModal, setShowModal] = useState(false);
   const [answeringDoubt, setAnsweringDoubt] = useState(null);
   const [resolvingDoubt, setResolvingDoubt] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
   const [imageViewer, setImageViewer] = useState(null);
-  const fetchFilter = activeFilter === 'My Doubts' ? 'All Doubts' : activeFilter;
-  const { data: doubtsResponse, isLoading: loading, isError: queryError, refetch } = useDoubts(fetchFilter);
+
+  useEffect(() => {
+    const decoded = decodeTagParam(searchParams.get('tag'));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveFilter((prev) => (prev === decoded ? prev : decoded));
+  }, [searchParams]);
+
+  const handleFilterChange = (newTag) => {
+    setActiveFilter(newTag);
+    if (newTag === 'All Doubts') {
+      const next = new URLSearchParams(searchParams);
+      next.delete('tag');
+      setSearchParams(next);
+    } else {
+      const next = new URLSearchParams(searchParams);
+      next.set('tag', newTag);
+      setSearchParams(next);
+    }
+  };
+
+  const hasAdvancedQuery =
+    activeFilter === 'My Doubts' ||
+    Boolean(debouncedSearch.trim()) ||
+    statusFilter !== 'ALL' ||
+    sortBy !== 'newest';
+
+  const doubtsQueryArg = useMemo(() => {
+    if (!hasAdvancedQuery) {
+      return activeFilter;
+    }
+    return {
+      tag: activeFilter === 'My Doubts' ? 'All Doubts' : activeFilter,
+      onlyMine: activeFilter === 'My Doubts',
+      q: debouncedSearch.trim() || undefined,
+      status: statusFilter !== 'ALL' ? statusFilter : undefined,
+      sortBy,
+    };
+  }, [activeFilter, debouncedSearch, hasAdvancedQuery, sortBy, statusFilter]);
+
+  const { data: doubtsResponse, isLoading: loading, isError: queryError, refetch } = useDoubts(doubtsQueryArg);
   const posts = useMemo(() => doubtsResponse?.data || [], [doubtsResponse]);
+  const displayedFilters = useMemo(
+    () => (activeFilter && !FILTERS.includes(activeFilter) ? [...FILTERS, activeFilter] : FILTERS),
+    [activeFilter],
+  );
   const createDoubt = useCreateDoubt();
   const addAnswer = useAddAnswer();
   const resolveDoubt = useResolveDoubt();
@@ -770,15 +831,8 @@ const DoubtForum = () => {
     }
   };
 
-  // Apply filter logic
-  let filteredPosts = posts;
-  if (activeFilter === 'My Doubts') {
-    filteredPosts = posts.filter(p => p.authorUid === currentUser?.uid);
-  } else if (activeFilter !== 'All Doubts') {
-    filteredPosts = posts.filter(p => p.tag === activeFilter);
-  }
-
-  // For "All Doubts" and tag filters, separate own doubts out of the main list
+  // Server-side filtering handles tag, search, status, sort, and onlyMine
+  const filteredPosts = posts;
   const isMyDoubtsTab = activeFilter === 'My Doubts';
 
   return (
@@ -788,6 +842,68 @@ const DoubtForum = () => {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Doubt Forum</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Ask questions · Get answers from peers</p>
       </header>
+
+      {/* Search, Status & Sort Controls */}
+      <div className="flex flex-col gap-3">
+        <div className="relative">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search doubts by title or keyword..."
+            aria-label="Search doubts"
+            className="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] transition-all"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => setSearchInput('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5" role="group" aria-label="Doubt status filter">
+            {[
+              { value: 'ALL', label: 'All' },
+              { value: 'OPEN', label: 'Unsolved' },
+              { value: 'SOLVED', label: 'Solved' },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setStatusFilter(opt.value)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                  statusFilter === opt.value
+                    ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 border-gray-900 dark:border-white'
+                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="doubt-sort" className="text-xs text-gray-500 dark:text-gray-400 font-medium">Sort:</label>
+            <select
+              id="doubt-sort"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-[#7C3AED]"
+            >
+              <option value="newest">Newest</option>
+              <option value="upvotes">Most Upvoted</option>
+              <option value="answers">Most Answers</option>
+            </select>
+          </div>
+        </div>
+      </div>
 
       {/* Success toast */}
       {successMsg && (
@@ -822,11 +938,11 @@ const DoubtForum = () => {
 
       {/* Filters */}
       <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar snap-x">
-        {FILTERS.map(filter => (
+        {displayedFilters.map(filter => (
           <button
             key={filter}
             id={`filter-${filter.replace(/[^a-z0-9]/gi, '-')}`}
-            onClick={() => setActiveFilter(filter)}
+            onClick={() => handleFilterChange(filter)}
             className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap snap-start transition-all border ${
               activeFilter === filter
                 ? filter === 'My Doubts'
@@ -904,9 +1020,16 @@ const DoubtForum = () => {
                       </div>
                     </div>
                   </Link>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${tagColor(post.tag)}`}>
-                    {post.tag}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {post.status === 'SOLVED' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-700">
+                        <CheckCircle2 size={12} /> Solved
+                      </span>
+                    )}
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${tagColor(post.tag)}`}>
+                      {post.tag}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Content */}
@@ -930,19 +1053,28 @@ const DoubtForum = () => {
 
                 {/* Actions */}
                 <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-800">
-                  <button
-                    id={`upvote-${post.id}`}
-                    onClick={() => handleUpvote(post.id)}
-                    aria-label={`Upvote doubt (${post.upvotes || 0})`}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-all ${
-                      (post.upvotedBy || []).includes(currentUser?.uid)
-                        ? 'bg-[#DCFD8B]/20 dark:bg-[#DCFD8B]/10 text-[#3a4d00] dark:text-[#DCFD8B] border-[#DCFD8B]/50'
-                        : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-[#DCFD8B]/50'
-                    }`}
-                  >
-                    <ChevronUp size={15} />
-                    {post.upvotes || 0}
-                  </button>
+                  {(() => {
+                    const isUpvoted = typeof post.hasUpvoted === 'boolean'
+                      ? post.hasUpvoted
+                      : (post.upvotedBy || []).includes(currentUser?.uid);
+                    return (
+                      <button
+                        id={`upvote-${post.id}`}
+                        type="button"
+                        disabled={toggleUpvote.isPending}
+                        onClick={() => handleUpvote(post.id)}
+                        aria-label={`Upvote doubt (${post.upvotes || 0})`}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+                          isUpvoted
+                            ? 'bg-[#DCFD8B]/20 dark:bg-[#DCFD8B]/10 text-[#3a4d00] dark:text-[#DCFD8B] border-[#DCFD8B]/50'
+                            : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-[#DCFD8B]/50'
+                        }`}
+                      >
+                        <ChevronUp size={15} />
+                        {post.upvotes || 0}
+                      </button>
+                    );
+                  })()}
 
                   <div className="flex items-center gap-2">
                     {isOwn ? (

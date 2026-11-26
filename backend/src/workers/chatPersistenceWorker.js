@@ -10,12 +10,17 @@ function startChatPersistenceWorker() {
   const { base } = getRedisClients();
   if (!base) throw new Error('Redis is required for chat persistence worker');
 
+  const concurrency = Math.max(
+    1,
+    Number.parseInt(process.env.CHAT_PERSISTENCE_CONCURRENCY || '1', 10) || 1,
+  );
+
   workerInstance = new Worker(
     'chat-persistence',
     async (job) => persistMessage(job.data),
     {
       connection: base,
-      concurrency: Number.parseInt(process.env.CHAT_PERSISTENCE_CONCURRENCY || '10', 10),
+      concurrency,
     },
   );
 
@@ -23,8 +28,15 @@ function startChatPersistenceWorker() {
   workerInstance.on('failed', (job, error) => {
     console.error(`Chat message persistence failed: ${job?.id || 'unknown'}`, error);
   });
+  workerInstance.on('error', (error) => {
+    console.error('Chat persistence worker error:', error);
+  });
 
   return workerInstance;
+}
+
+function isChatPersistenceWorkerRunning() {
+  return Boolean(workerInstance);
 }
 
 async function closeChatPersistenceWorker() {
@@ -59,4 +71,8 @@ if (require.main === module) {
   process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
-module.exports = { startChatPersistenceWorker, closeChatPersistenceWorker };
+module.exports = {
+  startChatPersistenceWorker,
+  closeChatPersistenceWorker,
+  isChatPersistenceWorkerRunning,
+};

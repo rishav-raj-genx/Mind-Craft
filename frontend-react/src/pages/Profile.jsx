@@ -527,9 +527,9 @@ const Profile = () => {
   const teaches = user.teaches || skillGraph?.teaches || [];
   const learns = user.learns || skillGraph?.learns || [];
 
-  const completedSessions = stats?.completedSessionsCount || 0;
-  const avgRating = stats?.averageRating || 0;
-  const studyHours = stats?.totalStudyHours || 0;
+  const completedSessions = Number(stats?.completedSessionsCount) || 0;
+  const avgRating = Number(stats?.averageRating ?? user?.averageRating) || 0;
+  const studyHours = Number(stats?.totalStudyHours) || 0;
 
   const badgesList = badgeData?.badges || [];
   const earnedBadges = badgesList.filter(b => b.level > 0).map(b => ({

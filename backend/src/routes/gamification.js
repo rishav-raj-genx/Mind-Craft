@@ -315,7 +315,7 @@ router.get('/badges/:uid', requireAuth, async (req, res, next) => {
         },
         orderBy: { awardedAt: 'desc' },
       }).catch(() => []) : Promise.resolve([]),
-      calculateBadges(user.clerkUserId).catch(() => ({
+      calculateBadges(user.clerkUserId, { persist: false }).catch(() => ({
         badges: [],
         totalEarned: 0,
         totalSessions: 0,

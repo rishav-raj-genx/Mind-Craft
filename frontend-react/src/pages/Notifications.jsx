@@ -6,7 +6,21 @@ import { sessionService } from '../services/sessionService';
 import { gamificationService } from '../services/gamificationService';
 import { doubtService } from '../services/doubtService';
 import { chatService } from '../services/chatService';
-import { ArrowLeft, Check, X, MessageCircle, Flame, Calendar, Bell, MessageSquare, Loader2, CheckCircle2 } from 'lucide-react';
+import { matchService } from '../services/matchService';
+import { ArrowLeft, Check, X, MessageCircle, Flame, Calendar, Bell, MessageSquare, Loader2, CheckCircle2, UserPlus } from 'lucide-react';
+
+const MAX_READ_NOTIFS = 100;
+
+const persistReadIds = (idSet) => {
+  const arr = [...idSet];
+  const capped = arr.length > MAX_READ_NOTIFS ? arr.slice(arr.length - MAX_READ_NOTIFS) : arr;
+  try {
+    localStorage.setItem('mindcraft_read_notifs', JSON.stringify(capped));
+  } catch {
+    // Ignore storage quota errors
+  }
+  return new Set(capped);
+};
 
 const Notifications = () => {
   const navigate = useNavigate();
@@ -21,10 +35,13 @@ const Notifications = () => {
   } = useNotifications();
   
   const [restNotifications, setRestNotifications] = useState([]);
+  const [handledRequestIds, setHandledRequestIds] = useState(() => new Set());
   const [readIds, setReadIds] = useState(() => {
     try {
       const stored = localStorage.getItem('mindcraft_read_notifs');
-      return stored ? new Set(JSON.parse(stored)) : new Set();
+      const parsed = stored ? JSON.parse(stored) : [];
+      const arr = Array.isArray(parsed) ? parsed : [];
+      return new Set(arr.length > MAX_READ_NOTIFS ? arr.slice(arr.length - MAX_READ_NOTIFS) : arr);
     } catch {
       return new Set();
     }
@@ -184,6 +201,29 @@ const Notifications = () => {
       // Ignore background fetch error
     }
 
+    try {
+      const matchRes = await matchService.getMatchRequests(currentUser.uid);
+      const pendingRequests = matchRes?.data || [];
+      pendingRequests.forEach((r) => {
+        if (r.status && r.status !== 'PENDING') return;
+        const reqId = r.requestId || r.id;
+        notifs.push({
+          id: `match-req-${reqId}`,
+          category: 'social',
+          type: 'MATCH_REQUEST',
+          title: 'Match Request',
+          message: `${r.requesterName || 'Someone'} requested to study with you for ${r.sharedSkill || 'a skill'}!`,
+          timestamp: r.createdAt || Date.now(),
+          read: false,
+          requestId: reqId,
+          actionable: true,
+          route: '/notifications',
+        });
+      });
+    } catch {
+      // Ignore background fetch error
+    }
+
     setRestNotifications(notifs);
     setLoading(false);
   }, [currentUser]);
@@ -212,12 +252,8 @@ const Notifications = () => {
   const handleMarkRead = useCallback((notif) => {
     // Mark context notification as read
     markNotificationRead(notif.id);
-    // Mark REST notification as locally read
-    setReadIds(prev => {
-      const next = new Set(prev).add(notif.id);
-      localStorage.setItem('mindcraft_read_notifs', JSON.stringify([...next]));
-      return next;
-    });
+    // Mark REST notification as locally read with FIFO cap
+    setReadIds((prev) => persistReadIds(new Set(prev).add(notif.id)));
     // If it's a chat notification, also mark that chat as read
     if (notif.matchId) {
       markChatRead(notif.matchId);
@@ -226,14 +262,14 @@ const Notifications = () => {
 
   const handleMarkAllRead = useCallback(() => {
     markAllNotificationsRead();
-    // Mark all REST notifications as locally read
-    setReadIds(prev => {
+    // Mark all notifications as locally read with FIFO cap
+    setReadIds((prev) => {
       const next = new Set(prev);
-      restNotifications.forEach(n => next.add(n.id));
-      localStorage.setItem('mindcraft_read_notifs', JSON.stringify([...next]));
-      return next;
+      restNotifications.forEach((n) => next.add(n.id));
+      contextNotifs.forEach((n) => next.add(n.id));
+      return persistReadIds(next);
     });
-  }, [markAllNotificationsRead, restNotifications]);
+  }, [markAllNotificationsRead, restNotifications, contextNotifs]);
 
   // ── Merge context and REST notifications ─────────────────────────
   const mergedNotifications = useMemo(() => {
@@ -241,6 +277,7 @@ const Notifications = () => {
     
     // Add REST notifications, applying local read state
     restNotifications.forEach(n => {
+      if (n.type === 'MATCH_REQUEST' && n.requestId && handledRequestIds.has(n.requestId)) return;
       const isLocallyRead = readIds.has(n.id);
       // Eliminate streak alerts that are already read/dismissed
       if (isLocallyRead && n.type === 'STREAK_ALERT') return;
@@ -253,14 +290,17 @@ const Notifications = () => {
       });
     });
     
-    // Add Context (overwrites REST if dup)
+    // Add Context (overwrites REST if dup, preserving actionable fields)
     contextNotifs.forEach(n => {
+      if (n.type === 'MATCH_REQUEST' && n.requestId && handledRequestIds.has(n.requestId)) return;
       // Eliminate streak alerts that are already read/dismissed
       if (readIds.has(n.id) && n.type === 'STREAK_ALERT') return;
       
+      const existing = map.get(n.id) || {};
       map.set(n.id, {
+        ...existing,
         ...n,
-        category: n.category || 'general',
+        category: n.category || existing.category || 'general',
         read: n.read || readIds.has(n.id)
       });
     });
@@ -276,12 +316,13 @@ const Notifications = () => {
       result = result.filter(n => {
         const nCat = (n.category || '').toLowerCase();
         if (cat === 'messages') return nCat === 'message' || nCat === 'messages';
+        if (cat === 'sessions') return nCat === 'session' || nCat === 'sessions';
         return nCat.includes(cat);
       });
     }
 
     return result;
-  }, [restNotifications, contextNotifs, activeTab, readIds, unreadCounts]);
+  }, [restNotifications, contextNotifs, activeTab, readIds, unreadCounts, handledRequestIds]);
 
   const formatTime = (ts) => {
     if (!ts) return '';
@@ -293,30 +334,7 @@ const Notifications = () => {
     e.stopPropagation();
     setActionLoading(prev => ({ ...prev, [sessionId]: true }));
     try {
-      let googleTokens = null;
-      try {
-        const authRes = await sessionService.getGoogleAuthUrl();
-        if (authRes.data?.authUrl) {
-          googleTokens = await new Promise((resolve) => {
-            window.open(authRes.data.authUrl, 'googleAuth', 'width=500,height=600');
-            const handleMessage = (event) => {
-              if (event.data?.googleTokens) {
-                window.removeEventListener('message', handleMessage);
-                resolve(event.data.googleTokens);
-              }
-            };
-            window.addEventListener('message', handleMessage);
-            setTimeout(() => {
-              window.removeEventListener('message', handleMessage);
-              resolve(null);
-            }, 120000);
-          });
-        }
-      } catch {
-        // Ignore calendar auth error
-      }
-
-      await sessionService.acceptSession(sessionId, googleTokens);
+      await sessionService.acceptSession(sessionId);
       alert('Session accepted! 🎉');
       buildNotifications();
     } catch (err) {
@@ -341,9 +359,43 @@ const Notifications = () => {
     }
   };
 
+  const handleAcceptMatch = async (e, requestId) => {
+    e.stopPropagation();
+    setActionLoading(prev => ({ ...prev, [requestId]: true }));
+    try {
+      const res = await matchService.acceptRequest(requestId);
+      setHandledRequestIds(prev => new Set(prev).add(requestId));
+      markNotificationRead(`match-req-${requestId}`);
+      await buildNotifications();
+      if (res?.data?.matchId) {
+        navigate(`/chat/${res.data.matchId}`);
+      }
+    } catch (err) {
+      alert('Failed to accept match request: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setActionLoading(prev => ({ ...prev, [requestId]: false }));
+    }
+  };
+
+  const handleDeclineMatch = async (e, requestId) => {
+    e.stopPropagation();
+    setActionLoading(prev => ({ ...prev, [requestId]: true }));
+    try {
+      await matchService.declineRequest(requestId);
+      setHandledRequestIds(prev => new Set(prev).add(requestId));
+      markNotificationRead(`match-req-${requestId}`);
+      await buildNotifications();
+    } catch (err) {
+      alert('Failed to decline match request: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setActionLoading(prev => ({ ...prev, [requestId]: false }));
+    }
+  };
+
   const getIcon = (type, category) => {
+    if (type === 'MATCH_REQUEST' || type === 'MATCH_ACCEPTED') return <UserPlus size={18} className="text-[#7C3AED]" />;
     if (category === 'session' || type?.includes('SESSION')) return <Calendar size={18} className="text-blue-500" />;
-    if (type === 'FORUM_REPLY' || type === 'NEW_DOUBT' || category === 'forum' || category === 'social') return <MessageCircle size={18} className="text-[#7C3AED]" />;
+    if (type === 'FORUM_REPLY' || type === 'NEW_DOUBT' || type === 'NEW_ANSWER' || type === 'ANSWER_ACCEPTED' || category === 'forum' || category === 'social') return <MessageCircle size={18} className="text-[#7C3AED]" />;
     if (category === 'gamification') return <Flame size={18} className="text-orange-500" />;
     if (category === 'message' || type === 'UNREAD_CHAT') return <MessageSquare size={18} className="text-teal-500" />;
     return <Bell size={18} />;
@@ -450,6 +502,25 @@ const Notifications = () => {
                     className="text-xs font-bold bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
                   >
                     <X size={14} /> Reject
+                  </button>
+                </div>
+              )}
+
+              {notif.type === 'MATCH_REQUEST' && notif.requestId && (
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={(e) => handleAcceptMatch(e, notif.requestId)}
+                    disabled={actionLoading[notif.requestId]}
+                    className="text-xs font-bold bg-success-lime text-gray-900 px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
+                  >
+                    {actionLoading[notif.requestId] ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Accept
+                  </button>
+                  <button
+                    onClick={(e) => handleDeclineMatch(e, notif.requestId)}
+                    disabled={actionLoading[notif.requestId]}
+                    className="text-xs font-bold bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:scale-105 transition-transform disabled:opacity-50"
+                  >
+                    <X size={14} /> Decline
                   </button>
                 </div>
               )}

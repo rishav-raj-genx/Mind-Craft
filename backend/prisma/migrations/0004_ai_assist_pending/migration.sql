@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AiAssistStatus" ADD VALUE IF NOT EXISTS 'PENDING';

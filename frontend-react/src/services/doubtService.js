@@ -1,9 +1,27 @@
 import api from '../config/api';
 
 export const doubtService = {
-  // Fetch all doubts, optionally filtered by tag
-  getAllDoubts: async (tag = 'All Doubts') => {
-    const params = tag !== 'All Doubts' ? { tag } : {};
+  // Fetch all doubts, optionally filtered by tag, search query, status, ownership, or sort order
+  getAllDoubts: async (filterOrParams = 'All Doubts') => {
+    let params = {};
+    if (typeof filterOrParams === 'string') {
+      if (filterOrParams === 'My Doubts') {
+        params = { onlyMine: true };
+      } else if (filterOrParams && filterOrParams !== 'All Doubts') {
+        params = { tag: filterOrParams };
+      }
+    } else if (filterOrParams && typeof filterOrParams === 'object') {
+      const { tag, q, status, onlyMine, sortBy, authorUid, limit, offset } = filterOrParams;
+      if (tag && tag !== 'All Doubts' && tag !== 'My Doubts') params.tag = tag;
+      if (tag === 'My Doubts' || onlyMine) params.onlyMine = true;
+      if (q && String(q).trim()) params.q = String(q).trim();
+      if (status && status !== 'ALL') params.status = status;
+      if (sortBy) params.sortBy = sortBy;
+      if (authorUid) params.authorUid = authorUid;
+      if (limit !== undefined) params.limit = limit;
+      if (offset !== undefined) params.offset = offset;
+    }
+
     const response = await api.get('/doubt', { params });
     return response.data;
   },

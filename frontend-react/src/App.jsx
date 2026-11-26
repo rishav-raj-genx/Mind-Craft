@@ -33,6 +33,16 @@ export const PageSpinner = () => (
   </div>
 );
 
+const RouteProgressBar = () => (
+  <div
+    role="progressbar"
+    aria-label="Loading page"
+    className="fixed top-0 left-0 right-0 z-[9999] h-0.5 bg-transparent overflow-hidden pointer-events-none"
+  >
+    <div className="h-full w-1/2 bg-gradient-to-r from-[#7C3AED] via-[#DCFD8B] to-[#7C3AED] animate-pulse rounded-full" />
+  </div>
+);
+
 // Route guard for authenticated + registered users (State 3)
 const ProtectedRoute = ({ children }) => {
   const { isLoaded, isSignedIn, isCheckingProfile, isRegistered, needsOnboarding } = useAuth();
@@ -157,7 +167,7 @@ const AppContent = () => {
       )}
 
       <NotificationProvider>
-        <Suspense fallback={<PageSpinner />}>
+        <Suspense fallback={<RouteProgressBar />}>
           <Routes>
             <Route path="/login/*" element={<PublicLoginRoute><Login /></PublicLoginRoute>} />
             <Route path="/signup/*" element={<PublicSignUpRoute><SignUp /></PublicSignUpRoute>} />

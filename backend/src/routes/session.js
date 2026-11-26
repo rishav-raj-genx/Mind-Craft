@@ -5,26 +5,32 @@ const { requireAuth } = require('../middleware/auth');
 const { formatValidationErrors } = require('../middleware/errorHandler');
 const { completeSession, cancelSession } = require('../services/sessionRouter');
 const { awardSessionComplete } = require('../services/tokenEconomy');
-const { exportSessionToCalendar, generateIcsCalendar, getAuthUrl } = require('../services/calendarExport');
+const { getSessionMeetLink, generateCalendarDeepLink, generateIcsCalendar, getAuthUrl } = require('../services/calendarExport');
 const { prisma } = require('../config/prisma');
 const { resolveUser } = require('../utils/userResolver');
 const { getPagination } = require('../utils/pagination');
 const { broadcastToGlobal } = require('../services/chatService');
 
+const DEFAULT_SESSION_DURATION_MS = 60 * 60 * 1000;
+
 function normalizeSession(s, currentUserId) {
   const isTeacher = s.teacherId === currentUserId;
   const peer = isTeacher ? s.learner : s.teacher;
   const scheduledTime = s.scheduledFor ? new Date(s.scheduledFor).getTime() : Date.now();
-  const duration = 60;
+  const duration = Number(s.duration) || 60;
 
   let sessionRating = 0;
+  let ratingComment = '';
   if (s.completionKey) {
     try {
       const parsed = JSON.parse(s.completionKey);
       const callerKey = isTeacher ? `teacher_${s.teacherId}` : `learner_${s.learnerId}`;
-      sessionRating = parsed[callerKey]?.rating || parsed[`learner_${s.learnerId}`]?.rating || parsed.rating || 0;
+      const entry = parsed[callerKey] || (!isTeacher && parsed.rating ? { rating: parsed.rating, comment: parsed.comment } : null);
+      sessionRating = Number(entry?.rating) || 0;
+      ratingComment = entry?.comment || '';
     } catch (_e) {
       sessionRating = 0;
+      ratingComment = '';
     }
   }
 
@@ -38,12 +44,12 @@ function normalizeSession(s, currentUserId) {
     duration,
     endTime: scheduledTime + duration * 60000,
     mode: s.mode === 'IN_PERSON' ? 'In-Person' : 'Online',
-    meetLink: s.mode === 'ONLINE' ? `https://meet.jit.si/MindCraft-${s.id}` : '',
+    meetLink: getSessionMeetLink(s),
     location: '',
     notes: '',
     status: s.status,
     rating: sessionRating,
-    ratingComment: '',
+    ratingComment,
     createdAt: new Date(s.createdAt).getTime(),
     peerName: peer?.name || 'Study Partner',
     partner: peer ? {
@@ -52,6 +58,42 @@ function normalizeSession(s, currentUserId) {
       photoUrl: peer.photoUrl,
     } : null,
   };
+}
+
+async function findOverlappingSession({ teacherId, learnerId, start, end, excludeSessionId = null }) {
+  const participantClauses = [];
+  if (teacherId) {
+    participantClauses.push({ teacherId }, { learnerId: teacherId });
+  }
+  if (learnerId) {
+    participantClauses.push({ teacherId: learnerId }, { learnerId });
+  }
+
+  const lookbackStart = new Date(start.getTime() - DEFAULT_SESSION_DURATION_MS);
+  const candidate = await prisma.tutoringSession.findFirst({
+    where: {
+      ...(excludeSessionId ? { id: { not: excludeSessionId } } : {}),
+      status: { in: ['UPCOMING', 'PENDING'] },
+      OR: participantClauses,
+      scheduledFor: {
+        gt: lookbackStart,
+        lt: end,
+      },
+    },
+  });
+
+  if (!candidate) return null;
+
+  if (candidate.scheduledFor) {
+    const existingStart = new Date(candidate.scheduledFor).getTime();
+    const existingDurationMs = (Number(candidate.duration) || 60) * 60 * 1000;
+    const existingEnd = existingStart + existingDurationMs;
+    if (!(existingStart < end.getTime() && existingEnd > start.getTime())) {
+      return null;
+    }
+  }
+
+  return candidate;
 }
 
 router.get('/auth/google', (_req, res) => {
@@ -110,9 +152,16 @@ router.post('/book', requireAuth, [
       return res.status(400).json({ success: false, error: 'Session start time is required' });
     }
     const start = new Date(Number(startVal) || startVal);
-    const durationMins = Number(req.body.duration) || 60;
     const endVal = req.body.endTime;
-    const end = endVal ? new Date(Number(endVal) || endVal) : new Date(start.getTime() + durationMins * 60 * 1000);
+    const hasExplicitDuration = req.body.duration !== undefined && req.body.duration !== null && req.body.duration !== '';
+    const parsedDuration = Number(req.body.duration);
+    if (hasExplicitDuration && (!Number.isInteger(parsedDuration) || parsedDuration < 15 || parsedDuration > 240)) {
+      return res.status(400).json({ success: false, error: 'Session duration must be an integer between 15 and 240 minutes' });
+    }
+    const requestedDuration = hasExplicitDuration ? parsedDuration : 60;
+    const end = endVal
+      ? new Date(Number(endVal) || endVal)
+      : new Date(start.getTime() + (requestedDuration * 60 * 1000));
 
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return res.status(400).json({ success: false, error: 'Invalid session start or end time' });
@@ -126,40 +175,59 @@ router.post('/book', requireAuth, [
       return res.status(400).json({ success: false, error: 'Session must be scheduled in the future' });
     }
 
-    // Check tutor availability overlap against existing sessions
-    const overlap = await prisma.tutoringSession.findFirst({
-      where: {
-        teacherId: teacher.id,
-        status: { in: ['UPCOMING', 'PENDING'] },
-        OR: [
-          {
-            scheduledFor: {
-              gte: start,
-              lt: end,
-            },
-          },
-        ],
-      },
-    });
-
-    if (overlap) {
-      return res.status(409).json({ success: false, error: 'Tutor is not available at the selected time' });
-    }
-
+    const durationMins = Math.max(15, Math.min(240, Math.round((end.getTime() - start.getTime()) / 60000)));
     const { matchId, skill, mode } = req.body;
 
-    const session = await prisma.tutoringSession.create({
-      data: {
-        teacherId: teacher.id,
-        learnerId: learner.id,
-        title: skill,
-        mode: mode === 'In-Person' ? 'IN_PERSON' : 'ONLINE',
-        scheduledFor: start,
-        threadId: matchId,
-        status: 'PENDING',
-      },
-      include: { teacher: true, learner: true },
-    });
+    // Atomically check availability overlap and create the session inside a serializable transaction
+    let txResult;
+    try {
+      txResult = await prisma.$transaction(async (tx) => {
+        const overlap = await findOverlappingSession({
+          teacherId: teacher.id,
+          learnerId: learner.id,
+          start,
+          end,
+          tx,
+        });
+
+        if (overlap) {
+          const teacherBusy = overlap.teacherId === teacher.id || overlap.learnerId === teacher.id;
+          return {
+            conflict: true,
+            error: teacherBusy
+              ? 'Tutor is not available at the selected time'
+              : 'Learner is not available at the selected time',
+          };
+        }
+
+        const created = await tx.tutoringSession.create({
+          data: {
+            teacherId: teacher.id,
+            learnerId: learner.id,
+            title: skill,
+            mode: mode === 'In-Person' ? 'IN_PERSON' : 'ONLINE',
+            scheduledFor: start,
+            duration: durationMins,
+            threadId: matchId,
+            status: 'PENDING',
+          },
+          include: { teacher: true, learner: true },
+        });
+
+        return { conflict: false, session: created };
+      }, { isolationLevel: 'Serializable' });
+    } catch (txErr) {
+      if (txErr?.code === 'P2034') {
+        return res.status(409).json({ success: false, error: 'Time slot conflict — please retry' });
+      }
+      throw txErr;
+    }
+
+    if (txResult.conflict) {
+      return res.status(409).json({ success: false, error: txResult.error });
+    }
+
+    const session = txResult.session;
 
     broadcastToGlobal(teacher.clerkUserId, {
       type: 'global_notification',
@@ -169,6 +237,7 @@ router.post('/book', requireAuth, [
         body: `${learner.name} requested a ${skill} session.`,
       },
       data: { type: 'session_booked', id: `session-${session.id}`, route: '/sessions', matchId },
+      timestamp: Date.now(),
     });
 
     res.status(201).json({
@@ -245,7 +314,6 @@ router.get('/:uid', requireAuth, handleGetUserSessions);
 router.patch('/:sessionId/accept', requireAuth, async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { googleTokens } = req.body;
 
     const session = await prisma.tutoringSession.findUnique({
       where: { id: sessionId },
@@ -273,19 +341,7 @@ router.patch('/:sessionId/accept', requireAuth, async (req, res, next) => {
       return res.status(409).json({ success: false, error: 'Session was already accepted or modified' });
     }
 
-    let meetLink = session.mode === 'ONLINE' ? `https://meet.jit.si/MindCraft-${sessionId}` : '';
-
-    if (googleTokens) {
-      try {
-        const calRes = await exportSessionToCalendar(
-          { ...session, scheduledAt: new Date(session.scheduledFor).getTime() },
-          googleTokens,
-          session.learner.name,
-          session.learner.email,
-        );
-        if (calRes?.meetLink) meetLink = calRes.meetLink;
-      } catch (_calErr) {}
-    }
+    const meetLink = getSessionMeetLink({ ...session, id: sessionId });
 
     broadcastToGlobal(session.learner.clerkUserId, {
       type: 'global_notification',
@@ -295,9 +351,127 @@ router.patch('/:sessionId/accept', requireAuth, async (req, res, next) => {
         body: `Your session request for ${session.title || 'tutoring'} was accepted.`,
       },
       data: { type: 'session_booked', id: `session-${sessionId}-accept`, route: '/sessions', matchId: session.threadId || '' },
+      timestamp: Date.now(),
     });
 
     res.json({ success: true, message: 'Session accepted', meetLink });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/:sessionId/reschedule', requireAuth, async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await prisma.tutoringSession.findUnique({
+      where: { id: sessionId },
+      include: { teacher: true, learner: true },
+    });
+
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    const isTeacher = session.teacher?.clerkUserId === req.user.clerkUserId || session.teacherId === req.user.id;
+    const isLearner = session.learner?.clerkUserId === req.user.clerkUserId || session.learnerId === req.user.id;
+    if (!isTeacher && !isLearner) {
+      return res.status(403).json({ success: false, error: 'Not a participant in this session' });
+    }
+
+    if (!['PENDING', 'UPCOMING'].includes(session.status)) {
+      return res.status(409).json({ success: false, error: `Cannot reschedule session with status ${session.status}` });
+    }
+
+    const startVal = req.body.startTime || req.body.scheduledAt || req.body.scheduledFor;
+    if (!startVal) {
+      return res.status(400).json({ success: false, error: 'Session start time is required' });
+    }
+
+    const start = new Date(Number(startVal) || startVal);
+    const hasExplicitDuration = req.body.duration !== undefined && req.body.duration !== null && req.body.duration !== '';
+    const parsedDuration = Number(req.body.duration);
+    if (hasExplicitDuration && (!Number.isInteger(parsedDuration) || parsedDuration < 15 || parsedDuration > 240)) {
+      return res.status(400).json({ success: false, error: 'Session duration must be an integer between 15 and 240 minutes' });
+    }
+    const requestedDuration = hasExplicitDuration ? parsedDuration : (Number(session.duration) || 60);
+    const endVal = req.body.endTime;
+    const end = endVal ? new Date(Number(endVal) || endVal) : new Date(start.getTime() + requestedDuration * 60 * 1000);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid session start or end time' });
+    }
+    if (start.getTime() >= end.getTime()) {
+      return res.status(400).json({ success: false, error: 'Session start time must be before end time' });
+    }
+    if (start.getTime() <= Date.now()) {
+      return res.status(400).json({ success: false, error: 'Session must be scheduled in the future' });
+    }
+
+    const durationMins = Math.max(15, Math.min(240, Math.round((end.getTime() - start.getTime()) / 60000)));
+
+    let rescheduleTx;
+    try {
+      rescheduleTx = await prisma.$transaction(async (tx) => {
+        const overlap = await findOverlappingSession({
+          teacherId: session.teacherId,
+          learnerId: session.learnerId,
+          start,
+          end,
+          excludeSessionId: sessionId,
+          tx,
+        });
+
+        if (overlap) {
+          const teacherBusy = overlap.teacherId === session.teacherId || overlap.learnerId === session.teacherId;
+          return {
+            conflict: true,
+            error: teacherBusy
+              ? 'Tutor is not available at the selected time'
+              : 'Learner is not available at the selected time',
+          };
+        }
+
+        const updatedSession = await tx.tutoringSession.update({
+          where: { id: sessionId },
+          data: { scheduledFor: start, duration: durationMins },
+          include: { teacher: true, learner: true },
+        });
+
+        return { conflict: false, updated: updatedSession };
+      }, { isolationLevel: 'Serializable' });
+    } catch (txErr) {
+      if (txErr?.code === 'P2034') {
+        return res.status(409).json({ success: false, error: 'Time slot conflict — please retry' });
+      }
+      throw txErr;
+    }
+
+    if (rescheduleTx.conflict) {
+      return res.status(409).json({ success: false, error: rescheduleTx.error });
+    }
+
+    const updated = rescheduleTx.updated;
+
+    const peerClerkId = isTeacher ? session.learner?.clerkUserId : session.teacher?.clerkUserId;
+    if (peerClerkId) {
+      broadcastToGlobal(peerClerkId, {
+        type: 'global_notification',
+        subType: 'session_rescheduled',
+        notification: {
+          title: 'Session Rescheduled 📅',
+          body: `Your ${session.title || 'tutoring'} session was rescheduled.`,
+        },
+        data: { type: 'session_rescheduled', id: `session-${sessionId}-reschedule`, route: '/sessions', matchId: session.threadId || '' },
+        timestamp: Date.now(),
+      });
+    }
+
+    const callerId = isTeacher ? session.teacherId : session.learnerId;
+    res.json({
+      success: true,
+      message: 'Session rescheduled',
+      data: normalizeSession(updated, callerId),
+    });
   } catch (err) {
     next(err);
   }
@@ -341,6 +515,7 @@ router.patch('/:sessionId/reject', requireAuth, async (req, res, next) => {
           body: `Your session request for ${session.title || 'tutoring'} was declined.`,
         },
         data: { type: 'session_rejected', id: `session-${sessionId}-reject`, route: '/sessions', matchId: session.threadId || '' },
+        timestamp: Date.now(),
       });
     }
 
@@ -363,11 +538,11 @@ const handleCompleteSession = async (req, res, next) => {
     }
 
     if (![session.teacher.clerkUserId, session.learner.clerkUserId].includes(req.user.clerkUserId) &&
-        ![session.teacherId, session.learnerId].includes(req.user.id)) {
+      ![session.teacherId, session.learnerId].includes(req.user.id)) {
       return res.status(403).json({ success: false, error: 'Not a participant in this session' });
     }
 
-    if (session.status !== 'UPCOMING' && session.status !== 'COMPLETED') {
+    if (session.status !== 'UPCOMING') {
       return res.status(409).json({ success: false, error: `Cannot complete session with status ${session.status}` });
     }
 
@@ -375,7 +550,7 @@ const handleCompleteSession = async (req, res, next) => {
     if (!result.alreadyCompleted) {
       try {
         await awardSessionComplete(session.teacher.clerkUserId, session.learner.clerkUserId, targetSessionId);
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     res.json({ success: true, ...result });
@@ -397,7 +572,7 @@ const handleRateSession = async (req, res, next) => {
     if (errors) return res.status(400).json(errors);
 
     const sessionId = req.params.sessionId || req.params.id;
-    const { rating } = req.body;
+    const { rating, comment } = req.body;
 
     const session = await prisma.tutoringSession.findUnique({
       where: { id: sessionId },
@@ -434,32 +609,57 @@ const handleRateSession = async (req, res, next) => {
     }
 
     const numRating = parseFloat(rating);
-    ratingData[callerKey] = { rating: numRating, ratedAt: Date.now() };
+    const cleanComment = typeof comment === 'string' ? comment.trim() : '';
+    ratingData[callerKey] = { rating: numRating, comment: cleanComment, ratedAt: Date.now() };
     if (isLearner) ratingData.learnerRated = true;
     else ratingData.teacherRated = true;
 
-    const prevSessions = Math.max(session.teacher.totalSessions - 1, 0);
-    const newRating = Number(((Number(session.teacher.averageRating) * prevSessions + numRating) / Math.max(session.teacher.totalSessions, 1)).toFixed(2));
+    const targetUserId = isLearner ? session.teacherId : session.learnerId;
+    const targetUser = isLearner ? session.teacher : session.learner;
+    const targetField = isLearner ? 'teacherId' : 'learnerId';
+    const targetRatingKey = isLearner ? 'learnerRated' : 'teacherRated';
 
-    await prisma.$transaction([
-      prisma.tutoringSession.update({
+    const { newRating, ratedSessionsCount } = await prisma.$transaction(async (tx) => {
+      await tx.tutoringSession.update({
         where: { id: sessionId },
         data: { completionKey: JSON.stringify(ratingData) },
-      }),
-      prisma.user.update({
-        where: { id: session.teacherId },
-        data: { averageRating: newRating },
-      }),
-    ]);
+      });
 
-    broadcastToGlobal(session.teacher.clerkUserId, {
-      type: 'global_notification',
-      subType: 'new_review',
-      notification: { title: 'New Review Received! ⭐', body: `You received a ${numRating}-star rating.` },
-      data: { type: 'new_review', id: `review-${sessionId}`, route: '/profile', matchId: session.threadId || '' },
+      const ratedCountRaw = typeof tx.tutoringSession.count === 'function'
+        ? await tx.tutoringSession.count({
+          where: {
+            [targetField]: targetUserId,
+            status: 'COMPLETED',
+            completionKey: { contains: targetRatingKey },
+          },
+        })
+        : 1;
+      const count = Math.max(ratedCountRaw || 1, 1);
+      const prevRating = Number(targetUser?.averageRating) || 0;
+      const computedRating = Number(((prevRating * (count - 1) + numRating) / count).toFixed(2));
+
+      await tx.user.update({
+        where: { id: targetUserId },
+        data: { averageRating: computedRating },
+      });
+
+      return { newRating: computedRating, ratedSessionsCount: count };
     });
 
-    res.json({ success: true, message: 'Rating submitted' });
+    if (targetUser?.clerkUserId) {
+      broadcastToGlobal(targetUser.clerkUserId, {
+        type: 'global_notification',
+        subType: 'new_review',
+        notification: { title: 'New Review Received! ⭐', body: `You received a ${numRating}-star rating.` },
+        data: { type: 'new_review', id: `review-${sessionId}`, route: '/profile', matchId: session.threadId || '' },
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Rating submitted',
+      data: { ratedUserId: targetUserId, averageRating: newRating, ratedSessionsCount },
+    });
   } catch (err) {
     next(err);
   }
@@ -486,7 +686,7 @@ router.post('/:sessionId/cancel', requireAuth, async (req, res, next) => {
     }
 
     if (![session.teacher.clerkUserId, session.learner.clerkUserId].includes(req.user.clerkUserId) &&
-        ![session.teacherId, session.learnerId].includes(req.user.id)) {
+      ![session.teacherId, session.learnerId].includes(req.user.id)) {
       return res.status(403).json({ success: false, error: 'Not a participant in this session' });
     }
 
@@ -507,6 +707,7 @@ router.post('/:sessionId/cancel', requireAuth, async (req, res, next) => {
           body: `The tutoring session for ${session.title || 'tutoring'} was cancelled.`,
         },
         data: { type: 'session_cancelled', id: `session-${sessionId}-cancel`, route: '/sessions', matchId: session.threadId || '' },
+        timestamp: Date.now(),
       });
     }
 
@@ -532,7 +733,7 @@ router.get('/:sessionId/ics', requireAuth, async (req, res, next) => {
     }
 
     if (![session.teacher.clerkUserId, session.learner.clerkUserId].includes(req.user.clerkUserId) &&
-        ![session.teacherId, session.learnerId].includes(req.user.id)) {
+      ![session.teacherId, session.learnerId].includes(req.user.id)) {
       return res.status(403).json({ success: false, error: 'Not a participant in this session' });
     }
 
@@ -549,7 +750,7 @@ router.get('/:sessionId/ics', requireAuth, async (req, res, next) => {
   }
 });
 
-router.post('/:sessionId/export-calendar', requireAuth, async (req, res, next) => {
+const handleExportCalendar = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const session = await prisma.tutoringSession.findUnique({
@@ -562,36 +763,29 @@ router.post('/:sessionId/export-calendar', requireAuth, async (req, res, next) =
     }
 
     if (![session.teacher.clerkUserId, session.learner.clerkUserId].includes(req.user.clerkUserId) &&
-        ![session.teacherId, session.learnerId].includes(req.user.id)) {
+      ![session.teacherId, session.learnerId].includes(req.user.id)) {
       return res.status(403).json({ success: false, error: 'Not a participant in this session' });
     }
 
     const isTeacher = session.teacher.clerkUserId === req.user.clerkUserId || session.teacherId === req.user.id;
     const peer = isTeacher ? session.learner : session.teacher;
 
-    const start = new Date(session.scheduledFor || Date.now());
-    const durationMins = 60;
-    const end = new Date(start.getTime() + durationMins * 60 * 1000);
-    const pad = (n) => String(n).padStart(2, '0');
-    const fmt = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
-
-    const meetLink = `https://meet.jit.si/MindCraft-${sessionId}`;
-    const params = new URLSearchParams({
-      action: 'TEMPLATE',
-      text: `MindCraft Session: ${session.title || 'Tutoring'}`,
-      dates: `${fmt(start)}/${fmt(end)}`,
-      details: `MindCraft P2P Tutoring Session with ${peer.name}\nSkill: ${session.title || 'General'}\nMode: ${session.mode}\nJoin: ${meetLink}`,
-      location: meetLink,
-    });
-    if (peer.email) params.append('add', peer.email);
+    const { htmlLink, meetLink } = generateCalendarDeepLink(
+      { ...session, id: sessionId },
+      peer?.name || 'Peer',
+      peer?.email || null,
+    );
 
     res.json({
       success: true,
-      data: { htmlLink: `https://calendar.google.com/calendar/render?${params.toString()}` },
+      data: { htmlLink, meetLink },
     });
   } catch (err) {
     next(err);
   }
-});
+};
+
+router.post('/:sessionId/export-calendar', requireAuth, handleExportCalendar);
+router.get('/:sessionId/calendar', requireAuth, handleExportCalendar);
 
 module.exports = router;

@@ -41,8 +41,8 @@ jest.mock('../src/services/tokenEconomy', () => ({
 
 jest.mock('../src/services/matchingEngine', () => ({
   getUserSkillGraph: jest.fn().mockImplementation(() => Promise.resolve({
-    teaches: ['DSA'],
-    learns: ['WEB'],
+    teaches: ['dsa'],
+    learns: ['web'],
   })),
 }));
 
@@ -284,8 +284,8 @@ describe('Full Authentication & Onboarding Lifecycle Integration', () => {
     expect(res.body.user.collegeLocation).toBe('Ghaziabad');
     expect(res.body.user.department).toBe('CSE');
     expect(res.body.user.year).toBe('2');
-    expect(res.body.user.teaches).toEqual(['DSA']);
-    expect(res.body.user.learns).toEqual(['WEB']);
+    expect(res.body.user.teaches).toEqual(['dsa']);
+    expect(res.body.user.learns).toEqual(['web']);
     expect(res.body.user.profileComplete).toBe(true);
   });
 
@@ -302,8 +302,8 @@ describe('Full Authentication & Onboarding Lifecycle Integration', () => {
     expect(res.body.user.clerkUserId).toBe(testClerkId);
     expect(res.body.user.college).toBe('Hi-Tech');
     expect(res.body.user.department).toBe('CSE');
-    expect(res.body.user.teaches).toContain('DSA');
-    expect(res.body.user.learns).toContain('WEB');
+    expect(res.body.user.teaches).toContain('dsa');
+    expect(res.body.user.learns).toContain('web');
     expect(res.body.user.profileComplete).toBe(true);
   });
 
@@ -329,8 +329,8 @@ describe('Full Authentication & Onboarding Lifecycle Integration', () => {
     expect(profileRes.body.data.user.clerkUserId).toBe(testClerkId);
     expect(profileRes.body.data.user.college).toBe('Hi-Tech');
     expect(profileRes.body.data.user.department).toBe('CSE');
-    expect(profileRes.body.data.skillGraph.teaches).toContain('DSA');
-    expect(profileRes.body.data.skillGraph.learns).toContain('WEB');
+    expect(profileRes.body.data.skillGraph.teaches).toContain('dsa');
+    expect(profileRes.body.data.skillGraph.learns).toContain('web');
   });
 
   it('Test 5: User deleted via user.deleted webhook can re-register with the same email and a new clerkId and receive 200 OK', async () => {
@@ -388,8 +388,8 @@ describe('Full Authentication & Onboarding Lifecycle Integration', () => {
     expect(registerRes.body.user.clerkUserId).toBe(newClerkId);
     expect(registerRes.body.user.name).toBe('HiTech Student Reborn');
     expect(registerRes.body.user.year).toBe('3');
-    expect(registerRes.body.user.teaches).toEqual(['System Design']);
-    expect(registerRes.body.user.learns).toEqual(['Rust']);
+    expect(registerRes.body.user.teaches).toEqual(['system design']);
+    expect(registerRes.body.user.learns).toEqual(['rust']);
     expect(registerRes.body.user.profileComplete).toBe(true);
     expect(registerRes.body.user.isActive).toBe(true);
 

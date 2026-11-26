@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import MindcraftLogo from './MindcraftLogo';
 import ThemeToggle from './ThemeToggle';
+import { prefetchRouteData } from '../config/queryClient';
 
 const Layout = () => {
   const { pathname } = useLocation();
@@ -43,6 +44,8 @@ const Layout = () => {
                 <Link
                   key={item.path}
                   to={item.path}
+                  onMouseEnter={() => prefetchRouteData(item.path, currentUser?.uid)}
+                  onFocus={() => prefetchRouteData(item.path, currentUser?.uid)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
                     isActive
                       ? 'bg-purple-100 dark:bg-secondary-container text-purple-900 dark:text-on-secondary-container'
@@ -102,6 +105,8 @@ const Layout = () => {
             <Link
               key={item.path}
               to={item.path}
+              onMouseEnter={() => prefetchRouteData(item.path, currentUser?.uid)}
+              onFocus={() => prefetchRouteData(item.path, currentUser?.uid)}
               className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-150 relative ${isActive
                   ? 'bg-purple-100 dark:bg-secondary-container text-purple-900 dark:text-on-secondary-container border-b-4 border-purple-500 dark:border-focus-purple'
                   : 'text-gray-500 dark:text-on-surface-variant hover:bg-gray-100 dark:hover:bg-surface-variant'

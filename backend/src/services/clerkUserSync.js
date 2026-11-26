@@ -1,4 +1,11 @@
 const { prisma } = require('../config/prisma');
+const { invalidateMatchingFeeds } = require('./matchingCache');
+
+async function safeInvalidate(userId) {
+  if (typeof invalidateMatchingFeeds === 'function') {
+    await invalidateMatchingFeeds(userId);
+  }
+}
 
 function getPrimaryEmail(data) {
   const addresses = data.email_addresses || [];
@@ -40,6 +47,7 @@ async function syncCreatedUser(data) {
         },
       });
       console.log(`[Clerk Webhook] Updated existing user by clerkUserId: ${fields.clerkUserId}`);
+      await safeInvalidate(updated.id);
       return updated;
     }
 
@@ -58,6 +66,7 @@ async function syncCreatedUser(data) {
         },
       });
       console.log(`[Clerk Webhook] Linked existing user by email: ${fields.email} to clerkUserId: ${fields.clerkUserId}`);
+      await safeInvalidate(updated.id);
       return updated;
     }
 
@@ -65,6 +74,7 @@ async function syncCreatedUser(data) {
       data: fields,
     });
     console.log(`[Clerk Webhook] Created new user with clerkUserId: ${fields.clerkUserId}`);
+    await safeInvalidate(created.id);
     return created;
   } catch (err) {
     console.error(`[Clerk Webhook] Failed to sync user ${fields.clerkUserId}:`, err.message);
@@ -87,6 +97,7 @@ async function syncUpdatedUser(data) {
         },
       });
       console.log(`[Clerk Webhook] Updated user ${fields.clerkUserId}`);
+      await safeInvalidate(updated.id);
       return updated;
     }
     return syncCreatedUser(data);
@@ -110,6 +121,7 @@ async function deactivateUser(data) {
       },
     });
     console.log(`[Clerk Webhook] Deactivated user ${data.id}`);
+    await safeInvalidate(deleted.id);
     return deleted;
   } catch (err) {
     console.error(`[Clerk Webhook] Failed to deactivate user ${data.id}:`, err.message);

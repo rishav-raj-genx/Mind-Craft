@@ -5,6 +5,7 @@ import { useBadges } from '../hooks/useGamification';
 import {
   ArrowLeft, Flame, Code, Moon, Bug, BookOpen, GraduationCap,
   Trophy, Star, Users, Loader2, ChevronDown, ChevronUp, Coins,
+  Zap, Sprout, Gem, Crown, Award,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -19,6 +20,14 @@ const BADGE_ICONS = {
   top_rated: Star,
   social_butterfly: Users,
   wealthy_mind: Coins,
+  weekly_warrior: Zap,
+  spark_starter: Sprout,
+  '7_day_streak': Flame,
+  fortnight_focus: Flame,
+  monthly_master: Trophy,
+  discipline_king: Gem,
+  century_legend: Crown,
+  master_tutor: Award,
 };
 
 // ─── Badge unlock shimmer overlay ─────────────────────────────────────────────
@@ -136,7 +145,7 @@ const BadgeHistoryPanel = ({ history, onClose }) => (
       ) : (
         <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
           {history.map((h, i) => (
-            <div key={i} className="flex items-center gap-3 py-2 px-3 bg-gray-50 dark:bg-surface-raised/50 rounded-xl">
+            <div key={h.id || i} className="flex items-center gap-3 py-2 px-3 bg-gray-50 dark:bg-surface-raised/50 rounded-xl">
               <Trophy size={14} className="text-focus-purple flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <span className="font-body-sm text-body-sm text-gray-800 dark:text-on-surface truncate block">

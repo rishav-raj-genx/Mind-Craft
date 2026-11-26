@@ -5,7 +5,7 @@ async function socketAuth(socket, next) {
   try {
     const token = socket.handshake.auth?.token;
     if (!token) {
-      const error = new Error('Authentication token is required');
+      const error = new Error('AUTH_REQUIRED: Authentication token is required');
       error.data = { code: 'AUTH_REQUIRED' };
       return next(error);
     }
@@ -14,7 +14,7 @@ async function socketAuth(socket, next) {
       secretKey: process.env.CLERK_SECRET_KEY,
     });
     if (!claims.sub) {
-      const error = new Error('Invalid authentication token');
+      const error = new Error('AUTH_INVALID: Invalid authentication token');
       error.data = { code: 'AUTH_INVALID' };
       return next(error);
     }
@@ -24,16 +24,17 @@ async function socketAuth(socket, next) {
       select: { id: true, clerkUserId: true, name: true, email: true, deletedAt: true },
     });
     if (!user || user.deletedAt) {
-      const error = new Error('User is not available');
+      const error = new Error('USER_UNAVAILABLE: User is not available');
       error.data = { code: 'USER_UNAVAILABLE' };
       return next(error);
     }
 
     socket.user = user;
+    socket.userId = user.id;
     socket.auth = claims;
     return next();
-  } catch (_error) {
-    const error = new Error('Invalid authentication token');
+  } catch (err) {
+    const error = new Error(`AUTH_INVALID: ${err?.message || 'Invalid authentication token'}`);
     error.data = { code: 'AUTH_INVALID' };
     return next(error);
   }

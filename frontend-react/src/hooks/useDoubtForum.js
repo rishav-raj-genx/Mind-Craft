@@ -5,6 +5,13 @@ import { queryKeys } from './queryKeys';
 export const useDoubts = (filter = 'All Doubts', options = {}) => useQuery({
   queryKey: queryKeys.doubts(filter),
   queryFn: () => doubtService.getAllDoubts(filter),
+  refetchInterval: (query) => {
+    const list = query.state.data?.data;
+    if (Array.isArray(list) && list.some((d) => d.aiAssistStatus === 'pending')) {
+      return 3000;
+    }
+    return false;
+  },
   ...options,
 });
 
@@ -36,7 +43,39 @@ export const useToggleDoubtUpvote = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (doubtId) => doubtService.toggleUpvote(doubtId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['doubts'] }),
+    onMutate: async (doubtId) => {
+      await queryClient.cancelQueries({ queryKey: ['doubts'] });
+      const previousQueries = queryClient.getQueriesData({ queryKey: ['doubts'] });
+
+      queryClient.setQueriesData({ queryKey: ['doubts'] }, (old) => {
+        if (!old || !Array.isArray(old.data)) return old;
+        let changed = false;
+        const nextData = old.data.map((doubt) => {
+          if (doubt?.id !== doubtId) return doubt;
+          changed = true;
+          const nextHasUpvoted = !doubt.hasUpvoted;
+          const currentUpvotes = typeof doubt.upvotes === 'number' ? doubt.upvotes : 0;
+          return {
+            ...doubt,
+            hasUpvoted: nextHasUpvoted,
+            upvotes: Math.max(0, currentUpvotes + (nextHasUpvoted ? 1 : -1)),
+          };
+        });
+        return changed ? { ...old, data: nextData } : old;
+      });
+
+      return { previousQueries };
+    },
+    onError: (_err, _doubtId, context) => {
+      if (context?.previousQueries) {
+        context.previousQueries.forEach(([key, data]) => {
+          queryClient.setQueryData(key, data);
+        });
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['doubts'] });
+    },
   });
 };
 

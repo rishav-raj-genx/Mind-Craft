@@ -20,7 +20,9 @@ function normalizeMatch(row) {
       email: row.email,
       photoUrl: row.photoUrl,
       collegeId: row.collegeId,
+      college: row.collegeName || '',
       departmentId: row.departmentId,
+      department: row.departmentName || '',
       year: row.year,
       averageRating: Number(row.averageRating || 0),
       totalSessions: Number(row.totalSessions || 0),
@@ -57,14 +59,18 @@ function decodeCursor(cursor) {
 }
 
 async function findMatches(uid, options = {}) {
-  return queryMatches(uid, { ...options, sameCollegeOnly: true });
+  return queryMatches(uid, {
+    ...options,
+    sameCollegeOnly: Boolean(options.sameCollegeOnly),
+  });
 }
 
 async function findBroadMatches(uid, limit = DEFAULT_LIMIT, offset = 0, skillFilter = null) {
+  const opts = typeof limit === 'object' && limit !== null
+    ? limit
+    : { limit, offset, skillFilter };
   return queryMatches(uid, {
-    limit,
-    offset,
-    skillFilter,
+    ...opts,
     sameCollegeOnly: false,
   });
 }
@@ -129,19 +135,42 @@ async function getUserSkillGraph(uid) {
 async function queryMatches(uid, options = {}) {
   const limit = clampLimit(options.limit);
   const offset = Math.max(Number(options.offset) || 0, 0);
-  const skillFilter = options.skillFilter || null;
+  const skillFilter = typeof options.skillFilter === 'string' && options.skillFilter.trim()
+    ? options.skillFilter.trim().toLowerCase()
+    : null;
+  const collegeFilter = typeof options.college === 'string' && options.college.trim()
+    ? options.college.trim()
+    : null;
+  const departmentFilter = typeof options.department === 'string' && options.department.trim()
+    ? options.department.trim()
+    : null;
+  const yearFilter = options.year !== undefined && options.year !== null && String(options.year).trim()
+    ? String(options.year).trim()
+    : null;
+  const parsedRating = Number(options.minRating);
+  const minRating = Number.isFinite(parsedRating) && parsedRating > 0 ? parsedRating : 0;
+  const sortBy = ['relevance', 'rating', 'name'].includes(options.sortBy)
+    ? options.sortBy
+    : 'relevance';
   const sameCollegeOnly = Boolean(options.sameCollegeOnly);
-  const cursor = decodeCursor(options.cursor);
+  const cursor = sortBy === 'relevance' ? decodeCursor(options.cursor) : null;
 
   const requester = await resolveUser(uid);
   if (!requester) return [];
 
+  const updatedAtEpoch = requester.updatedAt ? new Date(requester.updatedAt).getTime() : 0;
   const cacheKey = [
     'match-feed:v1',
     uid,
-    requester.updatedAt.getTime(),
+    updatedAtEpoch,
     sameCollegeOnly ? 'strict' : 'broad',
     skillFilter || 'all',
+    collegeFilter ? collegeFilter.toLowerCase() : 'all',
+    departmentFilter ? departmentFilter.toLowerCase() : 'all',
+    yearFilter ? yearFilter.toLowerCase() : 'all',
+    minRating,
+    sortBy,
+    limit,
     options.cursor || offset,
   ].join(':');
   const cached = await getCachedFeed(cacheKey);
@@ -177,6 +206,21 @@ async function queryMatches(uid, options = {}) {
     `
     : Prisma.empty;
 
+  let orderBySql = Prisma.sql`
+    ORDER BY compatibility_score DESC, shared_skill_count DESC,
+      total_sessions DESC, average_rating DESC, id ASC
+  `;
+  if (sortBy === 'rating') {
+    orderBySql = Prisma.sql`
+      ORDER BY average_rating DESC, compatibility_score DESC,
+        total_sessions DESC, id ASC
+    `;
+  } else if (sortBy === 'name') {
+    orderBySql = Prisma.sql`
+      ORDER BY LOWER(name) ASC, compatibility_score DESC, id ASC
+    `;
+  }
+
   const rows = await prisma.$queryRaw(Prisma.sql`
     WITH requester AS (
       SELECT
@@ -192,25 +236,26 @@ async function queryMatches(uid, options = {}) {
     overlap AS (
       SELECT
         candidate."userId" AS candidate_id,
-        candidate."skillId" AS skill_id,
-        skill.name,
+        LOWER(TRIM(s.name)) AS normalized_skill_name,
+        s.name AS name,
         candidate.kind AS candidate_kind,
         requested.kind AS requested_kind
       FROM "UserSkill" requested
+      JOIN "Skill" req ON req.id = requested."skillId"
+      JOIN "Skill" s ON LOWER(TRIM(s.name)) = LOWER(TRIM(req.name))
       JOIN "UserSkill" candidate
-        ON candidate."skillId" = requested."skillId"
+        ON candidate."skillId" = s.id
        AND candidate.kind <> requested.kind
-      JOIN "Skill" skill ON skill.id = candidate."skillId"
       WHERE requested."userId" = ${requester.id}::uuid
         AND candidate."userId" <> ${requester.id}::uuid
-        AND (${skillFilter}::text IS NULL OR skill.name = ${skillFilter})
+        AND (${skillFilter}::text IS NULL OR LOWER(TRIM(s.name)) = LOWER(TRIM(${skillFilter}::text)))
     ),
     grouped AS (
       SELECT
         candidate_id,
-        COUNT(DISTINCT skill_id)::numeric AS shared_skill_count,
-        COUNT(DISTINCT skill_id) FILTER (WHERE requested_kind = 'LEARNS' AND candidate_kind = 'TEACHES')::numeric AS candidate_teaches_count,
-        COUNT(DISTINCT skill_id) FILTER (WHERE requested_kind = 'TEACHES' AND candidate_kind = 'LEARNS')::numeric AS candidate_learns_count,
+        COUNT(DISTINCT normalized_skill_name)::numeric AS shared_skill_count,
+        COUNT(DISTINCT normalized_skill_name) FILTER (WHERE requested_kind = 'LEARNS' AND candidate_kind = 'TEACHES')::numeric AS candidate_teaches_count,
+        COUNT(DISTINCT normalized_skill_name) FILTER (WHERE requested_kind = 'TEACHES' AND candidate_kind = 'LEARNS')::numeric AS candidate_learns_count,
         ARRAY_AGG(DISTINCT name ORDER BY name) AS shared_skills
       FROM overlap
       GROUP BY candidate_id
@@ -223,7 +268,9 @@ async function queryMatches(uid, options = {}) {
         u.name,
         u."photoUrl",
         u."collegeId" AS college_id,
+        col.name AS college_name,
         u."departmentId" AS department_id,
+        dept.name AS department_name,
         u.year,
         u."averageRating"::numeric AS average_rating,
         u."totalSessions" AS total_sessions,
@@ -231,7 +278,7 @@ async function queryMatches(uid, options = {}) {
         u.longitude,
         grouped.shared_skills,
         grouped.shared_skill_count,
-        (u."collegeId" = requester.college_id) AS same_college,
+        (requester.college_id IS NOT NULL AND u."collegeId" = requester.college_id) AS same_college,
         LEAST(COUNT(teaching."skillId")::numeric / 10, 1) AS activity_score,
         (
           -- Reciprocal skill match (highest boost: user teaches what requester learns AND learns what requester teaches)
@@ -243,7 +290,7 @@ async function queryMatches(uid, options = {}) {
           -- Shared skill counts positively weight the score (more shared skills = higher score, capped at 5)
           + 0.20 * LEAST(grouped.shared_skill_count / 5.0, 1.0)
           -- Same college bonus
-          + 0.15 * CASE WHEN u."collegeId" = requester.college_id THEN 1 ELSE 0 END
+          + 0.15 * CASE WHEN requester.college_id IS NOT NULL AND u."collegeId" = requester.college_id THEN 1 ELSE 0 END
           -- Activity score bonus (active tutors)
           + 0.10 * LEAST(COUNT(teaching."skillId")::numeric / 10.0, 1.0)
           -- Rating bonus
@@ -252,13 +299,30 @@ async function queryMatches(uid, options = {}) {
       FROM grouped
       JOIN "User" u ON u.id = grouped.candidate_id
       CROSS JOIN requester
+      LEFT JOIN "College" col ON col.id = u."collegeId"
+      LEFT JOIN "Department" dept ON dept.id = u."departmentId"
       LEFT JOIN "UserSkill" teaching
         ON teaching."userId" = u.id
        AND teaching.kind = 'TEACHES'
       WHERE u."deletedAt" IS NULL
-        AND (${sameCollegeOnly}::boolean = false OR u."collegeId" = requester.college_id)
+        AND (${sameCollegeOnly}::boolean = false OR (requester.college_id IS NOT NULL AND u."collegeId" = requester.college_id))
+        AND (
+          ${collegeFilter}::text IS NULL
+          OR u."collegeId"::text = ${collegeFilter}::text
+          OR LOWER(TRIM(COALESCE(col.name, u."collegeLocation", ''))) = LOWER(TRIM(${collegeFilter}::text))
+        )
+        AND (
+          ${departmentFilter}::text IS NULL
+          OR u."departmentId"::text = ${departmentFilter}::text
+          OR LOWER(TRIM(COALESCE(dept.name, ''))) = LOWER(TRIM(${departmentFilter}::text))
+        )
+        AND (
+          ${yearFilter}::text IS NULL
+          OR LOWER(TRIM(COALESCE(u.year, ''))) = LOWER(TRIM(${yearFilter}::text))
+        )
+        AND (${minRating}::numeric <= 0 OR u."averageRating"::numeric >= ${minRating}::numeric)
       GROUP BY
-        u.id, requester.college_id, requester.learning_count,
+        u.id, col.name, dept.name, requester.college_id, requester.learning_count,
         requester.teaching_count, grouped.shared_skills,
         grouped.shared_skill_count, grouped.candidate_teaches_count,
         grouped.candidate_learns_count
@@ -270,7 +334,9 @@ async function queryMatches(uid, options = {}) {
       name,
       "photoUrl" AS "photoUrl",
       college_id AS "collegeId",
+      college_name AS "collegeName",
       department_id AS "departmentId",
+      department_name AS "departmentName",
       year,
       average_rating AS "averageRating",
       total_sessions AS "totalSessions",
@@ -282,9 +348,9 @@ async function queryMatches(uid, options = {}) {
       activity_score AS "activityScore",
       compatibility_score AS "compatibilityScore"
     FROM score
+    WHERE 1 = 1
     ${cursorParams}
-    ORDER BY compatibility_score DESC, shared_skill_count DESC,
-      total_sessions DESC, average_rating DESC, id ASC
+    ${orderBySql}
     OFFSET ${cursor ? 0 : offset}
     LIMIT ${limit}
   `);

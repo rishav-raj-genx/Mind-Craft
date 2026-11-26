@@ -30,5 +30,10 @@ export const matchService = {
   getRequests: async (uid) => {
     const response = await api.get(`/match/requests/${uid}`);
     return response.data;
+  },
+
+  getMatchRequests: async (uid) => {
+    const response = await api.get(`/match/requests/${uid}`);
+    return response.data;
   }
 };

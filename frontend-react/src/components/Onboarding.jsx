@@ -9,8 +9,14 @@ import {
 import MindcraftLogo from './MindcraftLogo';
 import { INTRO_SLIDES } from '../constants/introSlides';
 
+const slideVariants = {
+  enter: (direction) => ({ x: direction > 0 ? 40 : -40, opacity: 0, scale: 0.98 }),
+  center: { x: 0, opacity: 1, scale: 1, transition: { type: 'spring', stiffness: 380, damping: 30 } },
+  exit: (direction) => ({ x: direction < 0 ? 40 : -40, opacity: 0, scale: 0.98, transition: { duration: 0.15 } })
+};
+
 const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [[currentIndex, direction], setSlideState] = useState([0, 1]);
 
   const handleFinish = useCallback(() => {
     if (onComplete) onComplete();
@@ -19,7 +25,7 @@ const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
 
   const nextSlide = useCallback(() => {
     if (currentIndex < INTRO_SLIDES.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
+      setSlideState([currentIndex + 1, 1]);
     } else {
       handleFinish();
     }
@@ -27,9 +33,13 @@ const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
 
   const prevSlide = useCallback(() => {
     if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
+      setSlideState([currentIndex - 1, -1]);
     }
   }, [currentIndex]);
+
+  const goToSlide = useCallback((idx) => {
+    setSlideState(([prev]) => [idx, idx >= prev ? 1 : -1]);
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
@@ -62,7 +72,7 @@ const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
           key={`glow-${currentIndex}`}
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 0.18, scale: 1 }}
-          transition={{ duration: 0.7 }}
+          transition={{ duration: 0.35 }}
           className={`w-[90vw] h-[90vw] max-w-[650px] max-h-[650px] rounded-full blur-[140px] bg-gradient-to-tr ${currentSlide.gradient}`}
         />
       </div>
@@ -100,13 +110,14 @@ const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
 
         {/* Slide Content Area */}
         <div className="p-6 sm:p-8 flex flex-col items-center text-center min-h-[360px] justify-center">
-          <AnimatePresence>
+          <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={currentIndex}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.2 }}
+              custom={direction}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
               className="flex flex-col items-center w-full"
             >
               {/* Floating Animated Icon Badge */}
@@ -135,9 +146,10 @@ const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
                 {currentSlide.highlights.map((h, i) => (
                   <span
                     key={i}
-                    className={`text-[11px] font-semibold px-3 py-1 rounded-full border ${currentSlide.tagColor}`}
+                    className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1 rounded-lg border backdrop-blur-sm ${currentSlide.tagColor}`}
                   >
-                    ✦ {h}
+                    <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+                    {h}
                   </span>
                 ))}
               </div>
@@ -166,7 +178,7 @@ const Onboarding = ({ isOpen = true, onComplete, onClose }) => {
             {INTRO_SLIDES.map((_, idx) => (
               <button
                 key={idx}
-                onClick={() => setCurrentIndex(idx)}
+                onClick={() => goToSlide(idx)}
                 aria-label={`Go to slide ${idx + 1}`}
                 className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
                   idx === currentIndex

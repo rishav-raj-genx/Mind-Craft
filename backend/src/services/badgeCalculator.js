@@ -11,6 +11,14 @@ const BADGE_DEFINITIONS = [
   { id: 'top_rated', name: 'Top Rated', emoji: '⭐', description: 'Earn high ratings (avg ≥ 4.0)', metric: 'ratedSessions', thresholds: [5, 15, 30], color: 'from-yellow-500/20 to-yellow-400/10', borderColor: 'border-yellow-400/30', iconColor: 'text-yellow-500' },
   { id: 'social_butterfly', name: 'Social Butterfly', emoji: '🤝', description: 'Study with unique mates', metric: 'uniqueMates', thresholds: [3, 10, 25], color: 'from-pink-500/20 to-pink-400/10', borderColor: 'border-pink-400/30', iconColor: 'text-pink-500' },
   { id: 'wealthy_mind', name: 'Wealthy Mind', emoji: '🪙', description: 'Accumulate Mind Tokens', metric: 'mindTokens', thresholds: [100, 500, 1000], color: 'from-yellow-500/20 to-yellow-400/10', borderColor: 'border-yellow-400/30', iconColor: 'text-yellow-500' },
+  { id: 'weekly_warrior', name: 'Weekly Warrior', emoji: '⚡', description: 'Maintained a perfect 7-day study streak this week', metric: 'weeklyWarriorCount', thresholds: [1, 4, 12], color: 'from-amber-500/20 to-yellow-400/10', borderColor: 'border-amber-400/30', iconColor: 'text-amber-500' },
+  { id: 'spark_starter', name: 'Spark Starter', emoji: '🌱', description: 'Achieved a 3-day daily consistency streak', metric: 'longestStreak', thresholds: [3], color: 'from-emerald-500/20 to-green-400/10', borderColor: 'border-emerald-400/30', iconColor: 'text-emerald-500' },
+  { id: '7_day_streak', name: '7-Day Streak', emoji: '🔥', description: 'Achieved a consecutive 7-day study streak', metric: 'longestStreak', thresholds: [7], color: 'from-orange-500/20 to-red-400/10', borderColor: 'border-orange-400/30', iconColor: 'text-orange-500' },
+  { id: 'fortnight_focus', name: 'Fortnight Focus', emoji: '🔥', description: 'Achieved a 14-day study streak', metric: 'longestStreak', thresholds: [14], color: 'from-red-500/20 to-orange-400/10', borderColor: 'border-red-400/30', iconColor: 'text-red-500' },
+  { id: 'monthly_master', name: 'Monthly Master', emoji: '🏆', description: 'Achieved a 30-day consistency streak', metric: 'longestStreak', thresholds: [30], color: 'from-yellow-500/20 to-amber-400/10', borderColor: 'border-yellow-400/30', iconColor: 'text-yellow-500' },
+  { id: 'discipline_king', name: 'Discipline King', emoji: '💎', description: 'Achieved a 60-day consistency streak', metric: 'longestStreak', thresholds: [60], color: 'from-cyan-500/20 to-blue-400/10', borderColor: 'border-cyan-400/30', iconColor: 'text-cyan-500' },
+  { id: 'century_legend', name: 'Century Legend', emoji: '👑', description: 'Achieved an epic 100-day consistency streak', metric: 'longestStreak', thresholds: [100], color: 'from-purple-500/20 to-yellow-400/10', borderColor: 'border-purple-400/30', iconColor: 'text-purple-500' },
+  { id: 'master_tutor', name: 'Master Tutor', emoji: '🎖️', description: 'Recognized master tutor with exceptional feedback across sessions', metric: 'sessionsTaught', thresholds: [10, 25, 50], color: 'from-indigo-500/20 to-purple-400/10', borderColor: 'border-indigo-400/30', iconColor: 'text-indigo-500' },
 ];
 
 const { resolveUser } = require('../utils/userResolver');
@@ -51,7 +59,7 @@ function computeBadge(definition, metrics) {
   };
 }
 
-async function calculateBadges(uid) {
+async function calculateBadges(uid, { persist = true } = {}) {
   const user = await resolveUser(uid);
   if (!user) {
     const defaultMetrics = {
@@ -66,6 +74,7 @@ async function calculateBadges(uid) {
       uniqueMates: 0,
       doubtsAnswered: 0,
       mindTokens: 0,
+      weeklyWarriorCount: 0,
     };
     const defaultBadges = BADGE_DEFINITIONS.map(def => computeBadge(def, defaultMetrics));
     return {
@@ -78,16 +87,18 @@ async function calculateBadges(uid) {
     };
   }
 
-  const [sessionMetrics, doubtsAnswered, streakData, badgeHistory] = await Promise.all([
+  const [sessionMetrics, doubtsAnswered, streakData, initialBadgeHistory] = await Promise.all([
     getSessionMetrics(user.id),
     prisma.doubtAnswer.count({ where: { authorId: user.id, deletedAt: null } }),
     calculateStreak(user.clerkUserId).catch(() => ({ currentStreak: user.currentStreak, longestStreak: user.longestStreak })),
     getBadgeHistory(user.id),
   ]);
 
+  const weeklyWarriorCount = initialBadgeHistory.filter(h => h.badgeId === 'weekly_warrior').length;
+
   const metrics = {
     currentStreak: streakData.currentStreak || 0,
-    longestStreak: streakData.longestStreak || 0,
+    longestStreak: Math.max(streakData.longestStreak || 0, user.longestStreak || 0),
     totalSessions: sessionMetrics.totalSessions,
     dsaSessions: sessionMetrics.dsaSessions,
     lateNightSessions: sessionMetrics.lateNightSessions,
@@ -97,9 +108,34 @@ async function calculateBadges(uid) {
     uniqueMates: sessionMetrics.uniqueMates,
     doubtsAnswered,
     mindTokens: user.mindTokens || 0,
+    weeklyWarriorCount,
   };
 
   const badges = BADGE_DEFINITIONS.map(def => computeBadge(def, metrics));
+
+  // Persist newly unlocked badges or level-ups into UserBadge
+  const recordedLevels = new Map();
+  for (const entry of initialBadgeHistory) {
+    const prev = recordedLevels.get(entry.badgeId) || 0;
+    if ((entry.level || 1) > prev) {
+      recordedLevels.set(entry.badgeId, entry.level || 1);
+    }
+  }
+
+  let didRecord = false;
+  if (persist) {
+    for (const badge of badges) {
+      if (badge.level > 0) {
+        const recordedLevel = recordedLevels.get(badge.id) || 0;
+        if (badge.level > recordedLevel) {
+          const ok = await recordBadgeEarned(user.clerkUserId || uid, badge.id, badge.name, badge.level);
+          if (ok) didRecord = true;
+        }
+      }
+    }
+  }
+
+  const badgeHistory = didRecord ? await getBadgeHistory(user.id) : initialBadgeHistory;
   const totalEarned = badges.filter(b => b.level > 0).length;
 
   return {
@@ -137,22 +173,38 @@ async function getSessionMetrics(userId) {
   teacherSessions.forEach(s => mateSet.add(s.learnerId));
   learnerSessions.forEach(s => mateSet.add(s.teacherId));
 
-  const recentSessions = sessions.slice(0, 20).map(s => ({
-    sessionId: s.id,
-    skill: s.title || 'General',
-    scheduledAt: s.scheduledFor ? new Date(s.scheduledFor).getTime() : 0,
-    mode: s.mode === 'IN_PERSON' ? 'In-Person' : 'Online',
-    rating: 5,
-    role: s.teacherId === userId ? 'teacher' : 'learner',
-  }));
+  let ratedSessionsCount = 0;
+  const recentSessions = sessions.slice(0, 20).map(s => {
+    let sessionRating = 0;
+    if (s.completionKey) {
+      try {
+        const parsed = JSON.parse(s.completionKey);
+        const isTeacher = s.teacherId === userId;
+        const entry = isTeacher
+          ? (parsed[`learner_${s.learnerId}`] || (parsed.rating ? { rating: parsed.rating } : null))
+          : parsed[`teacher_${s.teacherId}`];
+        sessionRating = Number(entry?.rating) || 0;
+        if (sessionRating > 0) ratedSessionsCount += 1;
+      } catch (_e) {
+        sessionRating = 0;
+      }
+    }
+    return {
+      sessionId: s.id,
+      skill: s.title || 'General',
+      scheduledAt: s.scheduledFor ? new Date(s.scheduledFor).getTime() : 0,
+      mode: s.mode === 'IN_PERSON' ? 'In-Person' : 'Online',
+      rating: sessionRating,
+      role: s.teacherId === userId ? 'teacher' : 'learner',
+    };
+  });
 
   return {
     totalSessions: sessions.length,
     sessionsTaught: teacherSessions.length,
     dsaSessions,
     lateNightSessions,
-    ratedSessions: teacherSessions.length,
-    averageRating: 5.0,
+    ratedSessions: ratedSessionsCount,
     uniqueMates: mateSet.size,
     recentSessions,
   };
@@ -170,8 +222,8 @@ async function getBadgeHistory(userId) {
     id: `${ub.badgeId}_${ub.auditWeek}`,
     badgeId: ub.badgeId,
     badgeName: ub.badge?.name || ub.badgeId,
-    level: ub.badge?.level || 1,
-    earnedAt: ub.awardedAt.toISOString(),
+    level: ub.metadata?.level || ub.badge?.level || 1,
+    earnedAt: ub.awardedAt ? new Date(ub.awardedAt).toISOString() : new Date().toISOString(),
   }));
 }
 
@@ -180,17 +232,29 @@ async function recordBadgeEarned(uid, badgeId, badgeName, level = 1) {
   if (!user) return false;
 
   try {
+    const def = BADGE_DEFINITIONS.find(b => b.id === badgeId);
     await prisma.badge.upsert({
       where: { id: badgeId },
-      update: { name: badgeName, level },
-      create: { id: badgeId, name: badgeName, level },
+      update: {
+        name: badgeName,
+        level,
+        ...(def?.emoji ? { emoji: def.emoji } : {}),
+        ...(def?.description ? { description: def.description } : {}),
+      },
+      create: {
+        id: badgeId,
+        name: badgeName,
+        level,
+        emoji: def?.emoji || null,
+        description: def?.description || null,
+      },
     });
 
-    const auditWeek = `manual_${new Date().toISOString().slice(0, 10)}`;
+    const auditWeek = `manual_${new Date().toISOString().slice(0, 10)}_lv${level}`;
     await prisma.userBadge.upsert({
       where: { userId_badgeId_auditWeek: { userId: user.id, badgeId, auditWeek } },
-      update: {},
-      create: { userId: user.id, badgeId, auditWeek },
+      update: { metadata: { level } },
+      create: { userId: user.id, badgeId, auditWeek, metadata: { level } },
     });
     return true;
   } catch (_err) {
@@ -198,4 +262,10 @@ async function recordBadgeEarned(uid, badgeId, badgeName, level = 1) {
   }
 }
 
-module.exports = { calculateBadges, recordBadgeEarned, BADGE_DEFINITIONS };
+module.exports = {
+  calculateBadges,
+  recordBadgeEarned,
+  getBadgeHistory,
+  computeBadge,
+  BADGE_DEFINITIONS,
+};

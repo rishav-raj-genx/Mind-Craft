@@ -24,7 +24,7 @@ const AddToCalendarBtn = ({ session }) => {
   const handleAdd = async () => {
     try {
       setAdded(true);
-      const response = await sessionService.exportToCalendar(session.sessionId, {});
+      const response = await sessionService.exportToCalendar(session.sessionId);
       if (response.success && response.data && response.data.htmlLink) {
         window.open(response.data.htmlLink, '_blank', 'noopener,noreferrer');
       } else {
@@ -65,19 +65,25 @@ const AddToCalendarBtn = ({ session }) => {
 };
 
 // ─── Session Card ──────────────────────────────────────────────────────────────
-const SessionCard = ({ session: s, index, currentUserId, onRateClick }) => {
+const SessionCard = ({ session: s, index, currentUserId, onRateClick, onReschedule }) => {
   const isTeacher = s.teacherUid === currentUserId;
+  const statusKey = (s.status || 'upcoming').toLowerCase();
+  const meetLink = s.mode === 'Online' ? (s.meetLink || `https://meet.jit.si/MindCraft-${s.sessionId}`) : '';
 
   const statusColors = {
+    pending: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700',
     upcoming: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700',
     completed: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-700',
     cancelled: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700',
+    rejected: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700',
   };
 
   const statusIcons = {
+    pending: <Clock size={14} />,
     upcoming: <Clock size={14} />,
     completed: <CheckCircle size={14} />,
     cancelled: <XCircle size={14} />,
+    rejected: <XCircle size={14} />,
   };
 
   return (
@@ -100,8 +106,8 @@ const SessionCard = ({ session: s, index, currentUserId, onRateClick }) => {
             <p className="text-xs text-gray-500 dark:text-gray-400">{s.mode}</p>
           </div>
         </div>
-        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[s.status] || statusColors.upcoming}`}>
-          {statusIcons[s.status]} {s.status}
+        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border capitalize ${statusColors[statusKey] || statusColors.upcoming}`}>
+          {statusIcons[statusKey]} {statusKey}
         </span>
       </div>
 
@@ -117,10 +123,10 @@ const SessionCard = ({ session: s, index, currentUserId, onRateClick }) => {
             <span>{timeStr(s.scheduledAt)} - {timeStr(s.scheduledAt + (s.duration || 60) * 60000)}</span>
           </div>
         )}
-        {s.mode === 'Online' && s.meetLink && (
+        {s.mode === 'Online' && meetLink && (
           <div className="flex items-center gap-1">
             <Video size={14} className="text-blue-500" />
-            <a href={s.meetLink} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">Join</a>
+            <a href={meetLink} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">Join</a>
           </div>
         )}
         {s.mode === 'In-Person' && s.location && (
@@ -143,25 +149,28 @@ const SessionCard = ({ session: s, index, currentUserId, onRateClick }) => {
           )}
         </div>
       ) : (
-        s.status === 'completed' && !isTeacher && (
+        statusKey === 'completed' && (
           <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
             <button
               onClick={() => onRateClick(s.sessionId)}
               className="flex items-center gap-2 text-sm font-semibold text-[#7C3AED] dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
             >
-              <Star size={16} /> Rate Tutor
+              <Star size={16} /> {isTeacher ? 'Rate Learner' : 'Rate Tutor'}
             </button>
           </div>
         )
       )}
 
-      {/* Add to Calendar — only for upcoming sessions */}
-      {s.status === 'upcoming' && (
-        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
-          <span className="text-xs text-gray-400 dark:text-gray-500">
-            Don't miss this session!
-          </span>
-          <AddToCalendarBtn session={s} />
+      {/* Add to Calendar & Reschedule — for upcoming/pending sessions */}
+      {(statusKey === 'upcoming' || statusKey === 'pending') && (
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-2">
+          <button
+            onClick={() => onReschedule(s)}
+            className="text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-[#7C3AED] dark:hover:text-purple-400 transition-colors"
+          >
+            Reschedule
+          </button>
+          {statusKey === 'upcoming' && <AddToCalendarBtn session={s} />}
         </div>
       )}
     </motion.div>
@@ -200,6 +209,26 @@ const SessionsDetail = () => {
     } catch (err) {
       console.error('Failed to rate session', err);
       alert('Failed to rate session. ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handleRescheduleSession = async (session) => {
+    const defaultIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+    const input = window.prompt('Enter new session date & time (YYYY-MM-DDTHH:mm):', defaultIso);
+    if (!input) return;
+    const parsed = new Date(input);
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+      alert('Please enter a valid future date and time.');
+      return;
+    }
+    try {
+      const res = await sessionService.reschedule(session.sessionId, parsed.getTime());
+      const updated = res?.data;
+      setSessions((prev) =>
+        prev.map((item) => (item.sessionId === session.sessionId ? (updated || { ...item, scheduledAt: parsed.getTime() }) : item))
+      );
+    } catch (err) {
+      alert('Failed to reschedule session: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -257,7 +286,7 @@ const SessionsDetail = () => {
           </div>
         ) : (
           (() => {
-            const filteredSessions = sessions.filter(s => filter === 'all' || s.status === filter);
+            const filteredSessions = sessions.filter(s => filter === 'all' || (s.status || '').toLowerCase() === filter);
             if (filteredSessions.length === 0) {
               return (
                 <div className="text-center py-12">
@@ -274,6 +303,7 @@ const SessionsDetail = () => {
                   index={idx}
                   currentUserId={currentUser?.uid}
                   onRateClick={setRatingSessionId}
+                  onReschedule={handleRescheduleSession}
                 />
               ));
           })()

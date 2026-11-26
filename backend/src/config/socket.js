@@ -3,11 +3,16 @@ const { createAdapter } = require('@socket.io/redis-adapter');
 const { getRedisClients } = require('./redis');
 const { prisma } = require('./prisma');
 const { socketAuth } = require('../middleware/socketAuth');
-const { markThreadRead } = require('../services/chatPersistenceService');
+const { markThreadRead, persistMessage } = require('../services/chatPersistenceService');
 const { enqueueChatMessage } = require('../queues/chatPersistenceQueue');
+const { isChatPersistenceWorkerRunning } = require('../workers/chatPersistenceWorker');
 const { randomUUID } = require('node:crypto');
 
 let io;
+const activeUserSockets = new Map();
+const MESSAGE_RATE_LIMIT_MAX = 5;
+const MESSAGE_RATE_LIMIT_WINDOW_MS = 2000;
+const QUEUE_ENQUEUE_TIMEOUT_MS = 2500;
 
 function userRoom(userId) {
   return `user:${userId}`;
@@ -93,10 +98,34 @@ function initSocketServer(httpServer) {
 
     if (userId) {
       socket.join(userRoom(userId));
+      if (!activeUserSockets.has(userId)) {
+        activeUserSockets.set(userId, new Set());
+      }
+      activeUserSockets.get(userId).add(socket.id);
     }
     if (user?.clerkUserId) {
       socket.join(userRoom(user.clerkUserId));
     }
+
+    const messageBucket = {
+      tokens: MESSAGE_RATE_LIMIT_MAX,
+      lastRefill: Date.now(),
+    };
+
+    const consumeMessageToken = () => {
+      const now = Date.now();
+      const elapsed = now - messageBucket.lastRefill;
+      if (elapsed > 0) {
+        const refill = (elapsed / MESSAGE_RATE_LIMIT_WINDOW_MS) * MESSAGE_RATE_LIMIT_MAX;
+        messageBucket.tokens = Math.min(MESSAGE_RATE_LIMIT_MAX, messageBucket.tokens + refill);
+        messageBucket.lastRefill = now;
+      }
+      if (messageBucket.tokens < 1) {
+        return false;
+      }
+      messageBucket.tokens -= 1;
+      return true;
+    };
 
     socket.on('thread:join', async (payload = {}, acknowledge = () => {}) => {
       const threadId = payload?.threadId;
@@ -175,6 +204,13 @@ function initSocketServer(httpServer) {
         return;
       }
 
+      if (!consumeMessageToken()) {
+        const errPayload = { ok: false, error: 'Rate limit exceeded. Please slow down.' };
+        socket.emit('error', { message: errPayload.error });
+        if (typeof acknowledge === 'function') acknowledge(errPayload);
+        return;
+      }
+
       try {
         const participant = await prisma.chatParticipant.findUnique({
           where: {
@@ -194,30 +230,72 @@ function initSocketServer(httpServer) {
         const messageId = randomUUID();
         const trimmedText = text.trim();
         const nowIso = new Date().toISOString();
+        let persistedDirectly = false;
+        let resolvedMessageId = messageId;
 
-        await enqueueChatMessage({
-          messageId,
-          threadId,
-          senderId: verifiedUserId,
-          clientMessageId,
-          text: trimmedText,
-          createdAt: nowIso,
-        });
+        const persistDirectly = async () => {
+          const saved = await persistMessage({
+            messageId,
+            threadId,
+            senderId: verifiedUserId,
+            clientMessageId,
+            text: trimmedText,
+            createdAt: nowIso,
+          });
+          if (saved?.id) {
+            resolvedMessageId = saved.id;
+          }
+          persistedDirectly = true;
+        };
+
+        let timeoutId;
+        try {
+          await Promise.race([
+            enqueueChatMessage({
+              messageId,
+              threadId,
+              senderId: verifiedUserId,
+              clientMessageId,
+              text: trimmedText,
+              createdAt: nowIso,
+            }),
+            new Promise((_, reject) => {
+              timeoutId = setTimeout(
+                () => reject(new Error('BullMQ enqueue timeout')),
+                QUEUE_ENQUEUE_TIMEOUT_MS,
+              );
+            }),
+          ]);
+
+          const workerRunning =
+            typeof isChatPersistenceWorkerRunning === 'function' &&
+            isChatPersistenceWorkerRunning();
+          if (!workerRunning && process.env.STANDALONE_WORKER !== 'true') {
+            await persistDirectly();
+          }
+        } catch (queueErr) {
+          console.warn(
+            'Queue unavailable, persisting message directly to Prisma:',
+            queueErr?.message || queueErr,
+          );
+          await persistDirectly();
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
         const message = {
-          messageId,
+          messageId: resolvedMessageId,
           clientMessageId,
           threadId,
           senderId: verifiedUserId,
           senderUid: socket.user?.clerkUserId,
           senderName: socket.user?.name,
           text: trimmedText,
-          status: 'queued',
+          status: persistedDirectly ? 'sent' : 'queued',
           createdAt: nowIso,
         };
 
         io.to(threadRoom(threadId)).emit('chat:message', message);
-        socket.emit('chat:message:received', { messageId, clientMessageId, threadId });
 
         // Broadcast out-of-thread notification to participants not currently in room
         try {
@@ -307,6 +385,19 @@ function initSocketServer(httpServer) {
 
     socket.on('disconnecting', () => {
       const activeUserId = socket.userId || socket.user?.id;
+      let shouldEmitOffline = true;
+      if (activeUserId && activeUserSockets.has(activeUserId)) {
+        const sockets = activeUserSockets.get(activeUserId);
+        sockets.delete(socket.id);
+        if (sockets.size > 0) {
+          shouldEmitOffline = false;
+        } else {
+          activeUserSockets.delete(activeUserId);
+        }
+      }
+
+      if (!shouldEmitOffline) return;
+
       for (const room of socket.rooms) {
         if (room.startsWith('thread:')) {
           socket.to(room).emit('presence:changed', {
@@ -318,6 +409,14 @@ function initSocketServer(httpServer) {
     });
 
     socket.on('disconnect', () => {
+      const activeUserId = socket.userId || socket.user?.id;
+      if (activeUserId && activeUserSockets.has(activeUserId)) {
+        const sockets = activeUserSockets.get(activeUserId);
+        sockets.delete(socket.id);
+        if (sockets.size === 0) {
+          activeUserSockets.delete(activeUserId);
+        }
+      }
       socket.removeAllListeners();
     });
   });
@@ -336,6 +435,7 @@ function emitToThread(threadId, event, payload) {
 }
 
 async function closeSocketServer() {
+  activeUserSockets.clear();
   if (!io) return;
   await new Promise((resolve) => io.close(resolve));
   io = null;

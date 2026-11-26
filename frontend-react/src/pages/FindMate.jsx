@@ -9,11 +9,13 @@ import {
 } from '../hooks/usePeerMatches';
 import { voiceService } from '../services/voiceService';
 import { chatService } from '../services/chatService';
-import { Search, Mic, MapPin, Star, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { matchService } from '../services/matchService';
+import { Search, Mic, MapPin, Star, Square, X, Globe, Loader2, MessageSquare, GitBranch, ChevronDown, ChevronUp, SlidersHorizontal, UserPlus, Check } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import ForceGraph2D from 'react-force-graph-2d';
+import { useDebounce } from '../hooks/useDebounce';
 const LANGUAGE_OPTIONS = [
   { code: 'en-IN', label: 'English' },
   { code: 'hi-IN', label: 'Hindi' },
@@ -159,7 +161,18 @@ const MatchGraph = ({ mate, currentUserName = 'You', onClose }) => {
 };
 
 // ─── Match Card ───────────────────────────────────────────────────────────────
-const MatchCard = ({ mate, index, onFollow, onChat, isFollowed }) => {
+const MatchCard = ({
+  mate,
+  index,
+  onFollow,
+  onChat,
+  onRequestMatch,
+  isFollowed,
+  isFollowPending,
+  isChatPending,
+  isRequested,
+  isRequestPending,
+}) => {
   const navigate = useNavigate();
   const [showGraph, setShowGraph] = useState(false);
 
@@ -239,20 +252,33 @@ const MatchCard = ({ mate, index, onFollow, onChat, isFollowed }) => {
       <div className="flex gap-2 w-full items-center">
         <button
           onClick={() => onFollow(mate.uid)}
-          disabled={isFollowed}
-          className={`flex-1 font-label-lg rounded-full py-2 px-6 active:scale-95 transition-transform ${
-            isFollowed
+          disabled={isFollowed || isFollowPending}
+          className={`flex-1 font-label-lg rounded-full py-2 px-4 active:scale-95 transition-transform ${
+            isFollowed || isFollowPending
               ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none'
               : 'bg-success-lime text-green-900 shadow-[0_3px_0_#b3d266]'
           }`}
         >
-          {isFollowed ? 'Following' : 'Follow'}
+          {isFollowPending ? 'Following...' : isFollowed ? 'Following' : 'Follow'}
+        </button>
+        <button
+          onClick={() => onRequestMatch(mate)}
+          disabled={isRequested || isRequestPending}
+          className={`flex-1 font-label-lg rounded-full py-2 px-4 active:scale-95 transition-transform flex items-center justify-center gap-1.5 border ${
+            isRequested || isRequestPending
+              ? 'bg-gray-100 dark:bg-[#2A2A3A] text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed'
+              : 'bg-white dark:bg-surface-raised text-gray-800 dark:text-on-surface border-gray-200 dark:border-outline-variant hover:border-[#7C3AED]'
+          }`}
+        >
+          {isRequested ? <Check size={15} /> : <UserPlus size={15} />}
+          {isRequestPending ? 'Sending...' : isRequested ? 'Requested' : 'Connect'}
         </button>
         <button
           onClick={() => onChat(mate)}
-          className="flex-1 bg-purple-100 dark:bg-secondary-container/20 text-purple-700 dark:text-secondary border border-purple-200 dark:border-secondary-container/50 font-label-lg rounded-full py-2 px-6 active:scale-95 transition-transform hover:bg-purple-200 flex items-center justify-center gap-2"
+          disabled={isChatPending}
+          className="flex-1 bg-purple-100 dark:bg-secondary-container/20 text-purple-700 dark:text-secondary border border-purple-200 dark:border-secondary-container/50 font-label-lg rounded-full py-2 px-4 active:scale-95 transition-transform hover:bg-purple-200 flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          <MessageSquare size={16} /> Chat
+          <MessageSquare size={16} /> {isChatPending ? 'Opening...' : 'Chat'}
         </button>
       </div>
     </motion.div>
@@ -399,7 +425,9 @@ const FindMate = () => {
   const [voiceResult, setVoiceResult] = useState(null);
   const [selectedLang, setSelectedLang] = useState('en-IN');
   const [searchText, setSearchText] = useState('');
-  const [activeSearch, setActiveSearch] = useState('');
+  const [submittedQuery, setSubmittedQuery] = useState('');
+  const [searchSource, setSearchSource] = useState('text');
+  const debouncedSearch = useDebounce(searchText, 300);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
     college: '',
@@ -415,20 +443,35 @@ const FindMate = () => {
     minRating: 0,
     sortBy: 'relevance',
   });
+  const [pendingFollowUids, setPendingFollowUids] = useState(() => new Set());
+  const [pendingChatUids, setPendingChatUids] = useState(() => new Set());
+  const [pendingRequestUids, setPendingRequestUids] = useState(() => new Set());
+  const [requestedUids, setRequestedUids] = useState(() => new Set());
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const streamRef = useRef(null);
   const recorderFormatRef = useRef({ mimeType: 'audio/webm', extension: 'webm' });
 
-  const { data: matchesResponse } = usePeerMatches(currentUser?.uid, appliedFilters);
-  const { data: followingResponse } = useFollowing(currentUser?.uid);
+  const currentUid = currentUser?.uid || currentUser?.id;
+  const trimmedDebounced = searchSource === 'text' ? debouncedSearch.trim() : '';
+  const trimmedSubmitted = searchSource === 'text' ? submittedQuery.trim() : '';
+  const activeSearch =
+    trimmedDebounced.length >= 2
+      ? trimmedDebounced
+      : trimmedSubmitted.length >= 2 && searchText.trim() === trimmedSubmitted
+        ? trimmedSubmitted
+        : '';
+
+  const { data: matchesResponse, isLoading: matchesLoading } = usePeerMatches(currentUid, appliedFilters);
+  const { data: followingResponse } = useFollowing(currentUid);
   const { data: metadataResponse } = useMetadataOptions();
-  const { data: searchResponse } = useSearchUsers(activeSearch);
+  const { data: searchResponse, isLoading: searchLoading } = useSearchUsers(activeSearch);
   const followUser = useFollowUser();
   const myFollowingUids = new Set((followingResponse?.data || []).map(user => user.uid));
-  const globalColleges = metadataResponse?.data?.colleges || [];
-  const globalDepartments = metadataResponse?.data?.departments || [];
+  const globalColleges = metadataResponse?.data?.colleges || metadataResponse?.colleges || [];
+  const globalDepartments = metadataResponse?.data?.departments || metadataResponse?.departments || [];
+  const isResultsLoading = loading || (activeSearch ? searchLoading : matchesLoading);
 
   const hasActiveFilters = appliedFilters.college || appliedFilters.department || appliedFilters.year || appliedFilters.minRating > 0 || appliedFilters.sortBy !== 'relevance';
 
@@ -531,15 +574,15 @@ const FindMate = () => {
       });
 
       const transcript = resultData.transcript || '';
+      setSearchSource('voice');
+      setSubmittedQuery('');
       setSearchText(transcript);
 
       if (transcript || resultData.detectedSkill) {
         const normalized = (resultData.matches || []).map(normalizeMate);
         setAllMatches(normalized);
-        setActiveSearch('');
       } else {
         setAllMatches([]);
-        setActiveSearch('');
       }
     } catch (err) {
       console.error('Voice search failed:', err);
@@ -551,14 +594,15 @@ const FindMate = () => {
 
   const handleTextSearch = async (e, textParam) => {
     e?.preventDefault();
-    const query = textParam !== undefined ? textParam : searchText;
+    const query = (textParam !== undefined ? textParam : searchText).trim();
     try {
       setLoading(true);
-      if (query.trim()) {
-        setActiveSearch(query.trim());
+      setSearchSource('text');
+      if (query.length >= 2) {
+        setSubmittedQuery(query);
       } else {
         setAllMatches([]);
-        setActiveSearch('');
+        setSubmittedQuery('');
       }
     } catch (err) {
       console.error(err);
@@ -568,24 +612,67 @@ const FindMate = () => {
   };
 
   const handleFollow = async (mateUid) => {
+    if (!mateUid || pendingFollowUids.has(mateUid) || myFollowingUids.has(mateUid)) return;
+    setPendingFollowUids(prev => new Set(prev).add(mateUid));
     try {
       await followUser.mutateAsync(mateUid);
       alert('Successfully followed user!');
     } catch (err) {
       console.error('Failed to follow', err);
       if (err.response?.data?.error) alert(err.response.data.error);
+    } finally {
+      setPendingFollowUids(prev => {
+        const next = new Set(prev);
+        next.delete(mateUid);
+        return next;
+      });
+    }
+  };
+
+  const handleRequestMatch = async (mate) => {
+    const mateUid = mate?.uid || mate?.id;
+    if (!mateUid || pendingRequestUids.has(mateUid) || requestedUids.has(mateUid)) return;
+    setPendingRequestUids(prev => new Set(prev).add(mateUid));
+    try {
+      const sharedSkill = mate.sharedSkills?.[0] || mate.teaches?.[0] || 'General Study';
+      const res = await matchService.sendRequest({ toUid: mateUid, sharedSkill });
+      if (res?.success) {
+        setRequestedUids(prev => new Set(prev).add(mateUid));
+      }
+    } catch (err) {
+      if (err.response?.status === 409) {
+        setRequestedUids(prev => new Set(prev).add(mateUid));
+      } else {
+        console.error('Failed to send match request', err);
+        alert(err.response?.data?.error || 'Failed to send match request.');
+      }
+    } finally {
+      setPendingRequestUids(prev => {
+        const next = new Set(prev);
+        next.delete(mateUid);
+        return next;
+      });
     }
   };
 
   const handleChat = async (mate) => {
+    const mateUid = mate?.uid || mate?.id;
+    if (!mateUid || pendingChatUids.has(mateUid)) return;
+    setPendingChatUids(prev => new Set(prev).add(mateUid));
     try {
-      const res = await chatService.getOrCreateThread(mate.uid);
+      const res = await chatService.getOrCreateThread(mateUid);
       if (res.success && res.matchId) {
         navigate(`/chat/${res.matchId}`, { state: { partner: mate } });
       }
     } catch (err) {
       console.error('Failed to start chat', err);
       alert('Failed to start chat.');
+    } finally {
+      setPendingChatUids(prev => {
+        const next = new Set(prev);
+        next.delete(mateUid);
+        return next;
+      });
     }
   };
 
@@ -662,7 +749,15 @@ const FindMate = () => {
           <input
             type="text"
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setSearchSource('text');
+              if (nextValue.trim().length < 2) {
+                setSubmittedQuery('');
+                if (!nextValue.trim()) setAllMatches([]);
+              }
+              setSearchText(nextValue);
+            }}
             placeholder="Search by topic, name, or college..."
             className="w-full bg-white dark:bg-surface-container border border-gray-200 dark:border-surface-raised rounded-full py-3 pl-12 pr-4 focus:outline-none focus:border-success-lime text-gray-900 dark:text-on-surface placeholder:text-gray-500"
           />
@@ -743,7 +838,7 @@ const FindMate = () => {
           {hasActiveFilters && <span className="text-sm font-normal text-gray-500 ml-2">({matches.length} results)</span>}
         </h3>
 
-        {loading ? (
+        {isResultsLoading ? (
           <div className="flex flex-col items-center justify-center py-10 text-gray-500 dark:text-on-surface-variant">
             <Loader2 size={32} className="animate-spin mb-3 text-success-lime" />
             <span>Finding the perfect matches...</span>
@@ -761,7 +856,12 @@ const FindMate = () => {
                 index={i}
                 onFollow={handleFollow}
                 onChat={handleChat}
+                onRequestMatch={handleRequestMatch}
                 isFollowed={myFollowingUids.has(mate.uid)}
+                isFollowPending={pendingFollowUids.has(mate.uid)}
+                isChatPending={pendingChatUids.has(mate.uid)}
+                isRequested={requestedUids.has(mate.uid)}
+                isRequestPending={pendingRequestUids.has(mate.uid)}
               />
             ))}
           </div>

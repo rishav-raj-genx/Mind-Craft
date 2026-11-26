@@ -58,6 +58,7 @@ jest.mock('../src/queues/chatPersistenceQueue', () => ({
 jest.mock('../src/services/matchingCache', () => ({
   getCachedFeed: jest.fn().mockResolvedValue(null),
   setCachedFeed: jest.fn().mockResolvedValue(),
+  invalidateMatchingFeeds: jest.fn().mockResolvedValue(),
 }));
 
 // In-memory state for the unseeded new user

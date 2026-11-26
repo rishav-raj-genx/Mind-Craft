@@ -36,6 +36,7 @@ const shouldRetrySarvam = (error) => {
 const STT_URL  = process.env.SARVAM_STT_URL  || 'https://api.sarvam.ai/speech-to-text';
 const CHAT_URL = process.env.SARVAM_CHAT_URL || 'https://api.sarvam.ai/v1/chat/completions';
 const API_KEY  = process.env.SARVAM_API_KEY  || '';
+const getApiKey = () => process.env.SARVAM_API_KEY || API_KEY || '';
 const MAX_AUDIO_BYTES = Number(process.env.SARVAM_MAX_AUDIO_BYTES || 10 * 1024 * 1024);
 
 const extractChatContent = (data) => {
@@ -488,7 +489,8 @@ async function generateStudyHint(doubt, options = {}) {
     return { hint: '', model, usage: null };
   }
 
-  if (!API_KEY) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
     if (process.env.SARVAM_HINT_FALLBACK !== 'false') {
       return {
         hint: createFallbackStudyHint({ title, content, tag }),
@@ -545,8 +547,8 @@ async function generateStudyHint(doubt, options = {}) {
       max_tokens: 220,
     }, {
       headers: {
-        Authorization: `Bearer ${API_KEY}`,
-        'api-subscription-key': API_KEY,
+        Authorization: `Bearer ${apiKey}`,
+        'api-subscription-key': apiKey,
         'Content-Type': 'application/json',
       },
     }, withAxiosTimeout({}, Number(process.env.SARVAM_CHAT_TIMEOUT_MS || 10_000)));
@@ -588,12 +590,23 @@ async function generateStudyHint(doubt, options = {}) {
     }
 
     if (!result.hint || isGenericStudyHint(result.hint, { title, content, tag })) {
+      const warning = result.hint ? 'Sarvam AI returned a generic repeated hint.' : 'Sarvam AI returned an empty response.';
+      if (process.env.SARVAM_HINT_FALLBACK !== 'false') {
+        return {
+          hint: createFallbackStudyHint({ title, content, tag }),
+          model: result.model || model,
+          usage: result.usage || null,
+          fallback: true,
+          warning,
+        };
+      }
+
       return {
-        hint: createFallbackStudyHint({ title, content, tag }),
+        hint: '',
         model: result.model || model,
         usage: result.usage || null,
-        fallback: true,
-        warning: result.hint ? 'Sarvam AI returned a generic repeated hint.' : 'Sarvam AI returned an empty response.',
+        fallback: false,
+        warning,
       };
     }
 
@@ -641,8 +654,40 @@ async function generateStudyHint(doubt, options = {}) {
   }
 }
 
+/**
+ * Resolves a study hint along with normalized persistence metadata for async pipelines.
+ * Never throws; failures are returned with status 'FAILED' and error message.
+ */
+async function generateStudyHintWithStatus(doubt, options = {}) {
+  try {
+    const result = await generateStudyHint(doubt, options);
+    const hint = result?.hint || '';
+    const status = hint ? (result?.fallback ? 'FALLBACK' : 'GENERATED') : 'EMPTY';
+    return {
+      hint: hint || null,
+      provider: 'sarvam-ai',
+      model: result?.model || null,
+      status,
+      usage: result?.usage || undefined,
+      error: result?.warning || null,
+      generatedAt: new Date(),
+    };
+  } catch (err) {
+    return {
+      hint: null,
+      provider: 'sarvam-ai',
+      model: options.model || null,
+      status: 'FAILED',
+      usage: undefined,
+      error: err?.message || 'Failed to generate study hint',
+      generatedAt: new Date(),
+    };
+  }
+}
+
 module.exports = {
   generateStudyHint,
+  generateStudyHintWithStatus,
   transcribeAudio,
   SUPPORTED_LANGUAGES,
   isGenericStudyHint,

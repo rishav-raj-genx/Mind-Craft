@@ -46,9 +46,65 @@ async function exchangeCodeForTokens(code) {
 }
 
 /**
+ * Returns the deterministic Jitsi Meet link for online sessions, or '' for in-person.
+ * @param {object} session
+ * @returns {string}
+ */
+function getSessionMeetLink(session) {
+  const sessionId = session.sessionId || session.id || 'room';
+  const isInPerson = session.mode === 'In-Person' || session.mode === 'IN_PERSON';
+  return isInPerson ? '' : `https://meet.jit.si/MindCraft-${sessionId}`;
+}
+
+/**
+ * Generates a zero-failure Google Calendar Web Template URL (action=TEMPLATE)
+ * with Jitsi link and optional peer email.
+ *
+ * @param {object} session
+ * @param {string} [peerName]
+ * @param {string|null} [peerEmail]
+ * @returns {{ htmlLink: string, meetLink: string }}
+ */
+function generateCalendarDeepLink(session, peerName = 'Peer', peerEmail = null) {
+  const sessionId = session.sessionId || session.id || 'room';
+  const start = new Date(session.scheduledAt || session.scheduledFor || Date.now());
+  const durationMins = Number(session.duration) || 60;
+  const end = session.endTime ? new Date(session.endTime) : new Date(start.getTime() + durationMins * 60 * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+
+  const isInPerson = session.mode === 'In-Person' || session.mode === 'IN_PERSON';
+  const meetLink = isInPerson ? '' : (session.meetLink || getSessionMeetLink({ ...session, id: sessionId }));
+  const skill = session.skill || session.title || 'Tutoring';
+  const modeLabel = isInPerson ? 'In-Person' : 'Online';
+  const location = isInPerson ? (session.location || 'In-Person') : meetLink;
+
+  const detailLines = [
+    `MindCraft P2P Tutoring Session with ${peerName}`,
+    `Skill: ${skill}`,
+    `Mode: ${modeLabel}`,
+  ];
+  if (meetLink) detailLines.push(`Join: ${meetLink}`);
+
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: `MindCraft Session: ${skill}`,
+    dates: `${fmt(start)}/${fmt(end)}`,
+    details: detailLines.join('\n'),
+    location,
+  });
+  if (peerEmail) params.append('add', peerEmail);
+
+  return {
+    htmlLink: `https://calendar.google.com/calendar/render?${params.toString()}`,
+    meetLink,
+  };
+}
+
+/**
  * Exports a tutoring session to the user's Google Calendar.
  * Wraps external calls in a 5-second timeout and gracefully falls back
- * to a static meeting link on expired/unset credentials.
+ * to a zero-failure Google Calendar web link & Jitsi link on expired/unset credentials.
  *
  * @param {object} session   — Session object from Prisma
  * @param {object} tokens    — Google OAuth tokens
@@ -58,13 +114,13 @@ async function exchangeCodeForTokens(code) {
  */
 async function exportSessionToCalendar(session, tokens, peerName = 'Peer', peerEmail = null) {
   const sessionId = session.sessionId || session.id || 'room';
-  const fallbackMeetLink = session.meetLink || `https://meet.jit.si/MindCraft-${sessionId}`;
+  const { htmlLink: templateLink, meetLink: fallbackMeetLink } = generateCalendarDeepLink(session, peerName, peerEmail);
 
   if (!process.env.GOOGLE_CLIENT_ID || !tokens || !tokens.access_token) {
     console.warn('[CalendarExport] Google OAuth credentials or tokens missing/unset, falling back to static room link');
     return {
       eventId: null,
-      htmlLink: '',
+      htmlLink: templateLink,
       meetLink: fallbackMeetLink,
     };
   }
@@ -175,7 +231,7 @@ async function exportSessionToCalendar(session, tokens, peerName = 'Peer', peerE
     console.warn('[CalendarExport] Google Calendar API error or timeout, falling back to static room link:', err.message);
     return {
       eventId: null,
-      htmlLink: '',
+      htmlLink: templateLink,
       meetLink: fallbackMeetLink,
     };
   }
@@ -255,6 +311,8 @@ module.exports = {
   createOAuth2Client,
   getAuthUrl,
   exchangeCodeForTokens,
+  getSessionMeetLink,
+  generateCalendarDeepLink,
   exportSessionToCalendar,
   generateIcsCalendar,
 };

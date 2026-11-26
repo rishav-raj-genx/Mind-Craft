@@ -61,8 +61,17 @@ export const sessionService = {
    * Accept a pending session.
    * PATCH /api/session/:sessionId/accept
    */
-  acceptSession: async (sessionId, googleTokens = null) => {
-    const response = await api.patch(`/session/${sessionId}/accept`, { googleTokens });
+  acceptSession: async (sessionId) => {
+    const response = await api.patch(`/session/${sessionId}/accept`);
+    return response.data;
+  },
+
+  /**
+   * Reschedule a pending or upcoming session.
+   * PATCH /api/session/:sessionId/reschedule
+   */
+  reschedule: async (sessionId, scheduledAt) => {
+    const response = await api.patch(`/session/${sessionId}/reschedule`, { scheduledAt });
     return response.data;
   },
 

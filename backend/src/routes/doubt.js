@@ -12,7 +12,10 @@ const { generateStudyHint } = require('../services/sarvamAI');
 const { v4: uuidv4 } = require('uuid');
 const { getPagination } = require('../utils/pagination');
 const { broadcastToGlobal } = require('../services/chatService');
+const { emitToUser } = require('../config/socket');
 const { resolveUser } = require('../utils/userResolver');
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const MAX_DOUBT_IMAGES = 4;
 const MAX_DOUBT_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -90,37 +93,59 @@ const attachCompressedDoubtImages = async (req, _res, next) => {
   }
 };
 
-const attachSarvamStudyHint = async (req, _res, next) => {
-  try {
-    const errors = formatValidationErrors(req);
-    if (errors) return next();
+const processStudyHintInBackground = ({ doubtId, title, content, tag, authorId, clerkUserId }) => {
+  void (async () => {
+    let aiHint = null;
+    let aiAssistModel = null;
+    let aiAssistUsage;
+    let aiAssistStatus = 'EMPTY';
+    let aiAssistError = null;
+    const aiAssistGeneratedAt = new Date();
 
-    const { hint, model, usage, fallback, warning } = await generateStudyHint({
-      title: req.body.title,
-      content: req.body.content,
-      tag: req.body.tag,
-    });
+    try {
+      const result = await generateStudyHint({ title, content, tag });
+      aiHint = result?.hint || null;
+      aiAssistModel = result?.model || null;
+      aiAssistUsage = result?.usage || undefined;
+      aiAssistStatus = aiHint ? (result?.fallback ? 'FALLBACK' : 'GENERATED') : 'EMPTY';
+      aiAssistError = result?.warning || null;
+    } catch (err) {
+      console.warn('Background Sarvam AI study hint failed:', err.message);
+      aiAssistStatus = 'FAILED';
+      aiAssistError = err.message || 'Failed to generate study hint';
+    }
 
-    req.aiAssist = {
-      hint,
-      provider: 'sarvam-ai',
-      model,
-      status: hint ? (fallback ? 'FALLBACK' : 'GENERATED') : 'EMPTY',
-      usage,
-      error: warning || '',
-      generatedAt: new Date(),
+    try {
+      await prisma.doubt.update({
+        where: { id: doubtId },
+        data: {
+          aiHint,
+          aiAssistProvider: 'sarvam-ai',
+          aiAssistModel,
+          aiAssistStatus,
+          aiAssistUsage,
+          aiAssistGeneratedAt,
+          aiAssistError,
+        },
+      });
+    } catch (dbErr) {
+      console.error('Failed to persist background AI study hint:', dbErr.message);
+    }
+
+    const payload = {
+      doubtId,
+      aiHint: aiHint || '',
+      aiAssistStatus: aiAssistStatus.toLowerCase(),
+      aiAssistError: aiAssistError || null,
     };
-  } catch (err) {
-    console.warn('Sarvam AI study hint skipped:', err.message);
-    req.aiAssist = {
-      hint: '',
-      provider: 'sarvam-ai',
-      status: 'FAILED',
-      error: err.message,
-      generatedAt: new Date(),
-    };
-  }
-  next();
+
+    try {
+      if (authorId) emitToUser(authorId, 'doubt:hint_ready', payload);
+      if (clerkUserId && clerkUserId !== authorId) emitToUser(clerkUserId, 'doubt:hint_ready', payload);
+    } catch (_socketErr) {
+      // Socket.io server may not be initialized in isolated test runs
+    }
+  })();
 };
 
 function formatDoubt(d, currentUserId = null) {
@@ -164,6 +189,7 @@ function formatDoubt(d, currentUserId = null) {
     title: d.title,
     content: d.content,
     tag: d.primaryTag || 'General',
+    status: d.status === 'CLOSED' ? 'SOLVED' : 'OPEN',
     images,
     upvotes: d.upvoteCount,
     hasUpvoted,
@@ -173,6 +199,7 @@ function formatDoubt(d, currentUserId = null) {
     answers,
     aiHint: d.aiHint || '',
     aiAssistStatus: (d.aiAssistStatus || '').toLowerCase(),
+    aiAssistError: d.aiAssistError || null,
     createdAt: new Date(d.createdAt).getTime(),
   };
 }
@@ -187,7 +214,6 @@ router.post(
     body('content').trim().isLength({ min: 10 }).withMessage('Content must be at least 10 characters'),
     body('tag').trim().notEmpty().withMessage('Subject tag is required'),
   ],
-  attachSarvamStudyHint,
   async (req, res, next) => {
     try {
       const errors = formatValidationErrors(req);
@@ -196,20 +222,23 @@ router.post(
       const user = await resolveUser(req.user.clerkUserId);
       if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
+      const trimmedTitle = req.body.title.trim();
+      const trimmedContent = req.body.content.trim();
+      const trimmedTag = req.body.tag.trim();
+
       const doubtRecord = await prisma.$transaction(async (tx) => {
         const doubt = await tx.doubt.create({
           data: {
             authorId: user.id,
-            title: req.body.title.trim(),
-            content: req.body.content.trim(),
-            primaryTag: req.body.tag.trim(),
-            aiHint: req.aiAssist?.hint || null,
-            aiAssistProvider: req.aiAssist?.provider || 'sarvam-ai',
-            aiAssistModel: req.aiAssist?.model || null,
-            aiAssistStatus: req.aiAssist?.status || 'EMPTY',
-            aiAssistUsage: req.aiAssist?.usage || undefined,
-            aiAssistGeneratedAt: req.aiAssist?.generatedAt || null,
-            aiAssistError: req.aiAssist?.error || null,
+            title: trimmedTitle,
+            content: trimmedContent,
+            primaryTag: trimmedTag,
+            aiHint: null,
+            aiAssistProvider: 'sarvam-ai',
+            aiAssistModel: null,
+            aiAssistStatus: 'PENDING',
+            aiAssistGeneratedAt: null,
+            aiAssistError: null,
           },
         });
 
@@ -236,6 +265,16 @@ router.post(
       });
 
       const formatted = formatDoubt(doubtRecord, user.id);
+
+      // Fire-and-forget Sarvam AI study hint generation
+      processStudyHintInBackground({
+        doubtId: doubtRecord.id,
+        title: trimmedTitle,
+        content: trimmedContent,
+        tag: trimmedTag,
+        authorId: user.id,
+        clerkUserId: user.clerkUserId,
+      });
 
       // Broadcast new doubt to active users
       prisma.user.findMany({
@@ -271,16 +310,78 @@ router.post(
 
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
-    const { tag } = req.query;
+    const { tag, q, status, authorUid, onlyMine, sortBy } = req.query;
     const { limit, offset } = getPagination(req.query);
+
+    const isOnlyMine = onlyMine === 'true' || onlyMine === true;
+    if (isOnlyMine && !req.user?.clerkUserId) {
+      return res.status(401).json({ success: false, error: 'Authentication required to view your doubts' });
+    }
 
     const currentUser = req.user?.clerkUserId ? await resolveUser(req.user.clerkUserId) : null;
 
+    if (isOnlyMine && !currentUser) {
+      return res.json({
+        success: true,
+        count: 0,
+        limit,
+        offset,
+        hasMore: false,
+        data: [],
+      });
+    }
+
+    const normalizedStatus = typeof status === 'string' ? status.trim().toUpperCase() : '';
+    let statusFilter = { not: 'DELETED' };
+    if (normalizedStatus === 'OPEN' || normalizedStatus === 'ACTIVE') {
+      statusFilter = 'ACTIVE';
+    } else if (normalizedStatus === 'SOLVED' || normalizedStatus === 'CLOSED') {
+      statusFilter = 'CLOSED';
+    }
+
+    const andClauses = [];
+    const trimmedQ = typeof q === 'string' ? q.trim() : '';
+    if (trimmedQ) {
+      andClauses.push({
+        OR: [
+          { title: { contains: trimmedQ, mode: 'insensitive' } },
+          { content: { contains: trimmedQ, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (isOnlyMine && currentUser) {
+      andClauses.push({ authorId: currentUser.id });
+    } else if (typeof authorUid === 'string' && authorUid.trim()) {
+      const trimmedAuthorUid = authorUid.trim();
+      if (UUID_REGEX.test(trimmedAuthorUid)) {
+        andClauses.push({
+          OR: [
+            { authorId: trimmedAuthorUid },
+            { author: { clerkUserId: trimmedAuthorUid } },
+          ],
+        });
+      } else {
+        andClauses.push({ author: { clerkUserId: trimmedAuthorUid } });
+      }
+    }
+
+    const trimmedTag = typeof tag === 'string' ? tag.trim() : '';
+    const orderBy =
+      sortBy === 'upvotes'
+        ? [{ upvoteCount: 'desc' }, { createdAt: 'desc' }]
+        : sortBy === 'answers'
+          ? [{ answerCount: 'desc' }, { createdAt: 'desc' }]
+          : { createdAt: 'desc' };
+
     const doubts = await prisma.doubt.findMany({
       where: {
-        status: { not: 'DELETED' },
+        status: statusFilter,
         deletedAt: null,
-        ...(tag ? { primaryTag: tag } : {}),
+        ...(trimmedTag && trimmedTag !== 'All Doubts' && trimmedTag !== 'My Doubts'
+          ? { primaryTag: trimmedTag }
+          : {}),
+        ...(andClauses.length ? { AND: andClauses } : {}),
       },
       include: {
         author: { include: { college: true, department: true } },
@@ -288,7 +389,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
         answers: { where: { deletedAt: null }, include: { author: true } },
         votes: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy,
       skip: offset,
       take: limit,
     });
@@ -419,13 +520,18 @@ router.post('/:id/answer', requireAuth, [
       type: 'global_forum_doubt',
       subType: 'new_answer',
       notification: {
-        title: 'New Answer on Your Doubt',
-        body: `${user.name} answered: "${req.body.content.trim().slice(0, 80)}"`,
+        title: 'New Answer to Your Doubt',
+        body: `${user.name} answered: "${doubt.title}"`,
       },
       data: {
         doubtId: id,
+        doubtTitle: doubt.title,
+        title: doubt.title,
+        authorName: user.name,
+        authorUid: user.clerkUserId,
         route: `/forum?doubtId=${id}`,
       },
+      timestamp: Date.now(),
     });
 
     res.status(201).json({
@@ -503,7 +609,12 @@ router.patch('/:id/upvote', requireAuth, handleUpvote);
 // Answer acceptance endpoint (HIGH-31)
 const handleAcceptAnswer = async (req, res, next) => {
   try {
-    const { id, answerId } = req.params;
+    const { id } = req.params;
+    const answerId = req.params.answerId || req.body?.answerId || req.query?.answerId;
+    if (!answerId) {
+      return res.status(400).json({ success: false, error: 'Answer ID is required' });
+    }
+
     const user = await resolveUser(req.user.clerkUserId);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
@@ -529,20 +640,49 @@ const handleAcceptAnswer = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Answer not found' });
     }
 
-    await prisma.$transaction([
-      prisma.doubtAnswer.updateMany({
-        where: { doubtId: id },
-        data: { isAccepted: false },
-      }),
-      prisma.doubtAnswer.update({
+    const txResult = await prisma.$transaction(async (tx) => {
+      const currentDoubt = await tx.doubt.findUnique({
+        where: { id },
+        select: { id: true, status: true, deletedAt: true },
+      });
+
+      if (!currentDoubt || currentDoubt.deletedAt) {
+        return { errorStatus: 404, error: 'Doubt not found' };
+      }
+
+      if (currentDoubt.status === 'CLOSED') {
+        return { errorStatus: 409, error: 'Doubt is already closed with an accepted answer' };
+      }
+
+      const existingAccepted = await tx.doubtAnswer.findFirst({
+        where: { doubtId: id, isAccepted: true, deletedAt: null },
+        select: { id: true },
+      });
+
+      if (existingAccepted) {
+        return { errorStatus: 409, error: 'An accepted answer already exists for this doubt' };
+      }
+
+      const closedUpdate = await tx.doubt.updateMany({
+        where: { id, status: { not: 'CLOSED' }, deletedAt: null },
+        data: { status: 'CLOSED' },
+      });
+
+      if (!closedUpdate || closedUpdate.count === 0) {
+        return { errorStatus: 409, error: 'Doubt is already closed with an accepted answer' };
+      }
+
+      await tx.doubtAnswer.update({
         where: { id: answerId },
         data: { isAccepted: true },
-      }),
-      prisma.doubt.update({
-        where: { id },
-        data: { status: 'CLOSED' },
-      }),
-    ]);
+      });
+
+      return { ok: true };
+    });
+
+    if (txResult?.errorStatus) {
+      return res.status(txResult.errorStatus).json({ success: false, error: txResult.error });
+    }
 
     // Award forum tokens to the answer author
     try {
@@ -550,6 +690,26 @@ const handleAcceptAnswer = async (req, res, next) => {
         await awardForumAnswer(answer.author.clerkUserId, id, `forum_${id}_${answerId}`);
       }
     } catch (_err) {}
+
+    if (answer.author?.clerkUserId) {
+      broadcastToGlobal(answer.author.clerkUserId, {
+        type: 'global_forum_doubt',
+        subType: 'answer_accepted',
+        notification: {
+          title: 'Solution Accepted! 🌟',
+          body: 'Your answer was marked as the accepted solution (+10 Tokens)!',
+        },
+        data: {
+          doubtId: id,
+          answerId,
+          doubtTitle: doubt.title,
+          tokenReward: 10,
+          authorUid: doubt.author?.clerkUserId || req.user.clerkUserId,
+          route: `/forum?doubtId=${id}`,
+        },
+        timestamp: Date.now(),
+      });
+    }
 
     res.json({
       success: true,
@@ -563,6 +723,7 @@ const handleAcceptAnswer = async (req, res, next) => {
 
 router.patch('/:id/answer/:answerId/accept', requireAuth, handleAcceptAnswer);
 router.post('/:id/answer/:answerId/accept', requireAuth, handleAcceptAnswer);
+router.post('/:id/accept-answer', requireAuth, handleAcceptAnswer);
 
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
